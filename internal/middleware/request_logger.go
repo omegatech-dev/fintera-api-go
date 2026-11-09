@@ -59,11 +59,11 @@ func RequestLogger() gin.HandlerFunc {
 
 		msg := "Incoming request"
 		if statusCode >= 500 {
-			logger.Log.Error(msg, attrs...)
+			logger.Error(msg, attrs...)
 		} else if statusCode >= 400 {
-			logger.Log.Warn(msg, attrs...)
+			logger.Warn(msg, attrs...)
 		} else {
-			logger.Log.Info(msg, attrs...)
+			logger.Info(msg, attrs...)
 		}
 	}
 }

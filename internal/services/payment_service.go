@@ -150,7 +150,7 @@ func (s *PaymentService) Approve(ctx context.Context, id uint, amount, interestA
 					// Partially paid
 					target.Amount -= extraAmount
 					extraAmount = 0
-					s.repo.Update(ctx, target)
+					logIgnoredError("adjust partially covered payment", s.repo.Update(ctx, target))
 				}
 			}
 		}
@@ -203,7 +203,7 @@ func (s *PaymentService) Approve(ctx context.Context, id uint, amount, interestA
 				lot, err := s.lotRepo.FindByID(ctx, contract.LotID)
 				if err == nil {
 					lot.Status = models.LotStatusFinanced
-					s.lotRepo.Update(ctx, lot)
+					logIgnoredError("mark lot financed after reservation payment", s.lotRepo.Update(ctx, lot))
 				}
 			}
 		}
@@ -231,8 +231,8 @@ func (s *PaymentService) Approve(ctx context.Context, id uint, amount, interestA
 	})
 
 	// Audit log
-	s.auditSvc.Log(ctx, actorID, "APPROVE", "Payment", payment.ID,
-		fmt.Sprintf("Pago de %.2f aprobado para contrato #%d", paidAmount, payment.ContractID), ip, userAgent)
+	logIgnoredError("write payment approve audit log", s.auditSvc.Log(ctx, actorID, "APPROVE", "Payment", payment.ID,
+		fmt.Sprintf("Pago de %.2f aprobado para contrato #%d", paidAmount, payment.ContractID), ip, userAgent))
 
 	return payment, nil
 }
@@ -278,8 +278,8 @@ func (s *PaymentService) Reject(ctx context.Context, id uint, actorID uint, reas
 	})
 
 	// Audit log
-	s.auditSvc.Log(ctx, actorID, "REJECT", "Payment", payment.ID,
-		fmt.Sprintf("Pago de %.2f rechazado", payment.Amount), ip, userAgent)
+	logIgnoredError("write payment reject audit log", s.auditSvc.Log(ctx, actorID, "REJECT", "Payment", payment.ID,
+		fmt.Sprintf("Pago de %.2f rechazado", payment.Amount), ip, userAgent))
 
 	return payment, nil
 }
@@ -304,10 +304,10 @@ func (s *PaymentService) CheckOverduePayments(ctx context.Context) error {
 
 	for _, payment := range payments {
 		// Notify user about overdue payment
-		s.notificationSvc.NotifyUser(ctx, payment.Contract.ApplicantUserID,
+		logIgnoredError("notify overdue payment", s.notificationSvc.NotifyUser(ctx, payment.Contract.ApplicantUserID,
 			"Pago vencido",
 			"Tienes un pago vencido pendiente",
-			models.NotificationTypePaymentOverdue)
+			models.NotificationTypePaymentOverdue))
 	}
 
 	return nil

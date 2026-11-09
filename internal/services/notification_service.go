@@ -67,7 +67,7 @@ func (s *NotificationService) NotifyAdmins(ctx context.Context, title, message, 
 			Message:          message,
 			NotificationType: &notifType,
 		}
-		s.repo.Create(ctx, notification)
+		logIgnoredError("create admin notification", s.repo.Create(ctx, notification))
 	}
 	return nil
 }

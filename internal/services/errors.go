@@ -1,6 +1,10 @@
 package services
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/sjperalta/fintera-api/pkg/logger"
+)
 
 // Common service errors
 var (
@@ -11,3 +15,10 @@ var (
 	ErrDuplicate           = errors.New("registro duplicado")
 	ErrInvalidRecoveryCode = errors.New("código de recuperación inválido o expirado")
 )
+
+// logIgnoredError records a non-critical error without interrupting the main flow.
+func logIgnoredError(action string, err error) {
+	if err != nil {
+		logger.Warn("ignored error", "action", action, "error", err)
+	}
+}

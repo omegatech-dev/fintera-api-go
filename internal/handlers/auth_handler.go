@@ -129,6 +129,9 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		return
 	}
 
-	h.authService.Logout(c.Request.Context(), req.RefreshToken)
+	if err := h.authService.Logout(c.Request.Context(), req.RefreshToken); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al cerrar sesión"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "Sesión cerrada exitosamente"})
 }

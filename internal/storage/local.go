@@ -15,84 +15,84 @@ import (
 // LocalStorage handles file storage on the local filesystem
 type LocalStorage struct {
 	basePath string
+	root     *os.Root
 }
 
 // NewLocalStorage creates a new local storage instance
 func NewLocalStorage(basePath string) (*LocalStorage, error) {
 	// Ensure the base directory exists
-	if err := os.MkdirAll(basePath, 0755); err != nil {
+	if err := os.MkdirAll(basePath, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create storage directory: %w", err)
 	}
-	return &LocalStorage{basePath: basePath}, nil
+	root, err := os.OpenRoot(basePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open storage root: %w", err)
+	}
+	return &LocalStorage{basePath: basePath, root: root}, nil
 }
 
 // Upload saves a file and returns its relative path
 func (s *LocalStorage) Upload(file multipart.File, header *multipart.FileHeader, subDir string) (string, error) {
 	// Create subdirectory organized by year/month (e.g., "contracts/2026/01")
-	dir := filepath.Join(s.basePath, subDir, time.Now().Format("2006/01"))
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	relDir := filepath.Join(subDir, time.Now().Format("2006/01"))
+	if err := s.root.MkdirAll(relDir, 0750); err != nil {
 		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	// Generate unique filename
 	ext := filepath.Ext(header.Filename)
 	filename := fmt.Sprintf("%s%s", generateID(), ext)
-	filePath := filepath.Join(dir, filename)
+	relPath := filepath.Join(relDir, filename)
 
 	// Create destination file
-	dst, err := os.Create(filePath)
+	dst, err := s.root.OpenFile(relPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return "", fmt.Errorf("failed to create file: %w", err)
 	}
-	defer dst.Close()
+	defer func() { _ = dst.Close() }()
 
 	// Copy content
 	if _, err := io.Copy(dst, file); err != nil {
 		// Clean up on failure
-		os.Remove(filePath)
+		_ = s.root.Remove(relPath)
 		return "", fmt.Errorf("failed to save file: %w", err)
 	}
 
 	// Return relative path for database storage
-	relPath, _ := filepath.Rel(s.basePath, filePath)
 	return relPath, nil
 }
 
 // UploadFromBytes saves bytes to a file and returns its relative path
 func (s *LocalStorage) UploadFromBytes(data []byte, filename string, subDir string) (string, error) {
-	dir := filepath.Join(s.basePath, subDir, time.Now().Format("2006/01"))
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	relDir := filepath.Join(subDir, time.Now().Format("2006/01"))
+	if err := s.root.MkdirAll(relDir, 0750); err != nil {
 		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	ext := filepath.Ext(filename)
 	uniqueFilename := fmt.Sprintf("%s%s", generateID(), ext)
-	filePath := filepath.Join(dir, uniqueFilename)
+	relPath := filepath.Join(relDir, uniqueFilename)
 
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := s.root.WriteFile(relPath, data, 0600); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
-	relPath, _ := filepath.Rel(s.basePath, filePath)
 	return relPath, nil
 }
 
 // Download returns a file for reading
 func (s *LocalStorage) Download(relativePath string) (*os.File, error) {
-	filePath := filepath.Join(s.basePath, relativePath)
-	return os.Open(filePath)
+	return s.root.Open(relativePath)
 }
 
 // Delete removes a file
 func (s *LocalStorage) Delete(relativePath string) error {
-	filePath := filepath.Join(s.basePath, relativePath)
-	return os.Remove(filePath)
+	return s.root.Remove(relativePath)
 }
 
 // Exists checks if a file exists
 func (s *LocalStorage) Exists(relativePath string) bool {
-	filePath := filepath.Join(s.basePath, relativePath)
-	_, err := os.Stat(filePath)
+	_, err := s.root.Stat(relativePath)
 	return err == nil
 }
 
@@ -124,8 +124,7 @@ func (s *LocalStorage) SafeFullPath(relativePath string) (string, error) {
 
 // GetSize returns the size of a file in bytes
 func (s *LocalStorage) GetSize(relativePath string) (int64, error) {
-	filePath := filepath.Join(s.basePath, relativePath)
-	info, err := os.Stat(filePath)
+	info, err := s.root.Stat(relativePath)
 	if err != nil {
 		return 0, err
 	}
@@ -135,7 +134,9 @@ func (s *LocalStorage) GetSize(relativePath string) (int64, error) {
 // generateID creates a unique identifier for filenames
 func generateID() string {
 	bytes := make([]byte, 16)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		panic(fmt.Sprintf("failed to generate random id: %v", err))
+	}
 	return hex.EncodeToString(bytes)
 }
 

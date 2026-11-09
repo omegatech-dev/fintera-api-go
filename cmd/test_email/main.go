@@ -48,7 +48,7 @@ func main() {
 	}
 
 	// Send Account Created email
-	log.Printf("Sending Account Created email to %s...", toEmail)
+	log.Println("Sending Account Created email...")
 	err = emailService.SendAccountCreated(context.Background(), user, "")
 	if err != nil {
 		log.Fatalf("Failed to send Account Created email: %v", err)
@@ -56,7 +56,7 @@ func main() {
 	log.Println("Account Created email sent successfully!")
 
 	// Send Verification Code
-	log.Printf("Sending Recovery Code email to %s...", toEmail)
+	log.Println("Sending Recovery Code email...")
 	err = emailService.SendRecoveryCode(context.Background(), user, "123456")
 	if err != nil {
 		log.Fatalf("Failed to send Recovery Code email: %v", err)

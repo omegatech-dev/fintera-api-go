@@ -4,6 +4,10 @@
 /bin/
 /dist/
 /build/
+/main
+/server
+/api_bin
+/fintera-api
 *.exe
 *.exe~
 *.dll
@@ -27,6 +31,8 @@ go.work.sum
 !/log/.keep
 *.log
 *.json
+!opencode.json
+!docs/swagger.json
 /debug.log
 
 ####################################
@@ -42,6 +48,8 @@ go.work.sum
 ####################################
 .env
 .env.*
+.production.env
+!.env.example
 .secret
 .credentials
 

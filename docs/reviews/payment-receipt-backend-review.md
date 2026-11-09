@@ -1,5 +1,9 @@
 # Backend review: payment receipt upload & download
 
+> **Historical review.** Items 1–3 were implemented; see the note at the end.
+> Current storage and receipt behavior is documented in
+> [../architecture/domain-flows.md](../architecture/domain-flows.md#file-storage).
+
 ## Current flow
 
 | Action | Route | Handler | Storage |

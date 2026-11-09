@@ -3,10 +3,13 @@ package logger
 import (
 	"log/slog"
 	"os"
+	"sync/atomic"
 )
 
-// Logger is the global logger instance
-var Log *slog.Logger
+// current holds the configured logger. Access is atomic so Setup and logging
+// can run concurrently (for example, tests that reconfigure logging while
+// background jobs are still running).
+var current atomic.Pointer[slog.Logger]
 
 // Setup initializes the global logger based on the environment
 func Setup(env string) {
@@ -22,26 +25,34 @@ func Setup(env string) {
 		handler = slog.NewTextHandler(os.Stdout, opts)
 	}
 
-	Log = slog.New(handler)
-	slog.SetDefault(Log)
+	l := slog.New(handler)
+	current.Store(l)
+	slog.SetDefault(l)
+}
+
+func get() *slog.Logger {
+	if l := current.Load(); l != nil {
+		return l
+	}
+	return slog.Default()
 }
 
 // Info logs an info message
 func Info(msg string, args ...any) {
-	Log.Info(msg, args...)
+	get().Info(msg, args...)
 }
 
 // Error logs an error message
 func Error(msg string, args ...any) {
-	Log.Error(msg, args...)
+	get().Error(msg, args...)
 }
 
 // Debug logs a debug message
 func Debug(msg string, args ...any) {
-	Log.Debug(msg, args...)
+	get().Debug(msg, args...)
 }
 
 // Warn logs a warning message
 func Warn(msg string, args ...any) {
-	Log.Warn(msg, args...)
+	get().Warn(msg, args...)
 }

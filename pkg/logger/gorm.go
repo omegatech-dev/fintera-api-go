@@ -29,19 +29,19 @@ func (l *GormLogger) LogMode(level logger.LogLevel) logger.Interface {
 
 func (l *GormLogger) Info(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= logger.Info {
-		Log.Info(fmt.Sprintf(msg, data...))
+		Info(fmt.Sprintf(msg, data...))
 	}
 }
 
 func (l *GormLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= logger.Warn {
-		Log.Warn(fmt.Sprintf(msg, data...))
+		Warn(fmt.Sprintf(msg, data...))
 	}
 }
 
 func (l *GormLogger) Error(ctx context.Context, msg string, data ...interface{}) {
 	if l.LogLevel >= logger.Error {
-		Log.Error(fmt.Sprintf(msg, data...))
+		Error(fmt.Sprintf(msg, data...))
 	}
 }
 
@@ -61,16 +61,16 @@ func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 
 	if err != nil && l.LogLevel >= logger.Error {
 		fields = append(fields, slog.String("error", err.Error()))
-		Log.Error("SQL Error", fields...)
+		Error("SQL Error", fields...)
 		return
 	}
 
 	if l.SlowThreshold != 0 && elapsed > l.SlowThreshold && l.LogLevel >= logger.Warn {
-		Log.Warn("Slow SQL", fields...)
+		Warn("Slow SQL", fields...)
 		return
 	}
 
 	if l.LogLevel >= logger.Info {
-		Log.Info("SQL", fields...)
+		Info("SQL", fields...)
 	}
 }

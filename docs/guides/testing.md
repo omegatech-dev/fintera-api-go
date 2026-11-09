@@ -25,17 +25,21 @@ database.
 
 ## CI
 
-`.github/workflows/go-ci.yml` runs on pushes and pull requests to `main`:
+`.github/workflows/go-ci.yml` runs on pushes and pull requests to `main`. Jobs
+run in parallel, with superseded runs cancelled automatically.
 
-1. Starts PostgreSQL 15 (`fintera_test`).
-2. Sets up Go from `go.mod` (Go 1.27.3) with module caching.
-3. Downloads and verifies modules.
-4. Runs `make migrate-up` against the test DB; the Makefile installs
-   `golang-migrate` on demand.
-5. Runs `go test -v ./...` with `ENVIRONMENT=test`.
-6. Runs `go build -v ./...`.
+| Job | What it checks |
+| --- | --- |
+| `verify` | module download/verify, `go mod tidy -diff`, `gofmt`, `go vet`, `go build` |
+| `test` | `go test -race -shuffle=on` with coverage artifact |
+| `lint` | `golangci-lint` v2.15.0 |
+| `security` | `gosec` and `govulncheck` |
+| `migrations` | PostgreSQL 15, migrate up, seeds, and a down/up reversibility check |
+| `docs` | regenerates Swagger and fails if `docs/` is stale |
 
-The workflow does not currently run `golangci-lint`.
+Each job sets up Go from `go.mod` (Go 1.27.3) with module caching. The
+migrations job installs the prebuilt `golang-migrate` binary directly to keep
+the job fast; the other jobs do not need PostgreSQL.
 
 ## Writing tests
 

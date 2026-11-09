@@ -1,5 +1,10 @@
 # FinteraAPI: Rails to Go Migration Plan
 
+> **Archived.** This is the original Rails → Go migration plan, kept for
+> historical context. It describes a proposed stack and timeline, not the
+> implemented system. For current behavior, start at
+> [../README.md](../README.md).
+
 ## Executive Summary
 
 This document outlines a comprehensive migration strategy to transition the FinteraAPI from Ruby on Rails to Go. The current system is a **Real Estate Contract Management API** that handles:

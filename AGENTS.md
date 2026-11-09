@@ -210,7 +210,10 @@ Applied migrations are immutable. Add the next numbered pair. Seeds live in
 - `POST /projects/:project_id/approve` is a placeholder.
 - `GET /reports/user_information_pdf` reuses the user balance PDF.
 - `GET /health` is under `/api/v1`, not `/health`.
-- The Docker image runs migrations and seeds on every container start.
+- The Docker image runs migrations and seeds on every container start. Its
+  runtime stage has no Go toolchain; the Makefile falls back to
+  `/usr/local/bin` for preinstalled tools (`golang-migrate`). Do not add
+  Makefile targets that assume `go` is available at runtime.
 - README and older docs may lag behind code; prefer this file and `docs/`.
 
 ## Definition of done

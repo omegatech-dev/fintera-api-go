@@ -13,9 +13,20 @@ GO ?= go
 
 # Install Go tools into GOBIN (or GOPATH/bin) and make them available to
 # recipes even when the shell PATH does not include that directory.
-GOBIN := $(shell $(GO) env GOBIN)
+# The Docker runtime image has no Go toolchain; there we fall back to
+# /usr/local/bin, where the Dockerfile installs prebuilt tools (migrate).
+GO_AVAILABLE := $(shell command -v $(GO) 2>/dev/null)
+
+ifdef GO_AVAILABLE
+GOBIN := $(shell $(GO) env GOBIN 2>/dev/null)
 ifeq ($(strip $(GOBIN)),)
-GOBIN := $(shell $(GO) env GOPATH)/bin
+GOBIN := $(shell $(GO) env GOPATH 2>/dev/null)/bin
+endif
+else
+GOBIN := /usr/local/bin
+endif
+ifeq ($(strip $(GOBIN)),)
+GOBIN := /usr/local/bin
 endif
 export PATH := $(GOBIN):$(PATH)
 
@@ -73,9 +84,17 @@ tools:
 	@test -x $(GOSEC) || $(GO) install github.com/securego/gosec/v2/cmd/gosec@latest
 	@echo "Tools installed in $(GOBIN)"
 
-# Ensure golang-migrate is available
+# Ensure golang-migrate is available. When Go is absent (Docker runtime
+# image), only the preinstalled binary at $(MIGRATE) can serve installs.
 ensure-migrate:
-	@test -x $(MIGRATE) || { echo "Installing golang-migrate..."; $(GO) install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest; }
+	@if [ ! -x $(MIGRATE) ]; then \
+		if [ -z "$(GO_AVAILABLE)" ]; then \
+			echo "Error: golang-migrate not found at $(MIGRATE) and no Go toolchain available to install it." >&2; \
+			exit 1; \
+		fi; \
+		echo "Installing golang-migrate..."; \
+		$(GO) install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest; \
+	fi
 
 # Run database migrations
 migrate-up: ensure-migrate

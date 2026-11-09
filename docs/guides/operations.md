@@ -38,6 +38,11 @@ Implications:
 - Seeds run on every container start and must remain idempotent.
 - `wkhtmltopdf` is available for PDF reports.
 - The container listens on `8080` by default; override `PORT` if needed.
+- The runtime stage has **no Go toolchain**. The Makefile detects this and
+  falls back to `/usr/local/bin`, where the Dockerfile preinstalls
+  `golang-migrate`, so `make migrate-up` works at runtime; anything that
+  would require `go install` (for example `make lint` or `make security`)
+  fails there with a clear error.
 
 Build and run:
 

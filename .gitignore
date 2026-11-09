@@ -74,6 +74,7 @@ go.work.sum
 /coverage
 *.cover
 coverage.out
+coverage.html
 
 ####################################
 # IDE / Editor

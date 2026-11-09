@@ -4,7 +4,7 @@
 
 | Tool | Purpose | Required |
 | --- | --- | --- |
-| Go 1.25+ | Build and test | yes |
+| Go 1.27.3+ | Build and test | yes |
 | PostgreSQL | Database | yes |
 | `golang-migrate` | Apply migrations | yes for local DB work |
 | `psql` | Seeds and DB inspection | yes for reset/seed targets |
@@ -14,8 +14,20 @@
 | `wkhtmltopdf` | PDF report generation | for PDF endpoints |
 | Docker | Container builds | optional |
 
-`make dev` installs `air` automatically if it is missing. `make swagger` does
-the same for `swag`.
+The Makefile installs Go tools into `$(go env GOPATH)/bin` and adds that
+directory to `PATH` for its recipes. `make dev`, `make swagger`, `make
+migrate-*`, `make lint`, and `make security` install their tool on demand when
+it is missing. To install all tools up front:
+
+```bash
+make tools
+```
+
+If multiple Go versions are installed, select one explicitly:
+
+```bash
+make GO=/usr/local/go/bin/go build
+```
 
 ## First-time setup
 
@@ -73,6 +85,7 @@ database credentials.
 | Command | Description |
 | --- | --- |
 | `make deps` | `go mod download` + `go mod tidy` |
+| `make tools` | Install `air`, `swag`, `migrate`, `golangci-lint`, `gosec` |
 | `make build` | Build `bin/api` |
 | `make run` | Build and run `bin/api` |
 | `make dev` | Hot reload with `air` |
@@ -138,6 +151,14 @@ Commit the regenerated `docs/docs.go`, `docs/swagger.json`, and
 
 - **`DATABASE_URL is required`** — `.env` is missing or not in the working
   directory.
+- **`air: No such file or directory` or tools installed but not found** —
+  `$(go env GOPATH)/bin` is not on `PATH`. The Makefile adds it automatically
+  for make recipes; for direct shell use, add
+  `export PATH="$(go env GOPATH)/bin:$PATH"` to your shell profile.
+- **Wrong Go version / `go version` shows an older release** — another Go
+  install may be earlier on `PATH` (for example Homebrew vs `/usr/local/go`).
+  Put the intended Go first, e.g. `export PATH=/usr/local/go/bin:$PATH`, or
+  run `make GO=/usr/local/go/bin/go <target>`.
 - **Migration fails** — check PostgreSQL is running and the user can create
   tables; `make drop-db-seed-migrate-force` helps with stale connections.
 - **PDF generation fails** — install `wkhtmltopdf`; it is not bundled locally.

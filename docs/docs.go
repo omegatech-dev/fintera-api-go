@@ -3782,6 +3782,9 @@ const docTemplate = `{
                     "description": "YYYY-MM-DD; for bank/cash",
                     "type": "string"
                 },
+                "note": {
+                    "type": "string"
+                },
                 "payment_term": {
                     "type": "integer"
                 },
@@ -3865,6 +3868,7 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "created_at": {
+                    "description": "index for list sort and date filters",
                     "type": "string"
                 },
                 "creator": {
@@ -3884,6 +3888,9 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "financing_type": {
+                    "type": "string"
+                },
+                "guid": {
                     "type": "string"
                 },
                 "id": {
@@ -4062,6 +4069,9 @@ const docTemplate = `{
                 "financing_type": {
                     "type": "string"
                 },
+                "guid": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
@@ -4111,6 +4121,9 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "project_address": {
+                    "type": "string"
+                },
+                "project_guid": {
                     "type": "string"
                 },
                 "project_id": {
@@ -4581,6 +4594,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "description": {
+                    "type": "string"
+                },
+                "guid": {
                     "type": "string"
                 },
                 "id": {

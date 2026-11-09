@@ -483,19 +483,19 @@ func (r *paymentRepository) List(ctx context.Context, query *ListQuery) ([]model
 	db = db.Order(submittedFirst)
 	// Apply sorting with allowlist to prevent SQL injection
 	allowedSortColumns := map[string]bool{
-		"id":                 true,
-		"contract_id":        true,
-		"amount":             true,
-		"paid_amount":        true,
-		"due_date":           true,
-		"payment_date":       true,
-		"status":             true,
-		"payment_type":       true,
-		"interest_amount":    true,
-		"approved_at":        true,
-		"created_at":         true,
-		"updated_at":         true,
-		"applicant":          true, // Special case
+		"id":              true,
+		"contract_id":     true,
+		"amount":          true,
+		"paid_amount":     true,
+		"due_date":        true,
+		"payment_date":    true,
+		"status":          true,
+		"payment_type":    true,
+		"interest_amount": true,
+		"approved_at":     true,
+		"created_at":      true,
+		"updated_at":      true,
+		"applicant":       true, // Special case
 	}
 
 	if query.SortBy != "" && allowedSortColumns[query.SortBy] {
@@ -766,16 +766,16 @@ func (r *projectRepository) List(ctx context.Context, query *ListQuery) ([]model
 
 	// Apply sorting with allowlist to prevent SQL injection
 	allowedSortColumns := map[string]bool{
-		"id":                     true,
-		"name":                   true,
-		"project_type":           true,
-		"address":                true,
-		"lot_count":              true,
-		"price_per_square_unit":  true,
-		"interest_rate":          true,
-		"guid":                   true,
-		"created_at":             true,
-		"updated_at":             true,
+		"id":                    true,
+		"name":                  true,
+		"project_type":          true,
+		"address":               true,
+		"lot_count":             true,
+		"price_per_square_unit": true,
+		"interest_rate":         true,
+		"guid":                  true,
+		"created_at":            true,
+		"updated_at":            true,
 	}
 
 	if query.SortBy != "" && allowedSortColumns[query.SortBy] {

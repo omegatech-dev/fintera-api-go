@@ -3,9 +3,9 @@ package services
 import (
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"github.com/DATA-DOG/go-sqlmock"
 )
 
 func setupMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock) {

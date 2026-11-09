@@ -28,9 +28,10 @@ database.
 `.github/workflows/go-ci.yml` runs on pushes and pull requests to `main`:
 
 1. Starts PostgreSQL 15 (`fintera_test`).
-2. Sets up Go 1.25 with module caching.
+2. Sets up Go from `go.mod` (Go 1.27.3) with module caching.
 3. Downloads and verifies modules.
-4. Installs `golang-migrate` and runs `make migrate-up` against the test DB.
+4. Runs `make migrate-up` against the test DB; the Makefile installs
+   `golang-migrate` on demand.
 5. Runs `go test -v ./...` with `ENVIRONMENT=test`.
 6. Runs `go build -v ./...`.
 

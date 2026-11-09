@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/sjperalta/fintera-api/internal/config"
 	"github.com/sjperalta/fintera-api/internal/jobs"
 	"github.com/sjperalta/fintera-api/internal/models"
-	"github.com/sjperalta/fintera-api/internal/config"
-	"github.com/sjperalta/fintera-api/pkg/logger"
 	"github.com/sjperalta/fintera-api/internal/repository"
-	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/sjperalta/fintera-api/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )

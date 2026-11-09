@@ -3779,6 +3779,9 @@
                     "description": "YYYY-MM-DD; for bank/cash",
                     "type": "string"
                 },
+                "note": {
+                    "type": "string"
+                },
                 "payment_term": {
                     "type": "integer"
                 },
@@ -3862,6 +3865,7 @@
                     "type": "number"
                 },
                 "created_at": {
+                    "description": "index for list sort and date filters",
                     "type": "string"
                 },
                 "creator": {
@@ -3881,6 +3885,9 @@
                     "type": "number"
                 },
                 "financing_type": {
+                    "type": "string"
+                },
+                "guid": {
                     "type": "string"
                 },
                 "id": {
@@ -4059,6 +4066,9 @@
                 "financing_type": {
                     "type": "string"
                 },
+                "guid": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
@@ -4108,6 +4118,9 @@
                     "type": "integer"
                 },
                 "project_address": {
+                    "type": "string"
+                },
+                "project_guid": {
                     "type": "string"
                 },
                 "project_id": {
@@ -4578,6 +4591,9 @@
                     "type": "string"
                 },
                 "description": {
+                    "type": "string"
+                },
+                "guid": {
                     "type": "string"
                 },
                 "id": {

@@ -3,7 +3,7 @@
 Go implementation of the Fintera API, a real-estate contract management backend
 migrated from Ruby on Rails.
 
-- **Stack:** Go 1.25, Gin, GORM, PostgreSQL, JWT, `looplab/fsm`
+- **Stack:** Go 1.27.3, Gin, GORM, PostgreSQL, JWT, `looplab/fsm`
 - **Docs:** [docs/README.md](docs/README.md)
 - **Agent guidance:** [AGENTS.md](AGENTS.md)
 
@@ -16,7 +16,22 @@ cp .env.example .env
 make deps
 make migrate-up
 make seed        # optional sample data
-make dev         # hot reload; requires air (installed on demand)
+make dev         # hot reload; installs air on demand
+```
+
+The Makefile installs Go tools into `$(go env GOPATH)/bin` and adds that
+directory to `PATH` for its recipes, so `make dev`, `make swagger`,
+`make migrate-up`, `make lint`, and `make security` work without a separate
+tool setup. To install everything up front:
+
+```bash
+make tools
+```
+
+If you have multiple Go installations, select one explicitly:
+
+```bash
+make GO=/usr/local/go/bin/go build
 ```
 
 Useful URLs (assuming `PORT=8081` from `.env.example`):
@@ -71,6 +86,7 @@ Useful URLs (assuming `PORT=8081` from `.env.example`):
 
 ```bash
 make deps          # download and tidy dependencies
+make tools         # install air, swag, migrate, golangci-lint, gosec
 make dev           # hot reload with air
 make build         # build bin/api
 make run           # build and run

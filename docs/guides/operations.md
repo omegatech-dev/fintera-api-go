@@ -22,7 +22,7 @@ production.
 
 The `Dockerfile` is a two-stage build:
 
-1. `golang:alpine` builds `./cmd/api` into `/app/main`.
+1. `golang:1.27.3-alpine` builds `./cmd/api` into `/app/main`.
 2. `alpine` runtime installs CA certificates, timezone data, `make`, `curl`,
    `postgresql-client`, PDF libraries, `wkhtmltopdf`, and `golang-migrate`.
 

@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Fintera API is a Go 1.25 REST backend for a real-estate contract management
+Fintera API is a Go 1.27.3 REST backend for a real-estate contract management
 system. It was migrated from Ruby on Rails and keeps the same `/api/v1`
 contract, payment, user, reporting, and notification concepts.
 
@@ -8,7 +8,7 @@ contract, payment, user, reporting, and notification concepts.
 
 | Concern | Choice |
 | --- | --- |
-| Language | Go 1.25.3 |
+| Language | Go 1.27.3 |
 | HTTP framework | Gin (`gin-gonic/gin`) |
 | ORM | GORM with PostgreSQL (`gorm.io/driver/postgres`) |
 | Database | PostgreSQL |

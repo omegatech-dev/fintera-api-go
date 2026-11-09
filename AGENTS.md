@@ -4,7 +4,7 @@ Guidance for AI agents and contributors working in this repository.
 
 ## What this repo is
 
-Fintera API: a Go 1.25 / Gin / GORM REST backend for real-estate contract
+Fintera API: a Go 1.27.3 / Gin / GORM REST backend for real-estate contract
 management, migrated from Ruby on Rails. It manages users, projects, lots,
 contracts, payment schedules, a contract ledger, notifications, reports, and
 scheduled background work.
@@ -22,6 +22,7 @@ Run from the repository root.
 
 ```bash
 make deps          # go mod download + tidy
+make tools         # install air, swag, migrate, golangci-lint, gosec
 make build         # build bin/api
 make run           # build and run
 make dev           # hot reload with air
@@ -43,9 +44,11 @@ go build ./...
 go test ./...
 ```
 
-`air`, `golangci-lint`, `migrate`, `swag`, and `wkhtmltopdf` may not be
-installed locally. Do not assume they exist; check with `command -v <tool>` or
-use the Go equivalents.
+The Makefile resolves every Go tool from `$(go env GOBIN)` and installs it on
+demand, so `make dev`, `make swagger`, `make migrate-*`, `make lint`, and
+`make security` work without a separate tool setup. `psql`, Docker, and
+`wkhtmltopdf` remain external prerequisites for their respective targets. Use
+`make GO=/path/to/go <target>` when multiple Go versions are installed.
 
 Repo-local opencode commands (see `.opencode/command/`): `/verify`,
 `/new-migration`, `/new-endpoint`, `/docs-sync`.

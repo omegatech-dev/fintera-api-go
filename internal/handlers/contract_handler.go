@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/mail"
@@ -247,31 +248,27 @@ func (h *ContractHandler) Create(c *gin.Context) {
 
 	// 5. Handle Document Uploads
 	var documentPaths []string
-	form, _ := c.MultipartForm()
-	files := form.File
-
-	// Iterate looking for documents[0], documents[1], etc.
-	// Since we don't know the exact keys or if they are array style "documents[]", generic iteration is harder with the map structure
-	// But the frontend sends: formData.append(`documents[${index}]`, doc);
-
-	// We can iterate the map, but order might not be preserved (not critical for paths list)
-	// We can iterate the map, but order might not be preserved (not critical for paths list)
-	for key, fileHeaders := range files {
-		// Check if key starts with "documents"
-		if len(key) >= 9 && key[:9] == "documents" {
+	if form, err := c.MultipartForm(); err == nil && form != nil {
+		// The frontend sends documents[0], documents[1], etc. Order is not
+		// preserved by the map, but it is not critical for the stored paths.
+		for key, fileHeaders := range form.File {
+			if len(key) < 9 || key[:9] != "documents" {
+				continue
+			}
 			for _, fileHeader := range fileHeaders {
 				file, err := fileHeader.Open()
 				if err != nil {
 					continue
 				}
-				defer file.Close()
 
 				if !storage.IsValidContentType(fileHeader.Header.Get("Content-Type")) {
+					_ = file.Close()
 					continue
 				}
 
-				path, err := h.storage.Upload(file, fileHeader, "contracts")
-				if err != nil {
+				path, uploadErr := h.storage.Upload(file, fileHeader, "contracts")
+				_ = file.Close()
+				if uploadErr != nil {
 					continue
 				}
 				documentPaths = append(documentPaths, path)
@@ -292,6 +289,12 @@ func (h *ContractHandler) Create(c *gin.Context) {
 		Note:            &note,
 		Status:          models.ContractStatusPending,
 		Currency:        "HNL",
+	}
+	if len(documentPaths) > 0 {
+		if data, err := json.Marshal(documentPaths); err == nil {
+			paths := string(data)
+			contract.DocumentPaths = &paths
+		}
 	}
 
 	// 7. Call Service
@@ -457,7 +460,10 @@ type RejectContractRequest struct {
 func (h *ContractHandler) Reject(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("contract_id"), 10, 32)
 	var req RejectContractRequest
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cuerpo de la solicitud inválido"})
+		return
+	}
 
 	contract, err := h.contractService.Reject(c.Request.Context(), uint(id), req.Reason)
 	if err != nil {
@@ -486,7 +492,10 @@ type CancelContractRequest struct {
 func (h *ContractHandler) Cancel(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("contract_id"), 10, 32)
 	var req CancelContractRequest
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cuerpo de la solicitud inválido"})
+		return
+	}
 
 	contract, err := h.contractService.Cancel(c.Request.Context(), uint(id), req.Note)
 	if err != nil {

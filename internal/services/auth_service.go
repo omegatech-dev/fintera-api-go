@@ -84,7 +84,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshToken string) (*L
 
 	// Check if expired
 	if rt.IsExpired() {
-		s.refreshTokenRepo.Delete(ctx, refreshToken)
+		logIgnoredError("delete expired refresh token", s.refreshTokenRepo.Delete(ctx, refreshToken))
 		return nil, errors.New("token expirado")
 	}
 
@@ -100,7 +100,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshToken string) (*L
 	}
 
 	// Delete old refresh token
-	s.refreshTokenRepo.Delete(ctx, refreshToken)
+	logIgnoredError("delete rotated refresh token", s.refreshTokenRepo.Delete(ctx, refreshToken))
 
 	// Generate new JWT token
 	token, err := s.generateJWT(user)

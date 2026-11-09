@@ -117,7 +117,7 @@ func (s *UserService) ToggleStatus(ctx context.Context, id uint, actorID uint) (
 	if err := s.repo.Update(ctx, user); err != nil {
 		return nil, err
 	}
-	s.auditSvc.Log(ctx, actorID, "TOGGLE_STATUS", "User", id, fmt.Sprintf("Estado cambiado a %s", user.Status), "", "")
+	logIgnoredError("write toggle status audit log", s.auditSvc.Log(ctx, actorID, "TOGGLE_STATUS", "User", id, fmt.Sprintf("Estado cambiado a %s", user.Status), "", ""))
 	return user, nil
 }
 

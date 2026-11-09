@@ -202,8 +202,9 @@ func TestUploadProfilePicture(t *testing.T) {
 	}
 	part, err := writer.CreateFormFile("image", "test.png")
 	assert.NoError(t, err)
-	part.Write(minimalPNG)
-	writer.Close()
+	_, err = part.Write(minimalPNG)
+	assert.NoError(t, err)
+	assert.NoError(t, writer.Close())
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

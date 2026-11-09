@@ -72,10 +72,10 @@ func (r *userRepository) FindByIdentity(ctx context.Context, identity string) (*
 func (r *userRepository) Create(ctx context.Context, user *models.User) error {
 	if err := r.db.WithContext(ctx).Create(user).Error; err != nil {
 		if isDuplicateKeyError(err, "users_identity_key") {
-			return errors.New("Ya existe un usuario con este documento de identidad")
+			return errors.New("ya existe un usuario con este documento de identidad")
 		}
 		if isDuplicateKeyError(err, "users_email_key") {
-			return errors.New("Ya existe un usuario con este correo electrónico")
+			return errors.New("ya existe un usuario con este correo electrónico")
 		}
 		return err
 	}

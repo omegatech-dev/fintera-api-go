@@ -14,25 +14,36 @@ import (
 
 	"github.com/disintegration/imaging"
 	"github.com/google/uuid"
+	"github.com/sjperalta/fintera-api/pkg/logger"
 )
 
 // ImageService handles image processing and storage
 type ImageService struct {
 	uploadDir string
+	root      *os.Root
 }
 
 func NewImageService(uploadDir string) *ImageService {
 	// Ensure upload directory exists
-	if _, err := os.Stat(uploadDir); os.IsNotExist(err) {
-		_ = os.MkdirAll(uploadDir, 0755)
+	if err := os.MkdirAll(uploadDir, 0750); err != nil {
+		logger.Warn("failed to create upload directory", "error", err)
+	}
+	root, err := os.OpenRoot(uploadDir)
+	if err != nil {
+		logger.Warn("failed to open upload directory", "error", err)
 	}
 	return &ImageService{
 		uploadDir: uploadDir,
+		root:      root,
 	}
 }
 
 // ProcessAndSaveProfilePicture saves the original image and creates a thumbnail
 func (s *ImageService) ProcessAndSaveProfilePicture(file multipart.File, header *multipart.FileHeader) (originalPath, thumbnailPath string, err error) {
+	if s.root == nil {
+		return "", "", fmt.Errorf("almacenamiento de imágenes no disponible")
+	}
+
 	// Validate file type
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
@@ -65,12 +76,11 @@ func (s *ImageService) ProcessAndSaveProfilePicture(file multipart.File, header 
 		return "", "", fmt.Errorf("error al leer archivo: %w", err)
 	}
 
-	outOriginalPath := filepath.Join(s.uploadDir, originalFilename)
-	outOriginal, err := os.Create(outOriginalPath)
+	outOriginal, err := s.root.OpenFile(originalFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return "", "", fmt.Errorf("error al crear archivo: %w", err)
 	}
-	defer outOriginal.Close()
+	defer func() { _ = outOriginal.Close() }()
 
 	if _, err := io.Copy(outOriginal, file); err != nil {
 		return "", "", fmt.Errorf("error al guardar imagen original: %w", err)
@@ -83,12 +93,11 @@ func (s *ImageService) ProcessAndSaveProfilePicture(file multipart.File, header 
 	// Fill is better for avatars.
 	thumbImg := imaging.Fill(img, 128, 128, imaging.Center, imaging.Lanczos)
 
-	outThumbPath := filepath.Join(s.uploadDir, thumbFilename)
-	outThumb, err := os.Create(outThumbPath)
+	outThumb, err := s.root.OpenFile(thumbFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return "", "", fmt.Errorf("error al crear thumbnail: %w", err)
 	}
-	defer outThumb.Close()
+	defer func() { _ = outThumb.Close() }()
 
 	// Encode thumbnail
 	if ext == ".png" {

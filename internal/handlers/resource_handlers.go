@@ -192,15 +192,15 @@ func (h *ProjectHandler) Import(c *gin.Context) {
 	}
 
 	actorID := middleware.GetUserID(c)
+	imported := 0
 	for _, p := range req.Projects {
 		if err := h.projectService.Create(c.Request.Context(), &p, actorID); err != nil {
-			// Continue on error for now or break?
-			// c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			// return
+			continue
 		}
+		imported++
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Importados %d proyectos", len(req.Projects))})
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Importados %d proyectos", imported)})
 }
 
 type LotHandler struct {

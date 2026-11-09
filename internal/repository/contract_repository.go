@@ -287,7 +287,7 @@ func (r *contractRepository) GetStats(ctx context.Context) (*ContractStats, erro
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var total int64
 	for rows.Next() {
@@ -305,6 +305,9 @@ func (r *contractRepository) GetStats(ctx context.Context) (*ContractStats, erro
 		case models.ContractStatusRejected:
 			stats.Rejected = count
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	stats.Total = total
 

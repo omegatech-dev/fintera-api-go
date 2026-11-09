@@ -119,7 +119,7 @@ func (s *ContractService) Create(ctx context.Context, contract *models.Contract)
 
 	// Update lot status to reserved
 	lot.Status = models.LotStatusReserved
-	s.lotRepo.Update(ctx, lot)
+	logIgnoredError("reserve lot", s.lotRepo.Update(ctx, lot))
 
 	// Retrieve applicant for notification
 	applicant, err := s.userRepo.FindByID(ctx, contract.ApplicantUserID)
@@ -149,8 +149,8 @@ func (s *ContractService) Create(ctx context.Context, contract *models.Contract)
 	})
 
 	// Audit log
-	s.auditSvc.Log(ctx, contract.ApplicantUserID, "CREATE", "Contract", contract.ID,
-		fmt.Sprintf("Solicitud de contrato creada para el lote %s del proyecto %s. Precio: %.2f", lot.Name, lot.Project.Name, *contract.Amount), "", "")
+	logIgnoredError("write contract create audit log", s.auditSvc.Log(ctx, contract.ApplicantUserID, "CREATE", "Contract", contract.ID,
+		fmt.Sprintf("Solicitud de contrato creada para el lote %s del proyecto %s. Precio: %.2f", lot.Name, lot.Project.Name, *contract.Amount), "", ""))
 
 	return nil
 }
@@ -242,7 +242,7 @@ func (s *ContractService) Approve(ctx context.Context, id uint) (*models.Contrac
 	lot, _ := s.lotRepo.FindByID(ctx, contract.LotID)
 	if lot != nil {
 		lot.Status = models.LotStatusReserved
-		s.lotRepo.Update(ctx, lot)
+		logIgnoredError("update lot status on approval", s.lotRepo.Update(ctx, lot))
 	}
 
 	// Find the "main" payment for the email highlight (Installment or Full Balance)
@@ -296,8 +296,8 @@ func (s *ContractService) Approve(ctx context.Context, id uint) (*models.Contrac
 	if contract.CreatorID != nil {
 		userID = *contract.CreatorID
 	}
-	s.auditSvc.Log(ctx, userID, "APPROVE", "Contract", contract.ID,
-		fmt.Sprintf("Contrato aprobado. Lote: %s, Precio: %.2f", contract.Lot.Name, *contract.Amount), "", "")
+	logIgnoredError("write contract approve audit log", s.auditSvc.Log(ctx, userID, "APPROVE", "Contract", contract.ID,
+		fmt.Sprintf("Contrato aprobado. Lote: %s, Precio: %.2f", contract.Lot.Name, *contract.Amount), "", ""))
 
 	return contract, nil
 }
@@ -324,7 +324,7 @@ func (s *ContractService) Reject(ctx context.Context, id uint, reason string) (*
 	lot, _ := s.lotRepo.FindByID(ctx, contract.LotID)
 	if lot != nil {
 		lot.Status = models.LotStatusAvailable
-		s.lotRepo.Update(ctx, lot)
+		logIgnoredError("release lot on rejection", s.lotRepo.Update(ctx, lot))
 	}
 
 	// Notify contract owner (in-app + email) with rejection reason
@@ -343,8 +343,8 @@ func (s *ContractService) Reject(ctx context.Context, id uint, reason string) (*
 	})
 
 	// Audit log
-	s.auditSvc.Log(ctx, contract.ApplicantUserID, "REJECT", "Contract", contract.ID,
-		fmt.Sprintf("Contrato rechazado. Razón: %s", reason), "", "")
+	logIgnoredError("write contract reject audit log", s.auditSvc.Log(ctx, contract.ApplicantUserID, "REJECT", "Contract", contract.ID,
+		fmt.Sprintf("Contrato rechazado. Razón: %s", reason), "", ""))
 
 	return contract, nil
 }
@@ -372,11 +372,11 @@ func (s *ContractService) DeleteRejected(ctx context.Context, id uint) error {
 	lot, _ := s.lotRepo.FindByID(ctx, contract.LotID)
 	if lot != nil {
 		lot.Status = models.LotStatusAvailable
-		s.lotRepo.Update(ctx, lot)
+		logIgnoredError("release lot after deleting rejected contract", s.lotRepo.Update(ctx, lot))
 	}
 
-	s.auditSvc.Log(ctx, contract.ApplicantUserID, "DELETE", "Contract", contract.ID,
-		fmt.Sprintf("Contrato rechazado eliminado. Lote %d liberado para nueva reserva", contract.LotID), "", "")
+	logIgnoredError("write contract delete audit log", s.auditSvc.Log(ctx, contract.ApplicantUserID, "DELETE", "Contract", contract.ID,
+		fmt.Sprintf("Contrato rechazado eliminado. Lote %d liberado para nueva reserva", contract.LotID), "", ""))
 	return nil
 }
 
@@ -402,23 +402,23 @@ func (s *ContractService) Cancel(ctx context.Context, id uint, note string) (*mo
 	// Delete pending/submitted payments
 	for _, payment := range contract.Payments {
 		if payment.Status == models.PaymentStatusPending || payment.Status == models.PaymentStatusSubmitted {
-			s.paymentRepo.Delete(ctx, payment.ID)
+			logIgnoredError("delete cancelled contract payment", s.paymentRepo.Delete(ctx, payment.ID))
 		}
 	}
 
 	// Delete ledger entries
-	s.ledgerRepo.DeleteByContractID(ctx, contract.ID)
+	logIgnoredError("delete cancelled contract ledger entries", s.ledgerRepo.DeleteByContractID(ctx, contract.ID))
 
 	// Release lot
 	lot, _ := s.lotRepo.FindByID(ctx, contract.LotID)
 	if lot != nil {
 		lot.Status = models.LotStatusAvailable
-		s.lotRepo.Update(ctx, lot)
+		logIgnoredError("release lot on cancellation", s.lotRepo.Update(ctx, lot))
 	}
 
 	// Audit log
-	s.auditSvc.Log(ctx, contract.ApplicantUserID, "CANCEL", "Contract", contract.ID,
-		fmt.Sprintf("Contrato cancelado. Nota: %s", note), "", "")
+	logIgnoredError("write contract cancel audit log", s.auditSvc.Log(ctx, contract.ApplicantUserID, "CANCEL", "Contract", contract.ID,
+		fmt.Sprintf("Contrato cancelado. Nota: %s", note), "", ""))
 
 	return contract, nil
 }
@@ -459,7 +459,7 @@ func (s *ContractService) Close(ctx context.Context, id uint) (*models.Contract,
 	lot, _ := s.lotRepo.FindByID(ctx, contract.LotID)
 	if lot != nil {
 		lot.Status = models.LotStatusFullyPaid
-		s.lotRepo.Update(ctx, lot)
+		logIgnoredError("mark lot fully paid", s.lotRepo.Update(ctx, lot))
 	}
 
 	// Notify user
@@ -471,8 +471,8 @@ func (s *ContractService) Close(ctx context.Context, id uint) (*models.Contract,
 	})
 
 	// Audit log
-	s.auditSvc.Log(ctx, contract.ApplicantUserID, "CLOSE", "Contract", contract.ID,
-		"Contrato completado y cerrado exitosamente", "", "")
+	logIgnoredError("write contract close audit log", s.auditSvc.Log(ctx, contract.ApplicantUserID, "CLOSE", "Contract", contract.ID,
+		"Contrato completado y cerrado exitosamente", "", ""))
 
 	return contract, nil
 }
@@ -583,19 +583,20 @@ func (s *ContractService) CapitalRepayment(ctx context.Context, id uint, amount 
 			contract.Payments = nil
 			contract.LedgerEntries = nil
 
-			s.repo.Update(ctx, contract)
+			logIgnoredError("update contract balance after capital repayment", s.repo.Update(ctx, contract))
 
 			// Auto-close if balance >= 0
 			if balance >= 0 {
-				s.Close(ctx, contract.ID)
+				_, closeErr := s.Close(ctx, contract.ID)
+				logIgnoredError("auto-close contract after capital repayment", closeErr)
 			}
 		}
 		return nil
 	})
 
 	// 5. Audit log
-	s.auditSvc.Log(ctx, actorID, "CAPITAL_REPAYMENT", "Contract", contract.ID,
-		fmt.Sprintf("Abono a capital de L%.2f aplicado al contrato #%d", amount, contract.ID), ip, userAgent)
+	logIgnoredError("write capital repayment audit log", s.auditSvc.Log(ctx, actorID, "CAPITAL_REPAYMENT", "Contract", contract.ID,
+		fmt.Sprintf("Abono a capital de L%.2f aplicado al contrato #%d", amount, contract.ID), ip, userAgent))
 
 	return nil
 }
@@ -608,7 +609,8 @@ func (s *ContractService) ReleaseUnpaidReservations(ctx context.Context) error {
 	}
 
 	for _, contract := range contracts {
-		s.Cancel(ctx, contract.ID, "Reservación no pagada a tiempo")
+		_, cancelErr := s.Cancel(ctx, contract.ID, "Reservación no pagada a tiempo")
+		logIgnoredError("cancel unpaid reservation", cancelErr)
 	}
 
 	return nil

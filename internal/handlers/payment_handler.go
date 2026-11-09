@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -159,8 +161,9 @@ type ApprovePaymentRequest struct {
 func (h *PaymentHandler) Approve(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("payment_id"), 10, 32)
 	var req ApprovePaymentRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		// Ignore error if it's just empty body
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cuerpo de la solicitud inválido"})
+		return
 	}
 
 	amount := req.Amount
@@ -210,7 +213,10 @@ type RejectPaymentRequest struct {
 func (h *PaymentHandler) Reject(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("payment_id"), 10, 32)
 	var req RejectPaymentRequest
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cuerpo de la solicitud inválido"})
+		return
+	}
 
 	payment, err := h.paymentService.Reject(c.Request.Context(), uint(id),
 		h.getUserID(c),
@@ -261,7 +267,7 @@ func (h *PaymentHandler) UploadReceipt(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Archivo requerido"})
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if c.Request.ContentLength > 0 && c.Request.ContentLength > storage.MaxFileSize() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Archivo demasiado grande"})

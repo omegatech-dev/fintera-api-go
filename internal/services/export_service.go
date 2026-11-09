@@ -54,7 +54,7 @@ func (s *ExportService) ExportCSV(ctx context.Context, overview *models.Analytic
 
 func (s *ExportService) ExportXLSX(ctx context.Context, overview *models.AnalyticsOverview, dist *models.LotDistribution) ([]byte, string, error) {
 	f := excelize.NewFile()
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sheet := "Analytics"
 	_ = f.SetSheetName("Sheet1", sheet)

@@ -7,6 +7,13 @@ import (
 	"testing"
 )
 
+func unsetenv(t *testing.T, key string) {
+	t.Helper()
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("failed to unset %s: %v", key, err)
+	}
+}
+
 func TestLoad(t *testing.T) {
 	// List of environment variables used by the config package
 	envVars := []string{
@@ -21,9 +28,9 @@ func TestLoad(t *testing.T) {
 	cleanEnv := func(t *testing.T) {
 		for _, v := range envVars {
 			t.Setenv(v, "")
-			// os.Unsetenv is needed because t.Setenv(v, "") sets it to empty string,
+			// Unsetenv is needed because t.Setenv(v, "") sets it to empty string,
 			// and getEnv uses os.LookupEnv which treats empty string as "exists".
-			os.Unsetenv(v)
+			unsetenv(t, v)
 		}
 	}
 
@@ -197,7 +204,7 @@ func TestLoad(t *testing.T) {
 func TestHelpers(t *testing.T) {
 	t.Run("getEnv", func(t *testing.T) {
 		key := "TEST_ENV_VAR"
-		os.Unsetenv(key)
+		unsetenv(t, key)
 		if val := getEnv(key, "default"); val != "default" {
 			t.Errorf("expected default, got %s", val)
 		}
@@ -210,7 +217,7 @@ func TestHelpers(t *testing.T) {
 
 	t.Run("getEnvAsInt", func(t *testing.T) {
 		key := "TEST_INT_VAR"
-		os.Unsetenv(key)
+		unsetenv(t, key)
 		if val := getEnvAsInt(key, 123); val != 123 {
 			t.Errorf("expected 123, got %d", val)
 		}
@@ -228,7 +235,7 @@ func TestHelpers(t *testing.T) {
 
 	t.Run("getEnvAsBool", func(t *testing.T) {
 		key := "TEST_BOOL_VAR"
-		os.Unsetenv(key)
+		unsetenv(t, key)
 		if val := getEnvAsBool(key, true); val != true {
 			t.Errorf("expected true, got %v", val)
 		}
@@ -259,7 +266,7 @@ func TestHelpers(t *testing.T) {
 
 	t.Run("getEnvAsSlice", func(t *testing.T) {
 		key := "TEST_SLICE_VAR"
-		os.Unsetenv(key)
+		unsetenv(t, key)
 		defaultSlice := []string{"a", "b"}
 		if val := getEnvAsSlice(key, defaultSlice); !reflect.DeepEqual(val, defaultSlice) {
 			t.Errorf("expected %v, got %v", defaultSlice, val)

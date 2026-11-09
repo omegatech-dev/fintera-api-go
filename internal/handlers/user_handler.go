@@ -665,7 +665,7 @@ func (h *UserHandler) UploadProfilePicture(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No se ha subido ninguna imagen o el archivo es demasiado grande"})
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	actorID := middleware.GetUserID(c)
 	// Check permissions: Admin or Owner

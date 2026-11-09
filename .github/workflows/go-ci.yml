@@ -6,9 +6,126 @@ on:
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GOFLAGS: -mod=readonly
+
 jobs:
-  build-and-test:
+  verify:
+    name: Verify
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+        cache-dependency-path: go.sum
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Verify dependencies
+      run: go mod verify
+
+    - name: Check go.mod is tidy
+      run: go mod tidy -diff
+
+    - name: Check formatting
+      run: |
+        unformatted="$(gofmt -l .)"
+        if [ -n "$unformatted" ]; then
+          echo "Unformatted files:"
+          echo "$unformatted"
+          exit 1
+        fi
+
+    - name: Vet
+      run: go vet ./...
+
+    - name: Build
+      run: go build ./...
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+        cache-dependency-path: go.sum
+
+    - name: Run tests with race detector
+      run: go test -race -count=1 -shuffle=on -covermode=atomic -coverprofile=coverage.out ./...
+
+    - name: Coverage summary
+      run: go tool cover -func=coverage.out | tail -n 20
+
+    - name: Upload coverage
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage
+        path: coverage.out
+        retention-days: 7
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v9.3.0
+      with:
+        version: v2.15.0
+        args: --timeout=5m
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run gosec
+      uses: securego/gosec@v2.30.0
+      with:
+        args: ./...
+
+    - name: Run govulncheck
+      uses: golang/govulncheck-action@v1.1.0
+      with:
+        repo-checkout: false
+        go-version-file: 'go.mod'
+        check-latest: false
+        cache: true
+        go-package: ./...
+
+  migrations:
+    name: Migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     services:
       postgres:
@@ -25,6 +142,44 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/fintera_test?sslmode=disable
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install golang-migrate
+      run: |
+        curl -sSL https://github.com/golang-migrate/migrate/releases/download/v4.20.1/migrate.linux-amd64.tar.gz | tar xz
+        sudo mv migrate /usr/local/bin/migrate
+
+    - name: Wait for Postgres
+      run: |
+        until pg_isready -h localhost -p 5432; do
+          sleep 1
+        done
+
+    - name: Run migrations
+      run: migrate -path internal/database/migrations -database "$DATABASE_URL" up
+
+    - name: Run seeds
+      run: |
+        for f in $(ls internal/database/seeds/*.sql | sort); do
+          echo "Running seed: $f"
+          psql "$DATABASE_URL" -f "$f"
+        done
+
+    - name: Verify latest migration is reversible
+      run: |
+        migrate -path internal/database/migrations -database "$DATABASE_URL" down 1
+        migrate -path internal/database/migrations -database "$DATABASE_URL" up
+
+  docs:
+    name: Swagger
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -33,34 +188,10 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version-file: 'go.mod'
-        cache-dependency-path: |
-          go.sum
+        cache-dependency-path: go.sum
 
-    - name: Install dependencies
-      run: go mod download
+    - name: Regenerate Swagger
+      run: make swagger
 
-    - name: Verify dependencies
-      run: go mod verify
-
-    - name: Wait for Postgres
-      run: |
-        until pg_isready -h localhost -p 5432; do
-          sleep 1
-        done
-
-    - name: Run Migrations
-      env:
-        DATABASE_URL: postgres://postgres:postgres@localhost:5432/fintera_test?sslmode=disable
-      run: make migrate-up
-
-    - name: Run Tests
-      env:
-        DATABASE_URL: postgres://postgres:postgres@localhost:5432/fintera_test?sslmode=disable
-        ENVIRONMENT: test
-      run: go test -v ./...
-
-    - name: Build
-      run: go build -v ./...
-
-    # - name: Docker Build Image
-    #   run: docker build . -t fintera-api:latest
+    - name: Check generated docs are committed
+      run: git diff --exit-code -- docs

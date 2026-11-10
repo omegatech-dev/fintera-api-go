@@ -5175,6 +5175,9 @@ const docTemplate = `{
                 "lot_length": {
                     "type": "number"
                 },
+                "lot_measurement_unit": {
+                    "type": "string"
+                },
                 "lot_name": {
                     "type": "string"
                 },

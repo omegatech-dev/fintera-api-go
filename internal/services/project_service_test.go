@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -59,6 +60,11 @@ func (m *mockProjectRepo) Create(ctx context.Context, project *models.Project) e
 
 func (m *mockProjectRepo) Update(ctx context.Context, project *models.Project) error {
 	args := m.Called(ctx, project)
+	return args.Error(0)
+}
+
+func (m *mockProjectRepo) UpdateProjectAndLots(ctx context.Context, project *models.Project, lots []models.Lot) error {
+	args := m.Called(ctx, project, lots)
 	return args.Error(0)
 }
 
@@ -183,11 +189,13 @@ func TestProjectService_Update(t *testing.T) {
 
 	updatedProject := &models.Project{
 		ID:                 1,
-		MeasurementUnit:    "v2",
-		PricePerSquareUnit: 150,
+		MeasurementUnit:    "ft2",
+		PricePerSquareUnit: 100, // unchanged: the service converts it
 	}
 
 	mu := "m2"
+	overrideArea := 200.0
+	overridePrice := 50000.0
 	lots := []models.Lot{
 		{
 			ID:              1,
@@ -199,26 +207,96 @@ func TestProjectService_Update(t *testing.T) {
 		},
 		{
 			ID:              2,
-			Status:          models.LotStatusReserved, // Should not be updated
+			Status:          models.LotStatusReserved,
 			Length:          20,
 			Width:           10,
 			Price:           20000,
+			MeasurementUnit: &mu,
+		},
+		{
+			ID:              3,
+			Status:          models.LotStatusAvailable,
+			Length:          20,
+			Width:           10,
+			Price:           50000,
+			OverridePrice:   &overridePrice,
+			OverrideArea:    &overrideArea,
 			MeasurementUnit: &mu,
 		},
 	}
 
 	mockProjRepo.On("FindByID", ctx, uint(1)).Return(existingProject, nil)
 	mockLotRepo.On("FindByProject", ctx, uint(1)).Return(lots, nil)
+	mockProjRepo.On("UpdateProjectAndLots", ctx,
+		mock.MatchedBy(func(p *models.Project) bool {
+			return p.MeasurementUnit == "ft2" && math.Abs(p.PricePerSquareUnit-9.29) < 0.001
+		}),
+		mock.MatchedBy(func(updated []models.Lot) bool {
+			if len(updated) != 3 {
+				return false
+			}
+			first := updated[0]
+			second := updated[1]
+			third := updated[2]
+			return *first.MeasurementUnit == "ft2" &&
+				math.Abs(first.Length-65.62) < 0.01 &&
+				math.Abs(first.Width-32.81) < 0.01 &&
+				*second.MeasurementUnit == "ft2" &&
+				second.Price == 20000 &&
+				third.OverrideArea != nil &&
+				math.Abs(*third.OverrideArea-2152.78) < 0.01 &&
+				third.Price == 50000
+		}),
+	).Return(nil)
+
+	err := service.Update(ctx, updatedProject, 1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "existing-guid", updatedProject.GUID)
+	assert.Equal(t, "ft2", updatedProject.MeasurementUnit)
+
+	mockProjRepo.AssertExpectations(t)
+	mockLotRepo.AssertExpectations(t)
+}
+
+func TestProjectService_UpdatePricePerUnit(t *testing.T) {
+	ctx := context.Background()
+	mockProjRepo := new(mockProjectRepo)
+	mockLotRepo := new(mockLotRepo)
+
+	gdb, mockSQL := setupMockDB(t)
+	mockSQL.ExpectQuery("INSERT INTO \"audit_logs\"").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	auditSvc := NewAuditService(gdb)
+	service := NewProjectService(mockProjRepo, mockLotRepo, auditSvc)
+
+	existingProject := &models.Project{
+		ID:                 1,
+		GUID:               "existing-guid",
+		MeasurementUnit:    "m2",
+		PricePerSquareUnit: 100,
+	}
+	updatedProject := &models.Project{
+		ID:                 1,
+		MeasurementUnit:    "m2",
+		PricePerSquareUnit: 150,
+	}
+	mu := "m2"
+	lots := []models.Lot{
+		{ID: 1, Status: models.LotStatusAvailable, Length: 20, Width: 10, Price: 20000, MeasurementUnit: &mu},
+		{ID: 2, Status: models.LotStatusReserved, Length: 20, Width: 10, Price: 20000, MeasurementUnit: &mu},
+	}
+
+	mockProjRepo.On("FindByID", ctx, uint(1)).Return(existingProject, nil)
+	mockLotRepo.On("FindByProject", ctx, uint(1)).Return(lots, nil)
 	mockLotRepo.On("Update", ctx, mock.MatchedBy(func(l *models.Lot) bool {
-		return l.ID == 1 && *l.MeasurementUnit == "v2" && l.Price == 30000 // 200 * 150
+		return l.ID == 1 && l.Price == 30000
 	})).Return(nil)
 	mockProjRepo.On("Update", ctx, updatedProject).Return(nil)
 
 	err := service.Update(ctx, updatedProject, 1)
 
 	assert.NoError(t, err)
-	assert.Equal(t, "existing-guid", updatedProject.GUID)
-
 	mockProjRepo.AssertExpectations(t)
 	mockLotRepo.AssertExpectations(t)
 }
@@ -240,9 +318,10 @@ func TestLotService_Create(t *testing.T) {
 	}
 
 	project := &models.Project{
-		ID:       1,
-		LotCount: 5,
-		Name:     "Project 1",
+		ID:              1,
+		LotCount:        5,
+		Name:            "Project 1",
+		MeasurementUnit: "ft2",
 	}
 
 	mockLotRepo.On("Create", ctx, lot).Return(nil)
@@ -255,6 +334,8 @@ func TestLotService_Create(t *testing.T) {
 	err := service.Create(ctx, lot, 1)
 
 	assert.NoError(t, err)
+	assert.NotNil(t, lot.MeasurementUnit)
+	assert.Equal(t, "ft2", *lot.MeasurementUnit)
 
 	mockLotRepo.AssertExpectations(t)
 	mockProjRepo.AssertExpectations(t)

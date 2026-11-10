@@ -85,6 +85,30 @@ definitions:
     - email
     - password
     type: object
+  handlers.PaymentInstructionRequest:
+    properties:
+      account_number:
+        example: 741-209-4321
+        type: string
+      account_type:
+        enum:
+        - savings
+        - checking
+        example: checking
+        type: string
+      bank_name:
+        example: BAC Credomatic
+        type: string
+      beneficiary_name:
+        example: Fintera Inversiones Inmobiliarias S.A.
+        type: string
+      notes:
+        example: Indica el número de lote en la referencia
+        type: string
+      position:
+        example: 0
+        type: integer
+    type: object
   handlers.RefreshRequest:
     properties:
       refresh_token:
@@ -2923,6 +2947,143 @@ paths:
       summary: Upload lot photos
       tags:
       - Project Media
+  /projects/{project_id}/payment-instructions:
+    get:
+      description: Admin list of the bank accounts configured for a project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List project payment instructions
+      tags:
+      - Project Payment Instructions
+    post:
+      consumes:
+      - application/json
+      description: Add a bank account where customers can pay a project reservation.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: integer
+      - description: Bank account data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.PaymentInstructionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create project payment instruction
+      tags:
+      - Project Payment Instructions
+  /projects/{project_id}/payment-instructions/{instruction_id}:
+    delete:
+      description: Remove a bank account from a project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: integer
+      - description: Payment instruction ID
+        in: path
+        name: instruction_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete project payment instruction
+      tags:
+      - Project Payment Instructions
+    patch:
+      consumes:
+      - application/json
+      description: Edit an existing bank account of a project.
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: integer
+      - description: Payment instruction ID
+        in: path
+        name: instruction_id
+        required: true
+        type: integer
+      - description: Bank account data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.PaymentInstructionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update project payment instruction
+      tags:
+      - Project Payment Instructions
   /projects/{project_id}/photos:
     get:
       description: Admin list of the project gallery.

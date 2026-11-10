@@ -1,6 +1,8 @@
 package services
 
 import (
+	"context"
+
 	"github.com/sjperalta/fintera-api/internal/config"
 	"github.com/sjperalta/fintera-api/internal/jobs"
 	"github.com/sjperalta/fintera-api/internal/repository"
@@ -25,6 +27,7 @@ type Services struct {
 	Export       *ExportService
 	Job          *JobService
 	Branding     *BrandingService
+	Settings     *GeneralSettingsService
 	Public       *PublicCatalogService
 	Media        *MediaService
 	Instructions *ProjectPaymentInstructionService
@@ -43,6 +46,9 @@ func NewServices(repos *repository.Repositories, worker *jobs.Worker, storage *s
 	jobSvc := NewJobService(worker)
 
 	contractSvc := NewContractService(repos.Contract, repos.Lot, repos.User, repos.Payment, repos.Ledger, notificationSvc, emailSvc, auditSvc, worker)
+	settingsSvc := NewGeneralSettingsService(repos.Settings, auditSvc)
+	// Load the configured hold duration into the process-wide default.
+	_, _ = settingsSvc.Get(context.Background())
 
 	return &Services{
 		Auth:         NewAuthService(repos.User, repos.RefreshToken, cfg),
@@ -60,6 +66,7 @@ func NewServices(repos *repository.Repositories, worker *jobs.Worker, storage *s
 		Export:       NewExportService(analyticsSvc), // AnalyticsSvc passed to ExportSvc
 		Job:          jobSvc,
 		Branding:     NewBrandingService(repos.Branding, storage, auditSvc),
+		Settings:     settingsSvc,
 		Public:       NewPublicCatalogService(repos.Project, repos.Lot, repos.Instructions),
 		Media:        NewMediaService(repos.Drawings, repos.ProjectPhoto, repos.LotPhoto, repos.Project, repos.Lot, storage, auditSvc),
 		Instructions: NewProjectPaymentInstructionService(repos.Instructions, repos.Project, auditSvc),

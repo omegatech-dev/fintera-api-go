@@ -75,7 +75,7 @@ Key columns: `lot_id`, `creator_id`, `applicant_user_id`, `payment_term`,
 `max_payment_date` (required for cash, seller-managed for bank), `bank_name`,
 `bank_credit_status` (customer-reported loan stage), `currency` (default
 `HNL`), `approved_at`, `active`, `note`, `rejection_reason`, `document_paths`,
-`closed_at`, `created_at`.
+`closed_at`, `created_at`, `submitted_at`, `rejected_at`.
 
 `balance` is a cached copy of the ledger balance. The ledger is authoritative;
 `PaymentService.updateContractBalance` refreshes it.
@@ -152,6 +152,18 @@ under `STORAGE_PATH`, served publicly at `/uploads/branding/...`). Read by
 anyone via `GET /api/v1/branding`; changed only by admins. Logo files live on
 the `STORAGE_PATH` volume, which must be persistent in production.
 
+### `general_settings`
+
+Singleton row (`id = 1`) with the deployment-wide customer settings:
+
+- `support_whatsapp` — E.164-ish number (`+504...`) shown in the customer portal.
+- `support_email` — optional support email.
+- `reservation_hold_hours` — lot-hold duration, default `48` (1–720). Drives
+  `hold_expires_at` on pending reservations and the reservation payment due date.
+
+Read publicly via `GET /api/v1/settings`; updated only by admins via
+`PUT /api/v1/settings`.
+
 ## Enumerations
 
 | Enum | Values |
@@ -192,6 +204,8 @@ with golang-migrate:
 | 000012 | `contracts.created_at` index |
 | 000015 | `project_payment_instructions` |
 | 000021 | `contracts.bank_name`, `contracts.bank_credit_status` |
+| 000022 | `general_settings` |
+| 000023 | `contracts.submitted_at`, `contracts.rejected_at` |
 
 Applied migrations are immutable. Add a new numbered pair instead of editing
 history.

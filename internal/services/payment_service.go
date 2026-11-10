@@ -314,6 +314,8 @@ func (s *PaymentService) UpdateReceipt(ctx context.Context, id uint, path, autho
 		contract, err := s.contractRepo.FindByID(ctx, payment.ContractID)
 		if err == nil && contract.Status == models.ContractStatusPending {
 			contract.Status = models.ContractStatusSubmitted
+			now := time.Now()
+			contract.SubmittedAt = &now
 			logIgnoredError("advance submitted contract", s.contractRepo.Update(ctx, contract))
 		}
 	}

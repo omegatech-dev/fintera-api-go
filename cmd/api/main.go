@@ -198,6 +198,9 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 		// Branding (public read; writes are admin-only below)
 		v1.GET("/branding", h.Branding.Show)
 
+		// General settings (public read; writes are admin-only below)
+		v1.GET("/settings", h.Settings.Show)
+
 		// Authentication (public)
 		auth := v1.Group("/auth")
 		{
@@ -236,6 +239,12 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 			public.POST("/payments/:payment_id/upload_receipt",
 				middleware.RateLimit(10, time.Minute),
 				h.Payment.UploadPublicReservationReceipt,
+			)
+
+			// Resend the account setup email for a guest reservation.
+			public.POST("/reservations/:guid/resend-access",
+				middleware.RateLimit(5, time.Hour),
+				h.Contract.ResendGuestAccess,
 			)
 		}
 
@@ -292,6 +301,9 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				admin.PUT("/branding", h.Branding.Update)
 				admin.POST("/branding/logo", h.Branding.UploadLogo)
 				admin.DELETE("/branding/logo", h.Branding.DeleteLogo)
+
+				// General settings (admin only)
+				admin.PUT("/settings", h.Settings.Update)
 
 				// Project media (admin only)
 				admin.GET("/projects/:project_id/drawings", h.Media.ListDrawings)

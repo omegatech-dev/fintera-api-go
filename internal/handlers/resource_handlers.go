@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -15,10 +16,24 @@ import (
 
 type ProjectHandler struct {
 	projectService *services.ProjectService
+	mediaService   *services.MediaService
 }
 
-func NewProjectHandler(projectService *services.ProjectService) *ProjectHandler {
-	return &ProjectHandler{projectService: projectService}
+func NewProjectHandler(projectService *services.ProjectService, mediaService *services.MediaService) *ProjectHandler {
+	return &ProjectHandler{projectService: projectService, mediaService: mediaService}
+}
+
+func (h *ProjectHandler) response(ctx context.Context, project *models.Project) models.ProjectResponse {
+	response := project.ToResponse()
+	response.Photos = []models.PhotoResponse{}
+	if photos, err := h.mediaService.ProjectCardPhotos(ctx, project.ID); err == nil {
+		response.Photos = photos
+		if len(photos) > 0 {
+			cover := photos[0].URL
+			response.CoverPhotoURL = &cover
+		}
+	}
+	return response
 }
 
 func (h *ProjectHandler) Index(c *gin.Context) {
@@ -44,9 +59,9 @@ func (h *ProjectHandler) Index(c *gin.Context) {
 		return
 	}
 
-	var responses []interface{}
-	for _, p := range projects {
-		responses = append(responses, p.ToResponse())
+	responses := make([]models.ProjectResponse, 0, len(projects))
+	for index := range projects {
+		responses = append(responses, h.response(c.Request.Context(), &projects[index]))
 	}
 
 	c.JSON(http.StatusOK, gin.H{"projects": responses, "pagination": gin.H{"total": total}})
@@ -69,7 +84,7 @@ func (h *ProjectHandler) Show(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Proyecto no encontrado"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"project": project.ToResponse()})
+	c.JSON(http.StatusOK, gin.H{"project": h.response(c.Request.Context(), project)})
 }
 
 // @Summary Create Project
@@ -95,7 +110,7 @@ func (h *ProjectHandler) Create(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"project": project.ToResponse()})
+	c.JSON(http.StatusCreated, gin.H{"project": h.response(c.Request.Context(), &project)})
 }
 
 // @Summary Update Project
@@ -125,7 +140,45 @@ func (h *ProjectHandler) Update(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"project": project.ToResponse()})
+	c.JSON(http.StatusOK, gin.H{"project": h.response(c.Request.Context(), &project)})
+}
+
+// @Summary Publish Project
+// @Description Publish a project to the customer portal without changing is_active
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param project_id path int true "Project ID"
+// @Success 200 {object} models.ProjectResponse
+// @Failure 404 {object} map[string]string
+// @Security BearerAuth
+// @Router /projects/{project_id}/publish [post]
+func (h *ProjectHandler) Publish(c *gin.Context) {
+	h.setPublished(c, true)
+}
+
+// @Summary Unpublish Project
+// @Description Hide a project from the customer portal without changing is_active
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param project_id path int true "Project ID"
+// @Success 200 {object} models.ProjectResponse
+// @Failure 404 {object} map[string]string
+// @Security BearerAuth
+// @Router /projects/{project_id}/unpublish [post]
+func (h *ProjectHandler) Unpublish(c *gin.Context) {
+	h.setPublished(c, false)
+}
+
+func (h *ProjectHandler) setPublished(c *gin.Context, published bool) {
+	id, _ := strconv.ParseUint(c.Param("project_id"), 10, 32)
+	project, err := h.projectService.SetProjectPublished(c.Request.Context(), uint(id), middleware.GetUserID(c), published)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Proyecto no encontrado"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"project": h.response(c.Request.Context(), project)})
 }
 
 // @Summary Delete Project

@@ -767,6 +767,7 @@ type ProjectRepository interface {
 	ListPublished(ctx context.Context) ([]models.Project, error)
 	Create(ctx context.Context, project *models.Project) error
 	Update(ctx context.Context, project *models.Project) error
+	UpdateProjectAndLots(ctx context.Context, project *models.Project, lots []models.Lot) error
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, query *ListQuery) ([]models.Project, int64, error)
 	FindAll(ctx context.Context) ([]models.Project, error)
@@ -858,6 +859,22 @@ func (r *projectRepository) Create(ctx context.Context, project *models.Project)
 
 func (r *projectRepository) Update(ctx context.Context, project *models.Project) error {
 	return r.db.WithContext(ctx).Save(project).Error
+}
+
+// UpdateProjectAndLots persists a project and all of its lots in one
+// transaction so a measurement-unit conversion cannot leave partial data.
+func (r *projectRepository) UpdateProjectAndLots(ctx context.Context, project *models.Project, lots []models.Lot) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(project).Error; err != nil {
+			return err
+		}
+		for i := range lots {
+			if err := tx.Save(&lots[i]).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r *projectRepository) Delete(ctx context.Context, id uint) error {

@@ -12,8 +12,17 @@ import (
 
 // Payment instruction validation errors.
 var (
-	ErrInstructionInvalidType = errors.New("el tipo de cuenta debe ser savings o checking")
-	ErrInstructionInvalidData = errors.New("banco, beneficiario y número de cuenta son requeridos")
+	ErrInstructionInvalidType   = errors.New("el tipo de cuenta debe ser savings o checking")
+	ErrInstructionInvalidData   = errors.New("banco, beneficiario y número de cuenta son requeridos")
+	ErrInstructionInvalidLength = errors.New("los campos de la instrucción superan la longitud máxima permitida")
+)
+
+// Field limits shared by the API and the admin form.
+const (
+	MaxInstructionBankNameLength        = 120
+	MaxInstructionBeneficiaryNameLength = 160
+	MaxInstructionAccountNumberLength   = 60
+	MaxInstructionNotesLength           = 500
 )
 
 // ProjectPaymentInstructionService manages project bank instructions.
@@ -118,9 +127,26 @@ func validateInstruction(instruction *models.ProjectPaymentInstruction) error {
 	instruction.BankName = strings.TrimSpace(instruction.BankName)
 	instruction.BeneficiaryName = strings.TrimSpace(instruction.BeneficiaryName)
 	instruction.AccountNumber = strings.TrimSpace(instruction.AccountNumber)
+	if instruction.Notes != nil {
+		notes := strings.TrimSpace(*instruction.Notes)
+		instruction.Notes = &notes
+	}
 	if instruction.BankName == "" || instruction.BeneficiaryName == "" || instruction.AccountNumber == "" {
 		return ErrInstructionInvalidData
 	}
+	if len([]rune(instruction.BankName)) > MaxInstructionBankNameLength ||
+		len([]rune(instruction.BeneficiaryName)) > MaxInstructionBeneficiaryNameLength ||
+		len([]rune(instruction.AccountNumber)) > MaxInstructionAccountNumberLength ||
+		(instruction.Notes != nil && len([]rune(*instruction.Notes)) > MaxInstructionNotesLength) {
+		return fmt.Errorf("%w (banco %d, beneficiario %d, cuenta %d, notas %d)",
+			ErrInstructionInvalidLength,
+			MaxInstructionBankNameLength,
+			MaxInstructionBeneficiaryNameLength,
+			MaxInstructionAccountNumberLength,
+			MaxInstructionNotesLength,
+		)
+	}
+	instruction.AccountType = strings.ToLower(strings.TrimSpace(instruction.AccountType))
 	if instruction.AccountType == "" {
 		instruction.AccountType = models.PaymentAccountTypeSavings
 	}

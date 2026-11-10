@@ -276,6 +276,8 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				admin.PUT("/projects/:project_id", h.Project.Update)
 				admin.DELETE("/projects/:project_id", h.Project.Delete)
 				admin.POST("/projects/:project_id/approve", h.Project.Approve)
+				admin.POST("/projects/:project_id/publish", h.Project.Publish)
+				admin.POST("/projects/:project_id/unpublish", h.Project.Unpublish)
 				admin.POST("/projects/import", h.Project.Import)
 
 				// Lot management (admin only)

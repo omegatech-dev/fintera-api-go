@@ -36,6 +36,52 @@ func TestContractResponse_HoldExpiresAt(t *testing.T) {
 	}
 }
 
+func TestContractResponse_LotMeasurementUnit(t *testing.T) {
+	ft2 := "ft2"
+	contract := Contract{
+		ID:     1,
+		Status: ContractStatusApproved,
+		Lot: Lot{
+			MeasurementUnit: &ft2,
+			Project:         Project{MeasurementUnit: MeasurementUnitM2},
+		},
+	}
+	resp := contract.ToResponse()
+	if resp.LotMeasurementUnit == nil || *resp.LotMeasurementUnit != MeasurementUnitFT2 {
+		t.Fatalf("lot_measurement_unit = %v, want ft2", resp.LotMeasurementUnit)
+	}
+
+	contract.Lot.MeasurementUnit = nil
+	resp = contract.ToResponse()
+	if resp.LotMeasurementUnit == nil || *resp.LotMeasurementUnit != MeasurementUnitM2 {
+		t.Fatalf("lot_measurement_unit fallback = %v, want m2", resp.LotMeasurementUnit)
+	}
+}
+
+func TestNormalizeBankCreditStatus(t *testing.T) {
+	cases := map[string]bool{
+		"":                true,
+		"not_started":     true,
+		" Pre_Qualified ": true,
+		"pre_qualified":   true,
+		"pre_approved":    true,
+		"approved":        true,
+		"APPROVED":        true,
+		"maybe":           false,
+		"rejected":        false,
+	}
+	for input, wantOK := range cases {
+		got, ok := NormalizeBankCreditStatus(input)
+		if ok != wantOK {
+			t.Errorf("NormalizeBankCreditStatus(%q) ok = %v, want %v", input, ok, wantOK)
+			continue
+		}
+		if ok && input == "APPROVED" && got != BankCreditStatusApproved {
+			t.Errorf("normalized = %q, want %q", got, BankCreditStatusApproved)
+		}
+	}
+}
+
 func TestContractResponse_ReservationPayment(t *testing.T) {
 	paidAt := time.Date(2026, 11, 10, 8, 30, 0, 0, time.UTC)
 	document := "receipts/2026/11/voucher.pdf"

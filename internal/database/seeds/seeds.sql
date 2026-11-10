@@ -290,8 +290,10 @@ BEGIN
     IF v_contract_id IS NULL THEN
         -- Initial balance is negative total amount (debt)
         INSERT INTO contracts (lot_id, applicant_user_id, payment_term, financing_type, reserve_amount, down_payment,
+                              max_payment_date, bank_name, bank_credit_status,
                               status, currency, amount, balance, created_at, updated_at)
-        VALUES (v_lot_id, v_user_id, 18, 'direct', 50000.00, 100000.00,
+        VALUES (v_lot_id, v_user_id, 18, 'bank', 50000.00, 100000.00,
+                (NOW() + INTERVAL '90 days')::date, 'Banco Atlántida', 'pre_qualified',
                 'pending', 'HNL', v_amount, -v_amount, NOW() - INTERVAL '5 days', NOW())
         RETURNING id INTO v_contract_id;
         
@@ -300,7 +302,41 @@ BEGIN
 END $$;
 
 -- ============================================
--- 5. NOTIFICATIONS
+-- 5. PROJECT PAYMENT INSTRUCTIONS
+-- ============================================
+
+INSERT INTO project_payment_instructions (project_id, bank_name, beneficiary_name, account_number, account_type, notes, position, created_at, updated_at)
+SELECT p.id, 'BAC Credomatic', 'Fintera Inversiones Inmobiliarias S.A.', '741-209-4321', 'checking',
+       'Indica en la referencia el número de lote y tu nombre completo.', 0, NOW(), NOW()
+FROM projects p
+WHERE p.guid = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'
+  AND NOT EXISTS (
+      SELECT 1 FROM project_payment_instructions i
+      WHERE i.project_id = p.id AND i.account_number = '741-209-4321'
+  );
+
+INSERT INTO project_payment_instructions (project_id, bank_name, beneficiary_name, account_number, account_type, notes, position, created_at, updated_at)
+SELECT p.id, 'Banco Atlántida', 'Fintera Inversiones Inmobiliarias S.A.', '110-020-9876', 'savings',
+       'Transferencias ACH o depósito directo en ventanilla.', 1, NOW(), NOW()
+FROM projects p
+WHERE p.guid = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'
+  AND NOT EXISTS (
+      SELECT 1 FROM project_payment_instructions i
+      WHERE i.project_id = p.id AND i.account_number = '110-020-9876'
+  );
+
+INSERT INTO project_payment_instructions (project_id, bank_name, beneficiary_name, account_number, account_type, notes, position, created_at, updated_at)
+SELECT p.id, 'Banco Ficohsa', 'Fintera Inversiones Inmobiliarias S.A.', '220-330-4455', 'checking',
+       'Usa el número de lote como concepto de la transferencia.', 0, NOW(), NOW()
+FROM projects p
+WHERE p.guid = 'b1ffcd88-8d0a-3ff7-aa5c-5cc8bd270b22'
+  AND NOT EXISTS (
+      SELECT 1 FROM project_payment_instructions i
+      WHERE i.project_id = p.id AND i.account_number = '220-330-4455'
+  );
+
+-- ============================================
+-- 6. NOTIFICATIONS
 -- ============================================
 
 INSERT INTO notifications (user_id, title, message, notification_type, created_at, updated_at)

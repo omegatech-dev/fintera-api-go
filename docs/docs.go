@@ -3176,6 +3176,218 @@ const docTemplate = `{
                 }
             }
         },
+        "/projects/{project_id}/payment-instructions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Admin list of the bank accounts configured for a project.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Payment Instructions"
+                ],
+                "summary": "List project payment instructions",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Add a bank account where customers can pay a project reservation.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Payment Instructions"
+                ],
+                "summary": "Create project payment instruction",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Bank account data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.PaymentInstructionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project_id}/payment-instructions/{instruction_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove a bank account from a project.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Payment Instructions"
+                ],
+                "summary": "Delete project payment instruction",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Payment instruction ID",
+                        "name": "instruction_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Edit an existing bank account of a project.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Payment Instructions"
+                ],
+                "summary": "Update project payment instruction",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Payment instruction ID",
+                        "name": "instruction_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Bank account data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.PaymentInstructionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/projects/{project_id}/photos": {
             "get": {
                 "security": [
@@ -3255,6 +3467,98 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project_id}/publish": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Publish a project to the customer portal without changing is_active",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Publish Project",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.ProjectResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project_id}/unpublish": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Hide a project from the customer portal without changing is_active",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Unpublish Project",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.ProjectResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -4788,6 +5092,39 @@ const docTemplate = `{
                 }
             }
         },
+        "handlers.PaymentInstructionRequest": {
+            "type": "object",
+            "properties": {
+                "account_number": {
+                    "type": "string",
+                    "example": "741-209-4321"
+                },
+                "account_type": {
+                    "type": "string",
+                    "enum": [
+                        "savings",
+                        "checking"
+                    ],
+                    "example": "checking"
+                },
+                "bank_name": {
+                    "type": "string",
+                    "example": "BAC Credomatic"
+                },
+                "beneficiary_name": {
+                    "type": "string",
+                    "example": "Fintera Inversiones Inmobiliarias S.A."
+                },
+                "notes": {
+                    "type": "string",
+                    "example": "Indica el número de lote en la referencia"
+                },
+                "position": {
+                    "type": "integer",
+                    "example": 0
+                }
+            }
+        },
         "handlers.RefreshRequest": {
             "type": "object",
             "required": [
@@ -4829,6 +5166,12 @@ const docTemplate = `{
         "handlers.UpdateContractRequest": {
             "type": "object",
             "properties": {
+                "bank_credit_status": {
+                    "type": "string"
+                },
+                "bank_name": {
+                    "type": "string"
+                },
                 "down_payment": {
                     "type": "number"
                 },
@@ -4938,6 +5281,12 @@ const docTemplate = `{
                 },
                 "balance": {
                     "type": "number"
+                },
+                "bank_credit_status": {
+                    "type": "string"
+                },
+                "bank_name": {
+                    "type": "string"
                 },
                 "closed_at": {
                     "type": "string"
@@ -5130,6 +5479,12 @@ const docTemplate = `{
                 "balance": {
                     "type": "number"
                 },
+                "bank_credit_status": {
+                    "type": "string"
+                },
+                "bank_name": {
+                    "type": "string"
+                },
                 "cancellation_notes": {
                     "type": "string"
                 },
@@ -5174,6 +5529,9 @@ const docTemplate = `{
                 },
                 "lot_length": {
                     "type": "number"
+                },
+                "lot_measurement_unit": {
+                    "type": "string"
                 },
                 "lot_name": {
                     "type": "string"
@@ -5615,6 +5973,26 @@ const docTemplate = `{
                 }
             }
         },
+        "models.PhotoResponse": {
+            "type": "object",
+            "properties": {
+                "alt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "position": {
+                    "type": "integer"
+                },
+                "thumb_url": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
         "models.Project": {
             "type": "object",
             "properties": {
@@ -5717,6 +6095,9 @@ const docTemplate = `{
                 "commission_rate_direct": {
                     "type": "number"
                 },
+                "cover_photo_url": {
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -5749,6 +6130,12 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "photos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.PhotoResponse"
+                    }
                 },
                 "price_per_square_unit": {
                     "type": "number"

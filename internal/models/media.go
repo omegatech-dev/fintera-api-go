@@ -98,6 +98,8 @@ func (LotPhoto) TableName() string {
 // PhotoResponse is the public photo payload shared by project and lot
 // galleries.
 type PhotoResponse struct {
+	ID       uint    `json:"id"`
+	Position int     `json:"position"`
 	URL      string  `json:"url"`
 	ThumbURL *string `json:"thumb_url,omitempty"`
 	Alt      *string `json:"alt,omitempty"`
@@ -105,7 +107,7 @@ type PhotoResponse struct {
 
 // ToResponse converts a project photo to its public payload.
 func (p *ProjectPhoto) ToResponse() PhotoResponse {
-	resp := PhotoResponse{URL: PublicFileURL(p.FilePath), Alt: p.Alt}
+	resp := PhotoResponse{ID: p.ID, Position: p.Position, URL: PublicFileURL(p.FilePath), Alt: p.Alt}
 	if p.ThumbPath != nil && *p.ThumbPath != "" {
 		thumb := PublicFileURL(*p.ThumbPath)
 		resp.ThumbURL = &thumb
@@ -115,7 +117,7 @@ func (p *ProjectPhoto) ToResponse() PhotoResponse {
 
 // ToResponse converts a lot photo to its public payload.
 func (p *LotPhoto) ToResponse() PhotoResponse {
-	resp := PhotoResponse{URL: PublicFileURL(p.FilePath), Alt: p.Alt}
+	resp := PhotoResponse{ID: p.ID, Position: p.Position, URL: PublicFileURL(p.FilePath), Alt: p.Alt}
 	if p.ThumbPath != nil && *p.ThumbPath != "" {
 		thumb := PublicFileURL(*p.ThumbPath)
 		resp.ThumbURL = &thumb

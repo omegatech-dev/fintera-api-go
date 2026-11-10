@@ -36,6 +36,7 @@ type Config struct {
 	// Email (Resend)
 	ResendAPIKey             string
 	FromEmail                string
+	EmailOverrideTo          string
 	EnableEmailNotifications bool
 
 	// Rollbar
@@ -63,6 +64,7 @@ func Load() (*Config, error) {
 		PortalURL:                getEnv("PORTAL_URL", "https://portal.fintera.app"),
 		ResendAPIKey:             getEnv("RESEND_API_KEY", ""),
 		FromEmail:                getEnv("FROM_EMAIL", "noreply@fintera.app"),
+		EmailOverrideTo:          getEnv("EMAIL_OVERRIDE_TO", ""),
 		EnableEmailNotifications: getEnvAsBool("ENABLE_EMAIL_NOTIFICATIONS", false),
 		RollbarToken:             getEnv("ROLLBAR_TOKEN", ""),
 		RollbarCodeVersion:       getEnv("ROLLBAR_CODE_VERSION", ""),

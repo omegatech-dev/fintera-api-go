@@ -263,12 +263,17 @@ func (s *ContractService) ResendAccountSetup(ctx context.Context, contractGUID s
 	if err != nil {
 		return err
 	}
+	// Send first so a disabled/unconfigured mailer cannot silently reset the
+	// stored password without the customer receiving the new one.
+	if err := s.emailSvc.SendAccountCreated(ctx, &user, tempPassword); err != nil {
+		return err
+	}
 	user.EncryptedPassword = hashed
 	user.MustChangePassword = true
 	if err := s.userRepo.Update(ctx, &user); err != nil {
 		return err
 	}
-	return s.emailSvc.SendAccountCreated(ctx, &user, tempPassword)
+	return nil
 }
 
 // Approve approves a contract

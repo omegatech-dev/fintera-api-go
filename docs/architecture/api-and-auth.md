@@ -43,6 +43,7 @@ context.
 | `POST` | `/api/v1/users/send_recovery_code` |
 | `POST` | `/api/v1/users/verify_recovery_code` |
 | `POST` | `/api/v1/users/update_password_with_code` |
+| `GET` | `/api/v1/branding` |
 
 `GET /swagger/*any`, `/`, and `/uploads/*` are also public.
 
@@ -104,6 +105,9 @@ Claimed authorization errors return `403` with `No tienes acceso a esta sección
 | `PUT` | `/projects/:project_id/lots/:lot_id` |
 | `DELETE` | `/projects/:project_id/lots/:lot_id` |
 | `GET` | `/jobs/status` |
+| `PUT` | `/branding` |
+| `POST` | `/branding/logo` |
+| `DELETE` | `/branding/logo` |
 
 ### Admin, seller, or owner (`RequireAdminSellerOrOwner`)
 

@@ -24,6 +24,7 @@ type Services struct {
 	Analytics    *AnalyticsService
 	Export       *ExportService
 	Job          *JobService
+	Branding     *BrandingService
 }
 
 // NewServices creates all service instances
@@ -55,5 +56,6 @@ func NewServices(repos *repository.Repositories, worker *jobs.Worker, storage *s
 		Analytics:    analyticsSvc,
 		Export:       NewExportService(analyticsSvc), // AnalyticsSvc passed to ExportSvc
 		Job:          jobSvc,
+		Branding:     NewBrandingService(repos.Branding, storage, auditSvc),
 	}
 }

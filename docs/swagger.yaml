@@ -154,6 +154,22 @@ definitions:
     - code
     - email
     type: object
+  handlers.brandingUpdateRequest:
+    properties:
+      app_name:
+        type: string
+    type: object
+  models.BrandingResponse:
+    properties:
+      app_name:
+        type: string
+      logo_dark_url:
+        type: string
+      logo_url:
+        type: string
+      updated_at:
+        type: string
+    type: object
   models.Contract:
     properties:
       active:
@@ -1070,6 +1086,126 @@ paths:
       summary: Refresh Token
       tags:
       - Auth
+  /branding:
+    get:
+      description: Get the global application branding (public)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.BrandingResponse'
+      summary: Get Branding
+      tags:
+      - Branding
+    put:
+      consumes:
+      - application/json
+      description: Update the global application branding (Admin)
+      parameters:
+      - description: Branding Data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.brandingUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.BrandingResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update Branding
+      tags:
+      - Branding
+  /branding/logo:
+    delete:
+      description: Remove the light/dark application logo (Admin)
+      parameters:
+      - default: light
+        description: 'Logo variant: light or dark'
+        in: query
+        name: variant
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.BrandingResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete Branding Logo
+      tags:
+      - Branding
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload or replace the light/dark application logo (Admin)
+      parameters:
+      - description: Logo file (PNG, JPEG or WebP, max 2MB)
+        in: formData
+        name: logo
+        required: true
+        type: file
+      - default: light
+        description: 'Logo variant: light or dark'
+        in: formData
+        name: variant
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.BrandingResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Upload Branding Logo
+      tags:
+      - Branding
   /contracts:
     get:
       consumes:

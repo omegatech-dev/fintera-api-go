@@ -1,0 +1,61 @@
+schema: spec-driven
+
+context: |
+  FinteraAPI is a Go 1.27 / Gin / GORM REST backend for real-estate contract
+  management: users, projects, lots, contracts, payment schedules, a contract
+  ledger, notifications, reports, and scheduled background work.
+
+  Source layout:
+  - cmd/api/main.go          -> wiring, router, route groups, scheduled jobs
+  - internal/models          -> GORM models, status constants, ToResponse DTOs
+  - internal/repository      -> data access interfaces + implementations
+  - internal/services        -> business logic, email, audit, analytics
+  - internal/handlers        -> Gin HTTP handlers with Swagger annotations
+  - internal/middleware      -> JWT auth, RBAC (RequireAdmin, RequireRole, ...), CORS
+  - internal/storage         -> local file storage (LocalStorage)
+  - internal/database        -> connection, golang-migrate migrations, seeds
+
+  Conventions:
+  - Dependency direction: handlers -> services -> repository -> models.
+  - Register new components in NewRepositories, NewServices, NewHandlers.
+  - Routes are registered in setupRouter in cmd/api/main.go under the correct
+    middleware group; public routes live directly on the v1 group.
+  - Responses are wrapped: {"<resource>": ...} or {"error": "..."}; use
+    ToResponse() for output and BindNestedOrFlat for request binding.
+  - Uploads are stored with LocalStorage and served statically from /uploads.
+  - Admin state changes write audit logs via AuditService.
+  - Migrations are paired NNNNNN_name.up.sql / .down.sql and immutable.
+  - Swagger docs in docs/ are generated with `make swagger` and committed.
+
+  Commands:
+  - make deps, make build, make run, make dev
+  - make test (go test -v ./...), make lint (golangci-lint), make security (gosec)
+  - make migrate-up / make migrate-down (need DATABASE_URL)
+  - make swagger
+
+rules:
+  proposal:
+    - Always include a Capabilities section listing new or modified specs.
+    - Do not invent requirements just to satisfy validation; use skip_specs for pure refactors, tooling, or docs.
+    - Keep the proposal to 1-2 pages and focus on the "why".
+  specs:
+    - Describe observable behavior, inputs, outputs, and error conditions, not internal function names.
+    - One capability per spec file under openspec/specs/<capability>/spec.md.
+    - Every requirement needs at least one Scenario with WHEN/THEN.
+  design:
+    - Describe affected layers, route groups, storage, and migration notes.
+    - Include tradeoffs and rollback notes for risky changes.
+  tasks:
+    - Break work into small, verifiable tasks with concrete file paths.
+    - Include go build / go test / make swagger verification and doc updates.
+    - Update task checkboxes as work completes.
+
+operations:
+  apply:
+    guidance:
+      - Run "go build ./..." and "go test ./..." before reporting completion.
+      - Run "make swagger" when Swagger annotations change.
+      - Update docs/architecture/ when routes or the data model change.
+  archive:
+    guidance:
+      - Confirm all tasks are checked and specs are synced before archiving.

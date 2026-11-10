@@ -15,6 +15,7 @@ type Repositories struct {
 	RefreshToken RefreshTokenRepository
 	Ledger       LedgerRepository
 	Analytics    AnalyticsRepository
+	Branding     BrandingRepository
 }
 
 // NewRepositories creates all repository instances
@@ -29,5 +30,6 @@ func NewRepositories(db *gorm.DB) *Repositories {
 		RefreshToken: NewRefreshTokenRepository(db),
 		Ledger:       NewLedgerRepository(db),
 		Analytics:    NewAnalyticsRepository(db),
+		Branding:     NewBrandingRepository(db),
 	}
 }

@@ -122,6 +122,14 @@ Key columns: `user_id`, `action`, `entity`, `entity_id`, `details`, `ip_address`
 JSONB cache for analytics results with an expiry timestamp. Filtered requests
 bypass the cache; dashboard requests use a 15-minute TTL.
 
+### `branding_settings`
+
+Singleton row (`CHECK (id = 1)`) holding the global application branding:
+`app_name` (default `Fintera`), `logo_path`, `logo_dark_path` (relative paths
+under `STORAGE_PATH`, served publicly at `/uploads/branding/...`). Read by
+anyone via `GET /api/v1/branding`; changed only by admins. Logo files live on
+the `STORAGE_PATH` volume, which must be persistent in production.
+
 ## Enumerations
 
 | Enum | Values |

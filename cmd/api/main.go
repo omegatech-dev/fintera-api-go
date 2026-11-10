@@ -195,6 +195,9 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 		// Health check (public)
 		v1.GET("/health", h.Health.Index)
 
+		// Branding (public read; writes are admin-only below)
+		v1.GET("/branding", h.Branding.Show)
+
 		// Authentication (public)
 		auth := v1.Group("/auth")
 		{
@@ -251,6 +254,11 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 
 				// Job status (admin only)
 				admin.GET("/jobs/status", h.Job.Status)
+
+				// Branding (admin only)
+				admin.PUT("/branding", h.Branding.Update)
+				admin.POST("/branding/logo", h.Branding.UploadLogo)
+				admin.DELETE("/branding/logo", h.Branding.DeleteLogo)
 
 			}
 

@@ -192,29 +192,25 @@ func (h *ContractHandler) create(c *gin.Context, lotID uint, guest bool) {
 	reserveAmount, _ := strconv.ParseFloat(c.Request.FormValue("contract[reserve_amount]"), 64)
 	downPayment, _ := strconv.ParseFloat(c.Request.FormValue("contract[down_payment]"), 64)
 	maxPaymentDateStr := strings.TrimSpace(c.Request.FormValue("contract[max_payment_date]"))
+	bankName := strings.TrimSpace(c.Request.FormValue("contract[bank_name]"))
+	bankCreditStatusStr := strings.TrimSpace(c.Request.FormValue("contract[bank_credit_status]"))
 	note := c.Request.FormValue("contract[note]")
 	applicantUserIDStr := c.Request.FormValue("contract[applicant_user_id]")
 
-	// Validate and parse max_payment_date when financing type is bank or cash
-	var maxPaymentDate *time.Time
-	if financingType == models.FinancingTypeBank || financingType == models.FinancingTypeCash {
-		if maxPaymentDateStr == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "La fecha máxima de pago es requerida para financiamiento bancario o contado"})
-			return
-		}
-		parsed, err := time.Parse("2006-01-02", maxPaymentDateStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "La fecha máxima de pago debe tener formato YYYY-MM-DD"})
-			return
-		}
-		today := time.Now().Truncate(24 * time.Hour)
-		maxDateOnly := time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, time.UTC)
-		todayOnly := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
-		if maxDateOnly.Before(todayOnly) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "La fecha máxima de pago no puede ser anterior a hoy"})
-			return
-		}
-		maxPaymentDate = &parsed
+	// Validate and parse max_payment_date. Cash reservations require it because
+	// the buyer controls the transfer; bank reservations do not, because the
+	// bank does not commit to a disbursement date at reservation time.
+	maxPaymentDate, err := parseMaxPaymentDate(financingType, maxPaymentDateStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Bank details only apply to bank financing. Empty means "not provided".
+	bankNamePtr, bankCreditStatusPtr, err := parseBankCreditDetails(financingType, bankName, bankCreditStatusStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	// 4. Handle User (Find or Create)
@@ -378,17 +374,19 @@ func (h *ContractHandler) create(c *gin.Context, lotID uint, guest bool) {
 		creatorRef = &creatorID
 	}
 	contract := &models.Contract{
-		LotID:           lotID,
-		ApplicantUserID: applicantID,
-		CreatorID:       creatorRef,
-		PaymentTerm:     paymentTerm,
-		FinancingType:   financingType,
-		ReserveAmount:   &reserveAmount,
-		DownPayment:     &downPayment,
-		MaxPaymentDate:  maxPaymentDate,
-		Note:            &note,
-		Status:          models.ContractStatusPending,
-		Currency:        "HNL",
+		LotID:            lotID,
+		ApplicantUserID:  applicantID,
+		CreatorID:        creatorRef,
+		PaymentTerm:      paymentTerm,
+		FinancingType:    financingType,
+		ReserveAmount:    &reserveAmount,
+		DownPayment:      &downPayment,
+		MaxPaymentDate:   maxPaymentDate,
+		BankName:         bankNamePtr,
+		BankCreditStatus: bankCreditStatusPtr,
+		Note:             &note,
+		Status:           models.ContractStatusPending,
+		Currency:         "HNL",
 	}
 	if len(documentPaths) > 0 {
 		if data, err := json.Marshal(documentPaths); err == nil {
@@ -431,11 +429,13 @@ func (h *ContractHandler) create(c *gin.Context, lotID uint, guest bool) {
 
 // UpdateContractRequest is the body for PATCH contract
 type UpdateContractRequest struct {
-	PaymentTerm    *int     `json:"payment_term"`
-	ReserveAmount  *float64 `json:"reserve_amount"`
-	DownPayment    *float64 `json:"down_payment"`
-	MaxPaymentDate *string  `json:"max_payment_date"` // YYYY-MM-DD; for bank/cash
-	Note           *string  `json:"note"`
+	PaymentTerm      *int     `json:"payment_term"`
+	ReserveAmount    *float64 `json:"reserve_amount"`
+	DownPayment      *float64 `json:"down_payment"`
+	MaxPaymentDate   *string  `json:"max_payment_date"` // YYYY-MM-DD; for bank/cash
+	BankName         *string  `json:"bank_name"`
+	BankCreditStatus *string  `json:"bank_credit_status"`
+	Note             *string  `json:"note"`
 }
 
 // @Summary Update Contract
@@ -472,7 +472,7 @@ func (h *ContractHandler) Update(c *gin.Context) {
 	var nestedReq struct {
 		Contract UpdateContractRequest `json:"contract"`
 	}
-	if err := json.Unmarshal(bodyBytes, &nestedReq); err == nil && (nestedReq.Contract.Note != nil || nestedReq.Contract.PaymentTerm != nil) {
+	if err := json.Unmarshal(bodyBytes, &nestedReq); err == nil && (nestedReq.Contract.Note != nil || nestedReq.Contract.PaymentTerm != nil || nestedReq.Contract.BankName != nil || nestedReq.Contract.BankCreditStatus != nil) {
 		req = nestedReq.Contract
 	} else {
 		// 2. Try Flat Structure { ... }
@@ -533,6 +533,33 @@ func (h *ContractHandler) Update(c *gin.Context) {
 
 	if req.Note != nil {
 		contract.Note = req.Note
+	}
+
+	if strings.EqualFold(contract.FinancingType, models.FinancingTypeBank) {
+		if req.BankName != nil {
+			trimmed := strings.TrimSpace(*req.BankName)
+			if trimmed == "" {
+				contract.BankName = nil
+			} else {
+				if len([]rune(trimmed)) > maxBankNameLength {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "El nombre del banco no puede superar los 120 caracteres"})
+					return
+				}
+				contract.BankName = &trimmed
+			}
+		}
+		if req.BankCreditStatus != nil {
+			status, ok := models.NormalizeBankCreditStatus(*req.BankCreditStatus)
+			if !ok {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "El estado del crédito bancario no es válido"})
+				return
+			}
+			if status == "" {
+				contract.BankCreditStatus = nil
+			} else {
+				contract.BankCreditStatus = &status
+			}
+		}
 	}
 
 	if err := h.contractService.Update(c.Request.Context(), contract); err != nil {
@@ -745,4 +772,66 @@ func (h *ContractHandler) Ledger(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ledger_entries": entries})
+}
+
+const maxBankNameLength = 120
+
+// parseMaxPaymentDate enforces the payment-date rules per financing modality.
+// Cash reservations require a date because the buyer controls the transfer.
+// Bank reservations accept none, because the bank does not commit to a
+// disbursement date at reservation time. Direct reservations ignore it.
+func parseMaxPaymentDate(financingType, raw string) (*time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	switch financingType {
+	case models.FinancingTypeCash:
+		if raw == "" {
+			return nil, errors.New("La fecha máxima de pago es requerida para financiamiento de contado")
+		}
+	case models.FinancingTypeBank:
+		if raw == "" {
+			return nil, nil
+		}
+	default:
+		return nil, nil
+	}
+
+	parsed, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		return nil, errors.New("La fecha máxima de pago debe tener formato YYYY-MM-DD")
+	}
+	today := time.Now().Truncate(24 * time.Hour)
+	maxDateOnly := time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, time.UTC)
+	todayOnly := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+	if maxDateOnly.Before(todayOnly) {
+		return nil, errors.New("La fecha máxima de pago no puede ser anterior a hoy")
+	}
+	return &parsed, nil
+}
+
+// parseBankCreditDetails normalizes the optional bank fields reported by the
+// customer. Bank fields only apply to bank financing; other modalities get
+// nulls so no meaningless data is stored.
+func parseBankCreditDetails(financingType, bankName, creditStatus string) (*string, *string, error) {
+	if financingType != models.FinancingTypeBank {
+		return nil, nil, nil
+	}
+
+	name := strings.TrimSpace(bankName)
+	var namePtr *string
+	if name != "" {
+		if len([]rune(name)) > maxBankNameLength {
+			return nil, nil, errors.New("El nombre del banco no puede superar los 120 caracteres")
+		}
+		namePtr = &name
+	}
+
+	normalized, ok := models.NormalizeBankCreditStatus(creditStatus)
+	if !ok {
+		return nil, nil, errors.New("El estado del crédito bancario no es válido")
+	}
+	var statusPtr *string
+	if normalized != "" {
+		statusPtr = &normalized
+	}
+	return namePtr, statusPtr, nil
 }

@@ -58,6 +58,30 @@ func TestContractResponse_LotMeasurementUnit(t *testing.T) {
 	}
 }
 
+func TestNormalizeBankCreditStatus(t *testing.T) {
+	cases := map[string]bool{
+		"":                true,
+		"not_started":     true,
+		" Pre_Qualified ": true,
+		"pre_qualified":   true,
+		"pre_approved":    true,
+		"approved":        true,
+		"APPROVED":        true,
+		"maybe":           false,
+		"rejected":        false,
+	}
+	for input, wantOK := range cases {
+		got, ok := NormalizeBankCreditStatus(input)
+		if ok != wantOK {
+			t.Errorf("NormalizeBankCreditStatus(%q) ok = %v, want %v", input, ok, wantOK)
+			continue
+		}
+		if ok && input == "APPROVED" && got != BankCreditStatusApproved {
+			t.Errorf("normalized = %q, want %q", got, BankCreditStatusApproved)
+		}
+	}
+}
+
 func TestContractResponse_ReservationPayment(t *testing.T) {
 	paidAt := time.Date(2026, 11, 10, 8, 30, 0, 0, time.UTC)
 	document := "receipts/2026/11/voucher.pdf"

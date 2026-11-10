@@ -12,7 +12,7 @@
 ## 3. Local setup
 
 - [x] 3.1 Set local `.env` to `ENABLE_EMAIL_NOTIFICATIONS=true`, `FROM_EMAIL=onboarding@resend.dev`, `EMAIL_OVERRIDE_TO=delivered@resend.dev`.
-- [ ] 3.2 Verify a real send through Resend returns success. _(Blocked: the local `RESEND_API_KEY` returns `API key is invalid`; the redirect is confirmed working in the logs.)_
+- [x] 3.2 Verify a real send through Resend returns success. _(Confirmed: `[Email Sent]` to `delivered@resend.dev` with the updated key.)_
 
 ## 4. Tests and verification
 

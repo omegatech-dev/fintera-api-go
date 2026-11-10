@@ -1126,6 +1126,45 @@ paths:
       summary: List Audit Logs
       tags:
       - Audit
+  /auth/change_password:
+    post:
+      consumes:
+      - application/json
+      description: Change the authenticated user's password (used by the customer
+        portal first login).
+      parameters:
+      - description: Password Data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.ChangePasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Change Own Password
+      tags:
+      - Authentication
   /auth/login:
     post:
       consumes:

@@ -399,6 +399,8 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 			protected.PUT("/users/:user_id", middleware.RequireAdminOrOwner(), h.User.Update)
 			// User can change their own password
 			protected.PATCH("/users/:user_id/change_password", h.User.ChangePassword)
+			// Customer portal first login: password change for the authenticated user.
+			protected.POST("/auth/change_password", h.User.ChangeOwnPassword)
 			protected.POST("/users/:user_id/resend_confirmation", h.User.ResendConfirmation)
 			protected.PATCH("/users/:user_id/update_locale", h.User.UpdateLocale)
 			protected.POST("/users/:user_id/picture", h.User.UploadProfilePicture)

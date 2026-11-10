@@ -26,6 +26,8 @@ type Contract struct {
 	BankCreditStatus          *string    `gorm:"size:30" json:"bank_credit_status"`
 	Currency                  string     `gorm:"default:HNL;not null" json:"currency"`
 	ApprovedAt                *time.Time `gorm:"index" json:"approved_at"`
+	SubmittedAt               *time.Time `json:"submitted_at"`
+	RejectedAt                *time.Time `json:"rejected_at"`
 	Active                    bool       `gorm:"default:false;index" json:"active"`
 	Note                      *string    `gorm:"type:text" json:"note"`
 	RejectionReason           *string    `gorm:"type:text" json:"rejection_reason"`
@@ -177,6 +179,7 @@ type ContractResponse struct {
 	LotWidth               float64                       `json:"lot_width"`
 	LotLength              float64                       `json:"lot_length"`
 	LotArea                float64                       `json:"lot_area"`
+	LotStatus              string                        `json:"lot_status"`
 	LotMeasurementUnit     *string                       `json:"lot_measurement_unit"`
 	LotPrice               float64                       `json:"lot_price"`
 	LotOverridePrice       *float64                      `json:"lot_override_price"`
@@ -202,6 +205,8 @@ type ContractResponse struct {
 	TotalInterestCollected float64                       `json:"total_interest_collected"`
 	TotalPaid              float64                       `json:"total_paid"`
 	ApprovedAt             *time.Time                    `json:"approved_at"`
+	SubmittedAt            *time.Time                    `json:"submitted_at"`
+	RejectedAt             *time.Time                    `json:"rejected_at"`
 	HoldExpiresAt          *time.Time                    `json:"hold_expires_at"`
 	CreatedAt              time.Time                     `json:"created_at"`
 	UpdatedAt              time.Time                     `json:"updated_at"`
@@ -232,6 +237,8 @@ func (c *Contract) ToResponse() ContractResponse {
 		RejectionReason:   c.RejectionReason,
 		CancellationNotes: c.Note,
 		ApprovedAt:        c.ApprovedAt,
+		SubmittedAt:       c.SubmittedAt,
+		RejectedAt:        c.RejectedAt,
 		CreatedAt:         c.CreatedAt,
 		UpdatedAt:         c.UpdatedAt,
 		Note:              c.Note,
@@ -243,16 +250,11 @@ func (c *Contract) ToResponse() ContractResponse {
 	resp.LotWidth = c.Lot.Width
 	resp.LotLength = c.Lot.Length
 	resp.LotArea = c.Lot.Area()
+	resp.LotStatus = c.Lot.Status
 	lotUnit := ResolveMeasurementUnit(c.Lot.MeasurementUnit, c.Lot.Project.MeasurementUnit)
 	resp.LotMeasurementUnit = &lotUnit
 	resp.LotPrice = c.Lot.Price
 	resp.LotOverridePrice = c.Lot.OverridePrice
-
-	// A pending reservation holds the lot for 48 hours from creation.
-	if c.Status == ContractStatusPending {
-		expires := c.CreatedAt.Add(48 * time.Hour)
-		resp.HoldExpiresAt = &expires
-	}
 
 	// Add project info
 	resp.ProjectID = c.Lot.ProjectID
@@ -307,10 +309,10 @@ func (c *Contract) ToResponse() ContractResponse {
 		}
 	}
 
-	// The 48h hold is derived data: only meaningful while the contract is
-	// still pending. Jobs remain the source of truth for releasing lots.
-	if c.Status == ContractStatusPending && !c.CreatedAt.IsZero() {
-		hold := c.CreatedAt.Add(48 * time.Hour)
+	// The hold remains meaningful until the reservation is approved, rejected
+	// or cancelled. Jobs remain the source of truth for releasing lots.
+	if (c.Status == ContractStatusPending || c.Status == ContractStatusSubmitted) && !c.CreatedAt.IsZero() {
+		hold := HoldExpiresAt(c.CreatedAt)
 		resp.HoldExpiresAt = &hold
 	}
 

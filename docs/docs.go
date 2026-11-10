@@ -3900,6 +3900,56 @@ const docTemplate = `{
                 }
             }
         },
+        "/public/reservations/{guid}/resend-access": {
+            "post": {
+                "description": "Regenerate the temporary password and resend the customer account setup email for a reservation (no auth).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Public Catalog"
+                ],
+                "summary": "Resend guest account setup email",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Contract GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/reports/commissions": {
             "get": {
                 "security": [
@@ -4183,6 +4233,74 @@ const docTemplate = `{
                         "description": "rescission.pdf",
                         "schema": {
                             "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/settings": {
+            "get": {
+                "description": "Public customer settings: support contact and reservation hold.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get general settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update support contact and reservation hold duration (Admin).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update general settings",
+                "parameters": [
+                    {
+                        "description": "Settings data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.generalSettingsUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -5244,6 +5362,20 @@ const docTemplate = `{
                 }
             }
         },
+        "handlers.generalSettingsUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "reservation_hold_hours": {
+                    "type": "integer"
+                },
+                "support_email": {
+                    "type": "string"
+                },
+                "support_whatsapp": {
+                    "type": "string"
+                }
+            }
+        },
         "models.BrandingResponse": {
             "type": "object",
             "properties": {
@@ -5357,6 +5489,9 @@ const docTemplate = `{
                         "$ref": "#/definitions/models.Payment"
                     }
                 },
+                "rejected_at": {
+                    "type": "string"
+                },
                 "rejection_reason": {
                     "type": "string"
                 },
@@ -5364,6 +5499,9 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "status": {
+                    "type": "string"
+                },
+                "submitted_at": {
                     "type": "string"
                 },
                 "total_paid": {
@@ -5542,6 +5680,9 @@ const docTemplate = `{
                 "lot_price": {
                     "type": "number"
                 },
+                "lot_status": {
+                    "type": "string"
+                },
                 "lot_width": {
                     "type": "number"
                 },
@@ -5572,6 +5713,9 @@ const docTemplate = `{
                 "project_name": {
                     "type": "string"
                 },
+                "rejected_at": {
+                    "type": "string"
+                },
                 "rejection_reason": {
                     "type": "string"
                 },
@@ -5582,6 +5726,9 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "status": {
+                    "type": "string"
+                },
+                "submitted_at": {
                     "type": "string"
                 },
                 "total_amount": {

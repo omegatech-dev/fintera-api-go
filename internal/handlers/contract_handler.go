@@ -438,6 +438,32 @@ type UpdateContractRequest struct {
 	Note             *string  `json:"note"`
 }
 
+// @Summary Resend guest account setup email
+// @Description Regenerate the temporary password and resend the customer account setup email for a reservation (no auth).
+// @Tags Public Catalog
+// @Produce json
+// @Param guid path string true "Contract GUID"
+// @Success 200 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 409 {object} map[string]string
+// @Router /public/reservations/{guid}/resend-access [post]
+func (h *ContractHandler) ResendGuestAccess(c *gin.Context) {
+	err := h.contractService.ResendAccountSetup(c.Request.Context(), c.Param("guid"))
+	if err != nil {
+		if errors.Is(err, services.ErrAccountAlreadyConfigured) {
+			c.JSON(http.StatusConflict, gin.H{"error": "Tu cuenta ya está configurada. Inicia sesión con tu contraseña."})
+			return
+		}
+		if errors.Is(err, services.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Reserva no encontrada"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo reenviar el correo de acceso"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Te enviamos un nuevo correo para configurar tu cuenta"})
+}
+
 // @Summary Update Contract
 // @Description Update contract schedule fields (payment_term, reserve_amount, down_payment). Allowed only when status is pending, rejected, or submitted. Schedule is recalculated on approval.
 // @Tags Contracts

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"html/template"
 	"strings"
-	"time"
 
 	"github.com/resend/resend-go/v2"
 	"github.com/sjperalta/fintera-api/internal/config"
@@ -236,7 +235,7 @@ func (s *EmailService) SendReservationVoucherReminder(ctx context.Context, contr
 	if contract.ReserveAmount != nil {
 		reserveAmount = *contract.ReserveAmount
 	}
-	holdExpiresAt := contract.CreatedAt.Add(48 * time.Hour)
+	holdExpiresAt := models.HoldExpiresAt(contract.CreatedAt)
 
 	data := struct {
 		Name          string

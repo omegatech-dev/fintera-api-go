@@ -154,9 +154,9 @@ func (s *ContractService) Create(ctx context.Context, contract *models.Contract)
 	// Create the reservation payment immediately so the portal can upload the
 	// voucher while the contract is pending. It is due at the 48h hold expiry.
 	if contract.ReserveAmount != nil && *contract.ReserveAmount > 0 {
-		due := contract.CreatedAt.Add(48 * time.Hour)
+		due := models.HoldExpiresAt(contract.CreatedAt)
 		if contract.CreatedAt.IsZero() {
-			due = time.Now().Add(48 * time.Hour)
+			due = models.HoldExpiresAt(time.Now())
 		}
 		description := "Pago de Reserva"
 		reservation := &models.Payment{
@@ -235,6 +235,43 @@ func (s *ContractService) CreateUser(ctx context.Context, user *models.User, pas
 	// Send welcome email with temp password (best-effort)
 	if err := s.emailSvc.SendAccountCreated(ctx, user, password); err != nil {
 		_ = err // Logged inside SendAccountCreated
+	}
+	return nil
+}
+
+// ErrAccountAlreadyConfigured is returned when a customer already replaced the
+// temporary password, so resending the setup email would reset it.
+var ErrAccountAlreadyConfigured = errors.New("la cuenta ya está configurada")
+
+// ResendAccountSetup regenerates the temporary password and resends the account
+// setup email for a customer who has not completed onboarding yet.
+func (s *ContractService) ResendAccountSetup(ctx context.Context, contractGUID string) error {
+	contract, err := s.repo.FindByGUIDWithDetails(ctx, contractGUID)
+	if err != nil {
+		return ErrNotFound
+	}
+	user := contract.ApplicantUser
+	if !user.MustChangePassword {
+		return ErrAccountAlreadyConfigured
+	}
+
+	tempPassword, err := GenerateTempPassword()
+	if err != nil {
+		return err
+	}
+	hashed, err := HashPassword(tempPassword)
+	if err != nil {
+		return err
+	}
+	// Send first so a disabled/unconfigured mailer cannot silently reset the
+	// stored password without the customer receiving the new one.
+	if err := s.emailSvc.SendAccountCreated(ctx, &user, tempPassword); err != nil {
+		return err
+	}
+	user.EncryptedPassword = hashed
+	user.MustChangePassword = true
+	if err := s.userRepo.Update(ctx, &user); err != nil {
+		return err
 	}
 	return nil
 }
@@ -380,6 +417,8 @@ func (s *ContractService) Reject(ctx context.Context, id uint, reason string) (*
 	}
 
 	contract.RejectionReason = &reason
+	now := time.Now()
+	contract.RejectedAt = &now
 
 	if err := s.repo.Update(ctx, contract); err != nil {
 		return nil, err

@@ -106,6 +106,7 @@ func (s *PublicCatalogService) ListPaymentInstructions(ctx context.Context, proj
 
 func publicProjectResponse(project *models.Project) models.PublicProjectResponse {
 	stats := models.PublicProjectStats{}
+	var priceFrom, priceTo *float64
 	for i := range project.Lots {
 		lot := &project.Lots[i]
 		if lot.Status == models.LotStatusActive {
@@ -117,8 +118,22 @@ func publicProjectResponse(project *models.Project) models.PublicProjectResponse
 			stats.AvailableLots++
 		case models.LotStatusReserved:
 			stats.ReservedLots++
-		case models.LotStatusFinanced, models.LotStatusFullyPaid:
+		case models.LotStatusFinanced:
+			stats.FinancedLots++
 			stats.SoldLots++
+		case models.LotStatusFullyPaid:
+			stats.PaidLots++
+			stats.SoldLots++
+		}
+		if price := lot.EffectivePrice(); price > 0 {
+			if priceFrom == nil || price < *priceFrom {
+				value := price
+				priceFrom = &value
+			}
+			if priceTo == nil || price > *priceTo {
+				value := price
+				priceTo = &value
+			}
 		}
 	}
 
@@ -130,11 +145,18 @@ func publicProjectResponse(project *models.Project) models.PublicProjectResponse
 	return models.PublicProjectResponse{
 		GUID:               project.GUID,
 		Name:               project.Name,
+		Description:        project.Description,
 		ProjectType:        project.ProjectType,
 		Address:            project.Address,
+		City:               project.City,
+		Code:               project.Code,
 		DeliveryDate:       project.DeliveryDate,
+		CreatedAt:          project.CreatedAt,
 		PricePerSquareUnit: project.PricePerSquareUnit,
 		MeasurementUnit:    project.MeasurementUnit,
+		PriceFrom:          priceFrom,
+		PriceTo:            priceTo,
+		DrawingCount:       len(project.Drawings),
 		Stats:              stats,
 		Photos:             photos,
 		PhotoCount:         len(photos),

@@ -41,11 +41,16 @@ or on logout.
 
 Real-estate projects with pricing and commission configuration.
 
-Key columns: `name`, `description`, `project_type`, `address`, `lot_count`,
-`price_per_square_unit`, `interest_rate` (percentage, used for overdue
-interest), `guid`, `commission_rate`, `commission_rate_direct` (default 4),
-`commission_rate_bank` (default 6), `commission_rate_cash` (default 7),
-`measurement_unit`, `delivery_date`.
+Key columns: `name`, `description`, `project_type`, `address`, `city`, `code`,
+`lot_count`, `price_per_square_unit`, `interest_rate` (percentage, used for
+overdue interest), `guid`, `commission_rate`, `commission_rate_direct`
+(default 4), `commission_rate_bank` (default 6), `commission_rate_cash`
+(default 7), `measurement_unit`, `delivery_date`, `is_published`, `is_active`.
+
+`city` and `code` are optional discovery fields managed by admins. The public
+catalog also derives `price_from` / `price_to` from the effective lot prices and
+`drawing_count` from the project's drawings; it never exposes interest or
+commission rates.
 
 ### `lots`
 

@@ -633,6 +633,10 @@ definitions:
     properties:
       address:
         type: string
+      city:
+        type: string
+      code:
+        type: string
       commission_rate:
         type: number
       commission_rate_bank:
@@ -681,6 +685,10 @@ definitions:
         type: string
       available_lots:
         type: integer
+      city:
+        type: string
+      code:
+        type: string
       commission_rate:
         type: number
       commission_rate_bank:

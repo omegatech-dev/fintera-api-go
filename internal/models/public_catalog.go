@@ -1,10 +1,14 @@
 package models
 
+import "time"
+
 // PublicProjectStats is the aggregate lot information exposed publicly.
 type PublicProjectStats struct {
 	TotalLots     int `json:"total_lots"`
 	AvailableLots int `json:"available_lots"`
 	ReservedLots  int `json:"reserved_lots"`
+	FinancedLots  int `json:"financed_lots"`
+	PaidLots      int `json:"paid_lots"`
 	SoldLots      int `json:"sold_lots"`
 }
 
@@ -13,11 +17,18 @@ type PublicProjectStats struct {
 type PublicProjectResponse struct {
 	GUID               string             `json:"guid"`
 	Name               string             `json:"name"`
+	Description        string             `json:"description"`
 	ProjectType        string             `json:"project_type"`
 	Address            string             `json:"address"`
+	City               *string            `json:"city"`
+	Code               *string            `json:"code"`
 	DeliveryDate       *string            `json:"delivery_date"`
+	CreatedAt          time.Time          `json:"created_at"`
 	PricePerSquareUnit float64            `json:"price_per_square_unit"`
 	MeasurementUnit    string             `json:"measurement_unit"`
+	PriceFrom          *float64           `json:"price_from"`
+	PriceTo            *float64           `json:"price_to"`
+	DrawingCount       int                `json:"drawing_count"`
 	Stats              PublicProjectStats `json:"stats"`
 	Photos             []PhotoResponse    `json:"photos"`
 	PhotoCount         int                `json:"photo_count"`

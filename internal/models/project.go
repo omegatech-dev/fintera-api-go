@@ -11,6 +11,8 @@ type Project struct {
 	Description          string    `gorm:"type:text;not null" json:"description"`
 	ProjectType          string    `gorm:"default:residential" json:"project_type"`
 	Address              string    `gorm:"not null" json:"address"`
+	City                 *string   `gorm:"type:varchar(120)" json:"city"`
+	Code                 *string   `gorm:"type:varchar(40)" json:"code"`
 	LotCount             int       `gorm:"not null" json:"lot_count"`
 	PricePerSquareUnit   float64   `gorm:"type:decimal(10,2);not null" json:"price_per_square_unit"`
 	InterestRate         float64   `gorm:"type:decimal(5,2);not null" json:"interest_rate"`
@@ -45,6 +47,8 @@ type ProjectResponse struct {
 	Description          string    `json:"description"`
 	ProjectType          string    `json:"project_type"`
 	Address              string    `json:"address"`
+	City                 *string   `json:"city"`
+	Code                 *string   `json:"code"`
 	LotCount             int       `json:"lot_count"`
 	PricePerSquareUnit   float64   `json:"price_per_square_unit"`
 	InterestRate         float64   `json:"interest_rate"`
@@ -83,6 +87,8 @@ func (p *Project) ToResponse() ProjectResponse {
 		Description:          p.Description,
 		ProjectType:          p.ProjectType,
 		Address:              p.Address,
+		City:                 p.City,
+		Code:                 p.Code,
 		LotCount:             p.LotCount,
 		PricePerSquareUnit:   p.PricePerSquareUnit,
 		InterestRate:         p.InterestRate,

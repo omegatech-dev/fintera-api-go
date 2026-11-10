@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS idx_projects_city;
+ALTER TABLE projects DROP COLUMN IF EXISTS code;
+ALTER TABLE projects DROP COLUMN IF EXISTS city;

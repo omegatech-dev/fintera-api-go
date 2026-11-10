@@ -2119,7 +2119,7 @@ paths:
     post:
       consumes:
       - multipart/form-data
-      description: Upload one or more plans (dwg, dxf, pdf, svg; max 50 MB each).
+      description: Upload one or more plans (svg, png, jpg, jpeg, pdf; max 50 MB each).
       parameters:
       - description: Project ID
         in: path

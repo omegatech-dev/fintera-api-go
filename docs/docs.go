@@ -1880,7 +1880,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Upload one or more plans (dwg, dxf, pdf, svg; max 50 MB each).",
+                "description": "Upload one or more plans (svg, png, jpg, jpeg, pdf; max 50 MB each).",
                 "consumes": [
                     "multipart/form-data"
                 ],

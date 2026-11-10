@@ -11,6 +11,11 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 
+		// The response depends on the request Origin. Without Vary, browsers and
+		// shared caches can reuse a cached CORS response (including its
+		// Access-Control-Allow-Origin value) for a different origin.
+		c.Header("Vary", "Origin")
+
 		// Check if origin is allowed
 		allowed := false
 		for _, o := range allowedOrigins {

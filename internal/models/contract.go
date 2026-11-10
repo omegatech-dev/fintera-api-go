@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"time"
 )
 
@@ -21,6 +22,8 @@ type Contract struct {
 	DownPayment               *float64   `gorm:"type:decimal" json:"down_payment"`
 	ReserveAmount             *float64   `gorm:"type:decimal" json:"reserve_amount"`
 	MaxPaymentDate            *time.Time `gorm:"type:date" json:"max_payment_date"` // for bank/cash: date by which customer will pay the rest
+	BankName                  *string    `gorm:"size:120" json:"bank_name"`
+	BankCreditStatus          *string    `gorm:"size:30" json:"bank_credit_status"`
 	Currency                  string     `gorm:"default:HNL;not null" json:"currency"`
 	ApprovedAt                *time.Time `gorm:"index" json:"approved_at"`
 	Active                    bool       `gorm:"default:false;index" json:"active"`
@@ -63,6 +66,32 @@ const (
 	FinancingTypeBank   = "bank"
 	FinancingTypeCash   = "cash"
 )
+
+// Bank credit status constants. They describe where the customer's loan
+// application stands at reservation time.
+const (
+	BankCreditStatusNotStarted   = "not_started"
+	BankCreditStatusPreQualified = "pre_qualified"
+	BankCreditStatusPreApproved  = "pre_approved"
+	BankCreditStatusApproved     = "approved"
+)
+
+// NormalizeBankCreditStatus trims and lowercases a bank credit status. It
+// returns ok=false when the value is not one of the supported stages. An empty
+// value is valid and means "not provided".
+func NormalizeBankCreditStatus(value string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "",
+		BankCreditStatusNotStarted,
+		BankCreditStatusPreQualified,
+		BankCreditStatusPreApproved,
+		BankCreditStatusApproved:
+		return normalized, true
+	default:
+		return "", false
+	}
+}
 
 // MaySubmit returns true if contract can transition to submitted
 func (c *Contract) MaySubmit() bool {
@@ -164,6 +193,8 @@ type ContractResponse struct {
 	ReserveAmount          *float64                      `json:"reserve_amount"`
 	DownPayment            *float64                      `json:"down_payment"`
 	MaxPaymentDate         *time.Time                    `json:"max_payment_date"`
+	BankName               *string                       `json:"bank_name"`
+	BankCreditStatus       *string                       `json:"bank_credit_status"`
 	Status                 string                        `json:"status"`
 	Balance                float64                       `json:"balance"`
 	RejectionReason        *string                       `json:"rejection_reason"`
@@ -195,6 +226,8 @@ func (c *Contract) ToResponse() ContractResponse {
 		ReserveAmount:     c.ReserveAmount,
 		DownPayment:       c.DownPayment,
 		MaxPaymentDate:    c.MaxPaymentDate,
+		BankName:          c.BankName,
+		BankCreditStatus:  c.BankCreditStatus,
 		Status:            c.Status,
 		RejectionReason:   c.RejectionReason,
 		CancellationNotes: c.Note,

@@ -111,6 +111,10 @@ definitions:
     type: object
   handlers.UpdateContractRequest:
     properties:
+      bank_credit_status:
+        type: string
+      bank_name:
+        type: string
       down_payment:
         type: number
       max_payment_date:
@@ -184,6 +188,10 @@ definitions:
         type: string
       balance:
         type: number
+      bank_credit_status:
+        type: string
+      bank_name:
+        type: string
       closed_at:
         type: string
       commission_amount:
@@ -310,6 +318,10 @@ definitions:
         type: string
       balance:
         type: number
+      bank_credit_status:
+        type: string
+      bank_name:
+        type: string
       cancellation_notes:
         type: string
       contract_id:

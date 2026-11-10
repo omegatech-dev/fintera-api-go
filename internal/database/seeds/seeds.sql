@@ -290,8 +290,10 @@ BEGIN
     IF v_contract_id IS NULL THEN
         -- Initial balance is negative total amount (debt)
         INSERT INTO contracts (lot_id, applicant_user_id, payment_term, financing_type, reserve_amount, down_payment,
+                              max_payment_date, bank_name, bank_credit_status,
                               status, currency, amount, balance, created_at, updated_at)
-        VALUES (v_lot_id, v_user_id, 18, 'direct', 50000.00, 100000.00,
+        VALUES (v_lot_id, v_user_id, 18, 'bank', 50000.00, 100000.00,
+                (NOW() + INTERVAL '90 days')::date, 'Banco Atlántida', 'pre_qualified',
                 'pending', 'HNL', v_amount, -v_amount, NOW() - INTERVAL '5 days', NOW())
         RETURNING id INTO v_contract_id;
         

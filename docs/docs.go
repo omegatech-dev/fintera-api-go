@@ -4829,6 +4829,12 @@ const docTemplate = `{
         "handlers.UpdateContractRequest": {
             "type": "object",
             "properties": {
+                "bank_credit_status": {
+                    "type": "string"
+                },
+                "bank_name": {
+                    "type": "string"
+                },
                 "down_payment": {
                     "type": "number"
                 },
@@ -4938,6 +4944,12 @@ const docTemplate = `{
                 },
                 "balance": {
                     "type": "number"
+                },
+                "bank_credit_status": {
+                    "type": "string"
+                },
+                "bank_name": {
+                    "type": "string"
                 },
                 "closed_at": {
                     "type": "string"
@@ -5129,6 +5141,12 @@ const docTemplate = `{
                 },
                 "balance": {
                     "type": "number"
+                },
+                "bank_credit_status": {
+                    "type": "string"
+                },
+                "bank_name": {
+                    "type": "string"
                 },
                 "cancellation_notes": {
                     "type": "string"

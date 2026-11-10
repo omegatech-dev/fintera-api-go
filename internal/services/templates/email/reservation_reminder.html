@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: #f3f4f6;
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 40px auto;
+            background-color: #ffffff;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .header {
+            background-color: #7c3aed;
+            padding: 32px;
+            text-align: center;
+        }
+
+        .logo {
+            color: #ffffff;
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            text-decoration: none;
+        }
+
+        .content {
+            padding: 40px 32px;
+        }
+
+        h1 {
+            color: #111827;
+            font-size: 24px;
+            font-weight: 700;
+            margin: 0 0 16px 0;
+            letter-spacing: -0.025em;
+        }
+
+        p {
+            color: #4b5563;
+            font-size: 16px;
+            line-height: 1.6;
+            margin: 0 0 24px 0;
+        }
+
+        .details-grid {
+            background-color: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 0 0 24px 0;
+        }
+
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .detail-item:last-child {
+            border-bottom: none;
+        }
+
+        .detail-label {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .detail-value {
+            color: #111827;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .button {
+            display: block;
+            width: fit-content;
+            margin: 0 auto;
+            background-color: #7c3aed;
+            color: #ffffff !important;
+            text-decoration: none;
+            padding: 14px 28px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .footer {
+            background-color: #f9fafb;
+            padding: 24px 32px;
+            text-align: center;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .footer p {
+            color: #9ca3af;
+            font-size: 12px;
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <a href="{{.PortalURL}}" class="logo">Fintera</a>
+        </div>
+        <div class="content">
+            <h1>Tu reserva está por vencer</h1>
+            <p>Hola {{.Name}},</p>
+            <p>Recibimos tu solicitud de reserva, pero aún no hemos recibido el comprobante del pago de
+                reserva. El lote se liberará automáticamente si no recibimos el comprobante antes de la
+                fecha límite.</p>
+
+            <div class="details-grid">
+                <div class="detail-item">
+                    <span class="detail-label">Proyecto</span>
+                    <span class="detail-value">{{.ProjectName}}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Lote</span>
+                    <span class="detail-value">{{.LotName}}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Monto de Reserva</span>
+                    <span class="detail-value">{{.ReserveAmount}}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Fecha límite</span>
+                    <span class="detail-value">{{.HoldExpiresAt}}</span>
+                </div>
+            </div>
+
+            <a href="{{.PortalURL}}" class="button">Subir mi comprobante</a>
+        </div>
+        <div class="footer">
+            <p>&copy; 2026 Fintera. Todos los derechos reservados.</p>
+        </div>
+    </div>
+</body>
+
+</html>

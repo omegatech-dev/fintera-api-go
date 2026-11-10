@@ -21,11 +21,15 @@ type Project struct {
 	CommissionRateCash   float64   `gorm:"type:decimal(5,2);default:7" json:"commission_rate_cash"`
 	MeasurementUnit      string    `gorm:"default:m2" json:"measurement_unit"`
 	DeliveryDate         *string   `gorm:"type:date" json:"delivery_date"`
+	IsPublished          bool      `gorm:"column:is_published;default:true" json:"is_published"`
+	IsActive             bool      `gorm:"column:is_active;default:true" json:"is_active"`
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
 
 	// Associations
-	Lots []Lot `gorm:"foreignKey:ProjectID" json:"lots,omitempty"`
+	Lots     []Lot            `gorm:"foreignKey:ProjectID" json:"lots,omitempty"`
+	Photos   []ProjectPhoto   `gorm:"foreignKey:ProjectID" json:"-"`
+	Drawings []ProjectDrawing `gorm:"foreignKey:ProjectID" json:"-"`
 }
 
 // TableName specifies the table name for Project
@@ -50,6 +54,8 @@ type ProjectResponse struct {
 	CommissionRateCash   float64   `json:"commission_rate_cash"`
 	MeasurementUnit      string    `json:"measurement_unit"`
 	DeliveryDate         *string   `json:"delivery_date"`
+	IsPublished          bool      `json:"is_published"`
+	IsActive             bool      `json:"is_active"`
 	AvailableLots        int       `json:"available_lots"`
 	ReservedLots         int       `json:"reserved_lots"`
 	SoldLots             int       `json:"sold_lots"`
@@ -86,6 +92,8 @@ func (p *Project) ToResponse() ProjectResponse {
 		CommissionRateCash:   p.CommissionRateCash,
 		MeasurementUnit:      p.MeasurementUnit,
 		DeliveryDate:         p.DeliveryDate,
+		IsPublished:          p.IsPublished,
+		IsActive:             p.IsActive,
 		AvailableLots:        available,
 		ReservedLots:         reserved,
 		SoldLots:             sold,

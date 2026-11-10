@@ -66,6 +66,11 @@ func (s *ProjectService) Update(ctx context.Context, project *models.Project, ac
 		project.GUID = existing.GUID
 	}
 
+	// Visibility is managed separately from the edit form; preserve it so a
+	// normal project update never unpublishes the project.
+	project.IsPublished = existing.IsPublished
+	project.IsActive = existing.IsActive
+
 	// Check if any of these fields changed: Unidad de Medida, Precio por Unidad, Tasa de Interés, Tasa de Comisión
 	// Check if any of these fields changed: Unidad de Medida, Precio por Unidad, Tasa de Interés, Tasas de Comisión
 	measurementUnitChanged := existing.MeasurementUnit != project.MeasurementUnit

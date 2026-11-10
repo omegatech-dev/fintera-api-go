@@ -67,7 +67,8 @@ Source: `internal/config/config.go`.
 | `STORAGE_PATH` | `./storage` | Local upload root |
 | `WORKER_COUNT` | `5` | Background worker consumers |
 | `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
-| `APP_URL` | `https://fintera.securexapp.com` | Used in email links |
+| `APP_URL` | `https://fintera.securexapp.com` | Used in internal/admin email links |
+| `PORTAL_URL` | `https://portal.fintera.app` | Customer portal origin for email deep links (`/reserva/:guid/seguimiento`, `/mis-reservas`) |
 | `RESEND_API_KEY` | empty | Email is disabled without it |
 | `FROM_EMAIL` | `noreply@fintera.app` | Sender address |
 | `ENABLE_EMAIL_NOTIFICATIONS` | `false` | Global email switch |

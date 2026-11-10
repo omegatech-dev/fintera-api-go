@@ -30,7 +30,8 @@ type Config struct {
 	AllowedOrigins []string
 
 	// General
-	AppURL string
+	AppURL    string
+	PortalURL string
 
 	// Email (Resend)
 	ResendAPIKey             string
@@ -59,6 +60,7 @@ func Load() (*Config, error) {
 		WorkerCount:              getEnvAsInt("WORKER_COUNT", 5),
 		AllowedOrigins:           getEnvAsSlice("ALLOWED_ORIGINS", []string{"*"}),
 		AppURL:                   getEnv("APP_URL", "https://fintera.securexapp.com"),
+		PortalURL:                getEnv("PORTAL_URL", "https://portal.fintera.app"),
 		ResendAPIKey:             getEnv("RESEND_API_KEY", ""),
 		FromEmail:                getEnv("FROM_EMAIL", "noreply@fintera.app"),
 		EnableEmailNotifications: getEnvAsBool("ENABLE_EMAIL_NOTIFICATIONS", false),

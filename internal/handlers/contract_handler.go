@@ -116,6 +116,29 @@ func (h *ContractHandler) Show(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"contract": contract.ToResponse()})
 }
 
+// @Summary Get Contract by GUID
+// @Description Owner/admin access to a reservation by its public GUID.
+// @Tags Contracts
+// @Produce json
+// @Param guid path string true "Contract GUID"
+// @Success 200 {object} models.ContractResponse
+// @Failure 403,404 {object} map[string]string
+// @Security BearerAuth
+// @Router /contracts/{guid} [get]
+func (h *ContractHandler) ShowByGUID(c *gin.Context) {
+	contract, err := h.contractService.FindByGUIDWithDetails(c.Request.Context(), c.Param("guid"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Contrato no encontrado"})
+		return
+	}
+	role := middleware.GetUserRole(c)
+	if role != "admin" && role != "seller" && contract.ApplicantUserID != middleware.GetUserID(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "No tienes acceso a esta reserva"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"contract": contract.ToResponse()})
+}
+
 // @Summary Create Contract
 // @Description Create a new contract with optional new user and documents
 // @Tags Contracts
@@ -130,8 +153,31 @@ func (h *ContractHandler) Show(c *gin.Context) {
 // @Security BearerAuth
 // @Router /projects/{project_id}/lots/{lot_id}/contracts [post]
 func (h *ContractHandler) Create(c *gin.Context) {
-	// 1. Extract IDs from path
 	lotID, _ := strconv.ParseUint(c.Param("lot_id"), 10, 32)
+	h.create(c, uint(lotID), false)
+}
+
+// @Summary Create Guest Reservation
+// @Description Create a reservation without a session (implicit sign-up).
+// @Tags Public Catalog
+// @Accept multipart/form-data
+// @Produce json
+// @Param guid path string true "Project GUID"
+// @Param lot_guid path string true "Lot GUID"
+// @Success 201 {object} map[string]interface{}
+// @Failure 409 {object} map[string]string
+// @Failure 422 {object} map[string]string
+// @Router /public/projects/{guid}/lots/{lot_guid}/contracts [post]
+func (h *ContractHandler) CreateGuest(c *gin.Context) {
+	lot, err := h.contractService.FindLotByProjectAndGUID(c.Request.Context(), c.Param("guid"), c.Param("lot_guid"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Lote no encontrado"})
+		return
+	}
+	h.create(c, lot.ID, true)
+}
+
+func (h *ContractHandler) create(c *gin.Context, lotID uint, guest bool) {
 	creatorID := middleware.GetUserID(c)
 
 	// 2. Parse Form Data
@@ -187,6 +233,56 @@ func (h *ContractHandler) Create(c *gin.Context) {
 			return
 		}
 		applicantID = user.ID
+	} else if guest && creatorID > 0 {
+		applicantID = creatorID
+	} else if guest {
+		email := strings.TrimSpace(c.Request.FormValue("user[email]"))
+		identity := strings.TrimSpace(c.Request.FormValue("user[identity]"))
+
+		if email == "" || identity == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Email e Identidad son requeridos para nuevos usuarios"})
+			return
+		}
+		if _, err := mail.ParseAddress(email); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "El correo electrónico no tiene un formato válido"})
+			return
+		}
+		if len(identity) < 5 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "La identidad debe tener al menos 5 caracteres"})
+			return
+		}
+
+		// Guests with an existing account must sign in instead of creating a
+		// duplicate.
+		if existing, err := h.contractService.GetUserByEmail(c.Request.Context(), email); err == nil && existing != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "EMAIL_TAKEN"})
+			return
+		}
+		if existing, err := h.contractService.GetUserByIdentity(c.Request.Context(), identity); err == nil && existing != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "EMAIL_TAKEN"})
+			return
+		}
+
+		newUser := &models.User{
+			Email:    email,
+			FullName: c.Request.FormValue("user[full_name]"),
+			Phone:    c.Request.FormValue("user[phone]"),
+			Identity: identity,
+			RTN:      c.Request.FormValue("user[rtn]"),
+			Role:     models.RoleUser,
+			Status:   models.StatusActive,
+			Locale:   models.LocaleES,
+		}
+		tempPassword, err := services.GenerateTempPassword()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error generando contraseña temporal"})
+			return
+		}
+		if err := h.contractService.CreateUser(c.Request.Context(), newUser, tempPassword); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error creando usuario: " + err.Error()})
+			return
+		}
+		applicantID = newUser.ID
 	} else {
 		// Create New User
 		email := strings.TrimSpace(c.Request.FormValue("user[email]"))
@@ -277,10 +373,14 @@ func (h *ContractHandler) Create(c *gin.Context) {
 	}
 
 	// 6. Create Contract Object
+	var creatorRef *uint
+	if creatorID > 0 {
+		creatorRef = &creatorID
+	}
 	contract := &models.Contract{
-		LotID:           uint(lotID),
+		LotID:           lotID,
 		ApplicantUserID: applicantID,
-		CreatorID:       &creatorID,
+		CreatorID:       creatorRef,
 		PaymentTerm:     paymentTerm,
 		FinancingType:   financingType,
 		ReserveAmount:   &reserveAmount,
@@ -299,11 +399,34 @@ func (h *ContractHandler) Create(c *gin.Context) {
 
 	// 7. Call Service
 	if err := h.contractService.Create(c.Request.Context(), contract); err != nil {
+		if guest && strings.Contains(strings.ToLower(err.Error()), "no está disponible") {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "El lote ya no está disponible"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Solicitud de contrato creada exitosamente", "contract_id": contract.ID})
+	created, err := h.contractService.FindByIDWithDetails(c.Request.Context(), contract.ID)
+	if err != nil {
+		c.JSON(http.StatusCreated, gin.H{"message": "Solicitud de contrato creada exitosamente", "contract_id": contract.ID})
+		return
+	}
+
+	var reservationPayment interface{}
+	for i := range created.Payments {
+		if created.Payments[i].PaymentType == models.PaymentTypeReservation {
+			reservationPayment = created.Payments[i].ToResponse()
+			break
+		}
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message":             "Solicitud de contrato creada exitosamente",
+		"contract_id":         contract.ID,
+		"contract":            created.ToResponse(),
+		"reservation_payment": reservationPayment,
+	})
 }
 
 // UpdateContractRequest is the body for PATCH contract

@@ -6,6 +6,8 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+	"strings"
+	"time"
 
 	"github.com/resend/resend-go/v2"
 	"github.com/sjperalta/fintera-api/internal/config"
@@ -134,7 +136,7 @@ func (s *EmailService) SendAccountCreated(ctx context.Context, user *models.User
 		ShowPassword bool
 	}{
 		Name:         user.FullName,
-		AppURL:       s.config.AppURL,
+		AppURL:       strings.TrimRight(s.config.PortalURL, "/") + "/acceso",
 		TempPassword: tempPassword,
 		ShowPassword: tempPassword != "",
 	}
@@ -186,6 +188,7 @@ func (s *EmailService) SendContractSubmitted(ctx context.Context, contract *mode
 		DownPayment   string
 		CreatedAt     string
 		AppURL        string
+		PortalURL     string
 	}{
 		Name:          contract.ApplicantUser.FullName,
 		ProjectName:   contract.Lot.Project.Name,
@@ -197,6 +200,7 @@ func (s *EmailService) SendContractSubmitted(ctx context.Context, contract *mode
 		DownPayment:   fmt.Sprintf("L%.2f", downPayment),
 		CreatedAt:     contract.CreatedAt.Format("02/01/2006 15:04"),
 		AppURL:        s.config.AppURL,
+		PortalURL:     strings.TrimRight(s.config.PortalURL, "/") + "/reserva/" + contract.GUID + "/seguimiento",
 	}
 
 	body, err := s.renderTemplate("contract_submitted.html", data)
@@ -218,6 +222,57 @@ func (s *EmailService) SendContractSubmitted(ctx context.Context, contract *mode
 	}
 
 	logger.Info(fmt.Sprintf("📧 [Email Sent] To: %s | Subject: Contrato Creado", contract.ApplicantUser.Email))
+	return nil
+}
+
+// SendReservationVoucherReminder warns a customer that their 48h hold is about
+// to expire and that the reservation voucher is still missing.
+func (s *EmailService) SendReservationVoucherReminder(ctx context.Context, contract *models.Contract) error {
+	if ok, err := s.checkEmailPreconditions(&contract.ApplicantUser, "reservation voucher reminder email"); !ok {
+		return err
+	}
+
+	reserveAmount := 0.0
+	if contract.ReserveAmount != nil {
+		reserveAmount = *contract.ReserveAmount
+	}
+	holdExpiresAt := contract.CreatedAt.Add(48 * time.Hour)
+
+	data := struct {
+		Name          string
+		ProjectName   string
+		LotName       string
+		ReserveAmount string
+		HoldExpiresAt string
+		PortalURL     string
+	}{
+		Name:          contract.ApplicantUser.FullName,
+		ProjectName:   contract.Lot.Project.Name,
+		LotName:       contract.Lot.Name,
+		ReserveAmount: fmt.Sprintf("L%.2f", reserveAmount),
+		HoldExpiresAt: holdExpiresAt.Format("02/01/2006 15:04"),
+		PortalURL:     strings.TrimRight(s.config.PortalURL, "/") + "/reserva/" + contract.GUID + "/seguimiento",
+	}
+
+	body, err := s.renderTemplate("reservation_reminder.html", data)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to render reservation_reminder template: %v", err))
+		return err
+	}
+
+	params := &resend.SendEmailRequest{
+		From:    s.config.FromEmail,
+		To:      []string{contract.ApplicantUser.Email},
+		Subject: "Tu reserva está por vencer",
+		Html:    body,
+	}
+	_, err = s.resendClient.Emails.Send(params)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to send email to %s: %v", contract.ApplicantUser.Email, err))
+		return err
+	}
+
+	logger.Info(fmt.Sprintf("📧 [Email Sent] To: %s | Subject: Tu reserva está por vencer", contract.ApplicantUser.Email))
 	return nil
 }
 
@@ -252,6 +307,7 @@ func (s *EmailService) SendContractApproved(ctx context.Context, contract *model
 		FirstPaymentDate string
 		ApprovedAt       string
 		AppURL           string
+		PortalURL        string
 	}{
 		Name:             contract.ApplicantUser.FullName,
 		ProjectName:      contract.Lot.Project.Name,
@@ -263,6 +319,7 @@ func (s *EmailService) SendContractApproved(ctx context.Context, contract *model
 		FirstPaymentDate: firstPaymentDate,
 		ApprovedAt:       contract.ApprovedAt.Format("02/01/2006 15:04"),
 		AppURL:           s.config.AppURL,
+		PortalURL:        strings.TrimRight(s.config.PortalURL, "/") + "/mis-reservas",
 	}
 
 	body, err := s.renderTemplate("contract_approved.html", data)
@@ -311,12 +368,14 @@ func (s *EmailService) SendContractRejected(ctx context.Context, contract *model
 		LotName     string
 		Reason      string
 		AppURL      string
+		PortalURL   string
 	}{
 		Name:        contract.ApplicantUser.FullName,
 		ProjectName: projectName,
 		LotName:     lotName,
 		Reason:      reasonText,
 		AppURL:      s.config.AppURL,
+		PortalURL:   strings.TrimRight(s.config.PortalURL, "/") + "/mis-reservas",
 	}
 	body, err := s.renderTemplate("contract_rejected.html", data)
 	if err != nil {
@@ -570,6 +629,7 @@ func (s *EmailService) SendReservationApproved(ctx context.Context, contract *mo
 		LotName       string
 		ReserveAmount string
 		AppURL        string
+		PortalURL     string
 	}{
 		Name:          contract.ApplicantUser.FullName,
 		ContractID:    contract.ID,
@@ -577,6 +637,7 @@ func (s *EmailService) SendReservationApproved(ctx context.Context, contract *mo
 		LotName:       contract.Lot.Name,
 		ReserveAmount: fmt.Sprintf("L%.2f", reserveAmount),
 		AppURL:        s.config.AppURL,
+		PortalURL:     strings.TrimRight(s.config.PortalURL, "/") + "/reserva/" + contract.GUID + "/seguimiento",
 	}
 
 	body, err := s.renderTemplate("reservation_approved.html", data)

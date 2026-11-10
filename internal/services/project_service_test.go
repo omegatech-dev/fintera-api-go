@@ -25,6 +25,23 @@ func (m *mockProjectRepo) FindByID(ctx context.Context, id uint) (*models.Projec
 	return args.Get(0).(*models.Project), args.Error(1)
 }
 
+func (m *mockProjectRepo) FindByGUID(ctx context.Context, guid string) (*models.Project, error) {
+	return nil, nil
+}
+
+func (m *mockProjectRepo) FindPublishedByGUID(ctx context.Context, guid string) (*models.Project, error) {
+	args := m.Called(ctx, guid)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Project), args.Error(1)
+}
+
+func (m *mockProjectRepo) ListPublished(ctx context.Context) ([]models.Project, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]models.Project), args.Error(1)
+}
+
 func (m *mockProjectRepo) List(ctx context.Context, query *repository.ListQuery) ([]models.Project, int64, error) {
 	args := m.Called(ctx, query)
 	return args.Get(0).([]models.Project), args.Get(1).(int64), args.Error(2)
@@ -56,6 +73,27 @@ type mockLotRepo struct {
 
 func (m *mockLotRepo) FindByID(ctx context.Context, id uint) (*models.Lot, error) {
 	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Lot), args.Error(1)
+}
+
+func (m *mockLotRepo) ReserveIfAvailable(ctx context.Context, id uint) (bool, error) {
+	args := m.Called(ctx, id)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *mockLotRepo) FindByGUID(ctx context.Context, guid string) (*models.Lot, error) {
+	args := m.Called(ctx, guid)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Lot), args.Error(1)
+}
+
+func (m *mockLotRepo) FindByProjectAndGUID(ctx context.Context, projectID uint, guid string) (*models.Lot, error) {
+	args := m.Called(ctx, projectID, guid)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

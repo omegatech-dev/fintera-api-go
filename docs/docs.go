@@ -632,6 +632,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/contracts/{guid}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Owner/admin access to a reservation by its public GUID.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Contracts"
+                ],
+                "summary": "Get Contract by GUID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Contract GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.ContractResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/dashboard/seller": {
             "get": {
                 "security": [
@@ -669,6 +721,79 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/services.SellerDashboardStats"
+                        }
+                    }
+                }
+            }
+        },
+        "/drawings/{drawing_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a drawing and its stored file.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Media"
+                ],
+                "summary": "Delete project drawing",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Drawing ID",
+                        "name": "drawing_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update name, version and note of a drawing.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Media"
+                ],
+                "summary": "Update project drawing",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Drawing ID",
+                        "name": "drawing_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -1320,6 +1445,152 @@ const docTemplate = `{
                 }
             }
         },
+        "/photos/{photo_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a lot photo and its files.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Media"
+                ],
+                "summary": "Delete lot photo",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Photo ID",
+                        "name": "photo_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reorder or edit the alt text of a lot photo.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Media"
+                ],
+                "summary": "Update lot photo",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Photo ID",
+                        "name": "photo_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/project-photos/{photo_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a project photo and its files.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Media"
+                ],
+                "summary": "Delete project photo",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Photo ID",
+                        "name": "photo_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reorder or edit the alt text of a project photo.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Media"
+                ],
+                "summary": "Update project photo",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Photo ID",
+                        "name": "photo_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/projects": {
             "post": {
                 "security": [
@@ -1564,6 +1835,84 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project_id}/drawings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Admin list of a project's drawings.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Media"
+                ],
+                "summary": "List project drawings",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload one or more plans (dwg, dxf, pdf, svg; max 50 MB each).",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Media"
+                ],
+                "summary": "Upload project drawings",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Drawing files",
+                        "name": "files",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -2724,6 +3073,524 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project_id}/lots/{lot_id}/photos": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Admin list of a lot gallery.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Media"
+                ],
+                "summary": "List lot photos",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Lot ID",
+                        "name": "lot_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload lot gallery photos (jpeg, png, webp; max 10 MB each).",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Media"
+                ],
+                "summary": "Upload lot photos",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Lot ID",
+                        "name": "lot_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Photo files",
+                        "name": "photos",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Optional thumbnails",
+                        "name": "thumbs",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project_id}/photos": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Admin list of the project gallery.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Media"
+                ],
+                "summary": "List project photos",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload project gallery photos (jpeg, png, webp; max 10 MB each).",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Project Media"
+                ],
+                "summary": "Upload project photos",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Photo files",
+                        "name": "photos",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Optional thumbnails",
+                        "name": "thumbs",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/public/projects": {
+            "get": {
+                "description": "Published, active projects with public stats (no auth).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Public Catalog"
+                ],
+                "summary": "List public projects",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/public/projects/{guid}": {
+            "get": {
+                "description": "Published project by GUID (no auth).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Public Catalog"
+                ],
+                "summary": "Get public project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/public/projects/{guid}/drawings": {
+            "get": {
+                "description": "Published drawings of a project by GUID (no auth).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Public Catalog"
+                ],
+                "summary": "Public project drawings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/public/projects/{guid}/lots": {
+            "get": {
+                "description": "Public lots of a published project (no auth).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Public Catalog"
+                ],
+                "summary": "List public lots",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only available lots",
+                        "name": "available",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/public/projects/{guid}/lots/{lot_guid}": {
+            "get": {
+                "description": "Public lot by project/lot GUID (no auth).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Public Catalog"
+                ],
+                "summary": "Get public lot",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Lot GUID",
+                        "name": "lot_guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/public/projects/{guid}/lots/{lot_guid}/contracts": {
+            "post": {
+                "description": "Create a reservation without a session (implicit sign-up).",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Public Catalog"
+                ],
+                "summary": "Create Guest Reservation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Lot GUID",
+                        "name": "lot_guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/public/projects/{guid}/lots/{lot_guid}/photos": {
+            "get": {
+                "description": "Lot gallery by project/lot GUID (no auth).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Public Catalog"
+                ],
+                "summary": "Public lot photos",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Lot GUID",
+                        "name": "lot_guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/public/projects/{guid}/payment-instructions": {
+            "get": {
+                "description": "Bank instructions of a published project by GUID (no auth).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Public Catalog"
+                ],
+                "summary": "Public payment instructions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/public/projects/{guid}/photos": {
+            "get": {
+                "description": "Project gallery by GUID (no auth).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Public Catalog"
+                ],
+                "summary": "Public project photos",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -4284,6 +5151,9 @@ const docTemplate = `{
                 "guid": {
                     "type": "string"
                 },
+                "hold_expires_at": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
@@ -4347,11 +5217,17 @@ const docTemplate = `{
                 "rejection_reason": {
                     "type": "string"
                 },
+                "reservation_payment": {
+                    "$ref": "#/definitions/models.PaymentResponse"
+                },
                 "reserve_amount": {
                     "type": "number"
                 },
                 "status": {
                     "type": "string"
+                },
+                "total_amount": {
+                    "type": "number"
                 },
                 "total_interest_collected": {
                     "type": "number"
@@ -4380,6 +5256,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "east": {
+                    "type": "string"
+                },
+                "guid": {
                     "type": "string"
                 },
                 "id": {
@@ -4463,6 +5342,9 @@ const docTemplate = `{
                 },
                 "effective_price": {
                     "type": "number"
+                },
+                "guid": {
+                    "type": "string"
                 },
                 "id": {
                     "type": "integer"
@@ -4584,6 +5466,9 @@ const docTemplate = `{
                 "approved_by_user_id": {
                     "type": "integer"
                 },
+                "authorization_number": {
+                    "type": "string"
+                },
                 "contract": {
                     "description": "Associations",
                     "allOf": [
@@ -4612,6 +5497,9 @@ const docTemplate = `{
                 },
                 "paid_amount": {
                     "type": "number"
+                },
+                "payer_account_name": {
+                    "type": "string"
                 },
                 "payment_date": {
                     "type": "string"
@@ -4649,6 +5537,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "approver": {
+                    "type": "string"
+                },
+                "authorization_number": {
                     "type": "string"
                 },
                 "contract_id": {
@@ -4695,6 +5586,12 @@ const docTemplate = `{
                 "paid_amount": {
                     "type": "number"
                 },
+                "paid_at": {
+                    "type": "string"
+                },
+                "payer_account_name": {
+                    "type": "string"
+                },
                 "payment_date": {
                     "type": "string"
                 },
@@ -4705,6 +5602,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "project_name": {
+                    "type": "string"
+                },
+                "receipt_url": {
                     "type": "string"
                 },
                 "rejection_reason": {
@@ -4750,6 +5650,12 @@ const docTemplate = `{
                 },
                 "interest_rate": {
                     "type": "number"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "is_published": {
+                    "type": "boolean"
                 },
                 "lot_count": {
                     "type": "integer"
@@ -4816,6 +5722,12 @@ const docTemplate = `{
                 },
                 "interest_rate": {
                     "type": "number"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "is_published": {
+                    "type": "boolean"
                 },
                 "lot_count": {
                     "type": "integer"

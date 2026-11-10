@@ -61,9 +61,31 @@ func (s *ContractService) GetLedgerEntries(ctx context.Context, contractID uint)
 	return s.ledgerRepo.FindByContractID(ctx, contractID)
 }
 
+// FindByUser returns the contracts where the user is the applicant.
+func (s *ContractService) FindByUser(ctx context.Context, userID uint) ([]models.Contract, error) {
+	return s.repo.FindByUser(ctx, userID)
+}
+
 // FindByIDWithDetails gets a contract by ID with all nested associations preloaded
 func (s *ContractService) FindByIDWithDetails(ctx context.Context, id uint) (*models.Contract, error) {
 	return s.repo.FindByIDWithDetails(ctx, id)
+}
+
+// FindByGUIDWithDetails gets a contract by its public GUID.
+func (s *ContractService) FindByGUIDWithDetails(ctx context.Context, guid string) (*models.Contract, error) {
+	return s.repo.FindByGUIDWithDetails(ctx, guid)
+}
+
+// FindLotByProjectAndGUID resolves a public lot inside a published project.
+func (s *ContractService) FindLotByProjectAndGUID(ctx context.Context, projectGUID, lotGUID string) (*models.Lot, error) {
+	lot, err := s.lotRepo.FindByGUID(ctx, lotGUID)
+	if err != nil {
+		return nil, err
+	}
+	if lot.Project.GUID != projectGUID || !lot.Project.IsPublished || !lot.Project.IsActive {
+		return nil, fmt.Errorf("lote no encontrado")
+	}
+	return lot, nil
 }
 
 func (s *ContractService) List(ctx context.Context, query *repository.ContractQuery) ([]models.Contract, int64, error) {
@@ -113,13 +135,42 @@ func (s *ContractService) Create(ctx context.Context, contract *models.Contract)
 	balance := -(*contract.Amount)
 	contract.Balance = &balance
 
+	// Atomically claim the lot. This is the real guard against double-booking:
+	// the earlier IsAvailable check is only a fast path.
+	reserved, err := s.lotRepo.ReserveIfAvailable(ctx, lot.ID)
+	if err != nil {
+		return err
+	}
+	if !reserved {
+		return errors.New("el lote no está disponible")
+	}
+
 	if err := s.repo.Create(ctx, contract); err != nil {
+		lot.Status = models.LotStatusAvailable
+		logIgnoredError("release lot after create failure", s.lotRepo.Update(ctx, lot))
 		return err
 	}
 
-	// Update lot status to reserved
-	lot.Status = models.LotStatusReserved
-	logIgnoredError("reserve lot", s.lotRepo.Update(ctx, lot))
+	// Create the reservation payment immediately so the portal can upload the
+	// voucher while the contract is pending. It is due at the 48h hold expiry.
+	if contract.ReserveAmount != nil && *contract.ReserveAmount > 0 {
+		due := contract.CreatedAt.Add(48 * time.Hour)
+		if contract.CreatedAt.IsZero() {
+			due = time.Now().Add(48 * time.Hour)
+		}
+		description := "Pago de Reserva"
+		reservation := &models.Payment{
+			ContractID:  contract.ID,
+			Amount:      *contract.ReserveAmount,
+			DueDate:     due,
+			Status:      models.PaymentStatusPending,
+			PaymentType: models.PaymentTypeReservation,
+			Description: &description,
+		}
+		if err := s.paymentRepo.Create(ctx, reservation); err != nil {
+			return fmt.Errorf("failed to create reservation payment: %w", err)
+		}
+	}
 
 	// Retrieve applicant for notification
 	applicant, err := s.userRepo.FindByID(ctx, contract.ApplicantUserID)
@@ -231,8 +282,22 @@ func (s *ContractService) Approve(ctx context.Context, id uint) (*models.Contrac
 		return nil, fmt.Errorf("failed to generate payment schedule: %w", err)
 	}
 
+	// Keep the reservation payment created at contract creation instead of
+	// duplicating it when the schedule is generated.
+	existingPayments, _ := s.paymentRepo.FindByContract(ctx, contract.ID)
+	hasReservation := false
+	for i := range existingPayments {
+		if existingPayments[i].PaymentType == models.PaymentTypeReservation {
+			hasReservation = true
+			break
+		}
+	}
+
 	// Create payments
 	for _, payment := range payments {
+		if payment.PaymentType == models.PaymentTypeReservation && hasReservation {
+			continue
+		}
 		if err := s.paymentRepo.Create(ctx, &payment); err != nil {
 			return nil, fmt.Errorf("failed to create payment: %w", err)
 		}
@@ -597,6 +662,28 @@ func (s *ContractService) CapitalRepayment(ctx context.Context, id uint, amount 
 	// 5. Audit log
 	logIgnoredError("write capital repayment audit log", s.auditSvc.Log(ctx, actorID, "CAPITAL_REPAYMENT", "Contract", contract.ID,
 		fmt.Sprintf("Abono a capital de L%.2f aplicado al contrato #%d", amount, contract.ID), ip, userAgent))
+
+	return nil
+}
+
+// SendReservationVoucherReminders emails customers whose reservation is about
+// to expire without an uploaded voucher. It only contacts each reservation once.
+func (s *ContractService) SendReservationVoucherReminders(ctx context.Context) error {
+	contracts, err := s.repo.FindReservationsAwaitingVoucher(ctx, 40)
+	if err != nil {
+		return err
+	}
+
+	for i := range contracts {
+		contract := &contracts[i]
+		if err := s.emailSvc.SendReservationVoucherReminder(ctx, contract); err != nil {
+			logIgnoredError("send reservation voucher reminder", err)
+			continue
+		}
+		if err := s.repo.MarkReservationReminderSent(ctx, contract.ID); err != nil {
+			logIgnoredError("mark reservation reminder sent", err)
+		}
+	}
 
 	return nil
 }

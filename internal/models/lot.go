@@ -2,11 +2,15 @@ package models
 
 import (
 	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // Lot represents a lot within a project
 type Lot struct {
 	ID                 uint      `gorm:"primaryKey" json:"id"`
+	GUID               string    `gorm:"column:guid;not null" json:"guid"`
 	ProjectID          uint      `gorm:"not null;index" json:"project_id"`
 	Name               string    `gorm:"not null" json:"name"`
 	Status             string    `gorm:"default:available;index" json:"status"`
@@ -29,11 +33,20 @@ type Lot struct {
 	// Associations
 	Project   Project    `gorm:"foreignKey:ProjectID" json:"project,omitempty"`
 	Contracts []Contract `gorm:"foreignKey:LotID" json:"contracts,omitempty"`
+	Photos    []LotPhoto `gorm:"foreignKey:LotID" json:"-"`
 }
 
 // TableName specifies the table name for Lot
 func (Lot) TableName() string {
 	return "lots"
+}
+
+// BeforeCreate assigns a public GUID when the caller did not provide one.
+func (l *Lot) BeforeCreate(tx *gorm.DB) error {
+	if l.GUID == "" {
+		l.GUID = uuid.New().String()
+	}
+	return nil
 }
 
 // Lot status constants
@@ -69,6 +82,7 @@ func (l *Lot) IsAvailable() bool {
 // LotResponse is the JSON response format for lots
 type LotResponse struct {
 	ID                    uint    `json:"id"`
+	GUID                  string  `json:"guid"`
 	ProjectID             uint    `json:"project_id"`
 	ProjectName           string  `json:"project_name"`
 	Name                  string  `json:"name"`
@@ -97,6 +111,7 @@ type LotResponse struct {
 func (l *Lot) ToResponse() LotResponse {
 	resp := LotResponse{
 		ID:                 l.ID,
+		GUID:               l.GUID,
 		ProjectID:          l.ProjectID,
 		ProjectName:        l.Project.Name,
 		Name:               l.Name,

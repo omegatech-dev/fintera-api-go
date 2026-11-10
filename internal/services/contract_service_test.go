@@ -37,6 +37,14 @@ func (m *mockContractRepo) FindByIDWithDetails(ctx context.Context, id uint) (*m
 	return args.Get(0).(*models.Contract), args.Error(1)
 }
 
+func (m *mockContractRepo) FindByGUIDWithDetails(ctx context.Context, guid string) (*models.Contract, error) {
+	args := m.Called(ctx, guid)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Contract), args.Error(1)
+}
+
 func (m *mockContractRepo) FindByLot(ctx context.Context, lotID uint) ([]models.Contract, error) {
 	args := m.Called(ctx, lotID)
 	return args.Get(0).([]models.Contract), args.Error(1)
@@ -78,6 +86,16 @@ func (m *mockContractRepo) FindActiveByLot(ctx context.Context, lotID uint) (*mo
 func (m *mockContractRepo) FindPendingReservations(ctx context.Context, olderThan int) ([]models.Contract, error) {
 	args := m.Called(ctx, olderThan)
 	return args.Get(0).([]models.Contract), args.Error(1)
+}
+
+func (m *mockContractRepo) FindReservationsAwaitingVoucher(ctx context.Context, olderThanHours int) ([]models.Contract, error) {
+	args := m.Called(ctx, olderThanHours)
+	return args.Get(0).([]models.Contract), args.Error(1)
+}
+
+func (m *mockContractRepo) MarkReservationReminderSent(ctx context.Context, id uint) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
 }
 
 func (m *mockContractRepo) GetStats(ctx context.Context) (*repository.ContractStats, error) {
@@ -352,9 +370,7 @@ func TestContractService_Create(t *testing.T) {
 	}
 
 	mockLotRepo.On("FindByID", ctx, uint(1)).Return(lot, nil)
-	mockLotRepo.On("Update", ctx, mock.MatchedBy(func(l *models.Lot) bool {
-		return l.Status == models.LotStatusReserved
-	})).Return(nil)
+	mockLotRepo.On("ReserveIfAvailable", ctx, uint(1)).Return(true, nil)
 
 	mockContractRepo.On("Create", ctx, mock.AnythingOfType("*models.Contract")).Return(nil)
 	mockUserRepo.On("FindByID", ctx, uint(2)).Return(applicant, nil)

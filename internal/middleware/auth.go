@@ -65,6 +65,31 @@ func Auth(jwtSecret string) gin.HandlerFunc {
 	}
 }
 
+// OptionalAuth parses a bearer token when present but never blocks the
+// request. Used by the public guest creation route so an authenticated
+// customer can reserve with their existing account.
+func OptionalAuth(jwtSecret string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		tokenString := c.Query("token")
+		if authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+				tokenString = parts[1]
+			}
+		}
+		if tokenString != "" {
+			if claims, err := validateToken(tokenString, jwtSecret); err == nil {
+				c.Set("userID", claims.UserID)
+				c.Set("userEmail", claims.Email)
+				c.Set("userRole", claims.Role)
+				c.Set("claims", claims)
+			}
+		}
+		c.Next()
+	}
+}
+
 // validateToken parses and validates a JWT token string
 func validateToken(tokenString, secret string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {

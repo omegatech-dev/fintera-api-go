@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_lots_guid;
+ALTER TABLE lots DROP COLUMN IF EXISTS guid;

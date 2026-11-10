@@ -68,7 +68,7 @@ func (s *PublicCatalogService) ListLots(ctx context.Context, projectGUID string,
 		if onlyAvailable && !lot.IsAvailable() {
 			continue
 		}
-		responses = append(responses, publicLotResponse(lot))
+		responses = append(responses, publicLotResponse(lot, project.MeasurementUnit))
 	}
 	return responses, nil
 }
@@ -83,7 +83,7 @@ func (s *PublicCatalogService) GetLot(ctx context.Context, projectGUID, lotGUID 
 	if err != nil || lot.Status == models.LotStatusActive {
 		return nil, ErrNotFound
 	}
-	resp := publicLotResponse(lot)
+	resp := publicLotResponse(lot, project.MeasurementUnit)
 	return &resp, nil
 }
 
@@ -163,11 +163,13 @@ func publicProjectResponse(project *models.Project) models.PublicProjectResponse
 	}
 }
 
-func publicLotResponse(lot *models.Lot) models.PublicLotResponse {
+func publicLotResponse(lot *models.Lot, projectUnit string) models.PublicLotResponse {
 	photos := make([]models.PhotoResponse, 0, len(lot.Photos))
 	for i := range lot.Photos {
 		photos = append(photos, lot.Photos[i].ToResponse())
 	}
+
+	unit := models.ResolveMeasurementUnit(lot.MeasurementUnit, projectUnit)
 
 	return models.PublicLotResponse{
 		GUID:            lot.GUID,
@@ -185,7 +187,7 @@ func publicLotResponse(lot *models.Lot) models.PublicLotResponse {
 			East:  lot.East,
 			West:  lot.West,
 		},
-		MeasurementUnit: lot.MeasurementUnit,
+		MeasurementUnit: &unit,
 		Photos:          photos,
 	}
 }

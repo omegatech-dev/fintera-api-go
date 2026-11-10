@@ -36,6 +36,28 @@ func TestContractResponse_HoldExpiresAt(t *testing.T) {
 	}
 }
 
+func TestContractResponse_LotMeasurementUnit(t *testing.T) {
+	ft2 := "ft2"
+	contract := Contract{
+		ID:     1,
+		Status: ContractStatusApproved,
+		Lot: Lot{
+			MeasurementUnit: &ft2,
+			Project:         Project{MeasurementUnit: MeasurementUnitM2},
+		},
+	}
+	resp := contract.ToResponse()
+	if resp.LotMeasurementUnit == nil || *resp.LotMeasurementUnit != MeasurementUnitFT2 {
+		t.Fatalf("lot_measurement_unit = %v, want ft2", resp.LotMeasurementUnit)
+	}
+
+	contract.Lot.MeasurementUnit = nil
+	resp = contract.ToResponse()
+	if resp.LotMeasurementUnit == nil || *resp.LotMeasurementUnit != MeasurementUnitM2 {
+		t.Fatalf("lot_measurement_unit fallback = %v, want m2", resp.LotMeasurementUnit)
+	}
+}
+
 func TestContractResponse_ReservationPayment(t *testing.T) {
 	paidAt := time.Date(2026, 11, 10, 8, 30, 0, 0, time.UTC)
 	document := "receipts/2026/11/voucher.pdf"

@@ -148,6 +148,7 @@ type ContractResponse struct {
 	LotWidth               float64                       `json:"lot_width"`
 	LotLength              float64                       `json:"lot_length"`
 	LotArea                float64                       `json:"lot_area"`
+	LotMeasurementUnit     *string                       `json:"lot_measurement_unit"`
 	LotPrice               float64                       `json:"lot_price"`
 	LotOverridePrice       *float64                      `json:"lot_override_price"`
 	ApplicantUserID        uint                          `json:"applicant_user_id"`
@@ -209,6 +210,8 @@ func (c *Contract) ToResponse() ContractResponse {
 	resp.LotWidth = c.Lot.Width
 	resp.LotLength = c.Lot.Length
 	resp.LotArea = c.Lot.Area()
+	lotUnit := ResolveMeasurementUnit(c.Lot.MeasurementUnit, c.Lot.Project.MeasurementUnit)
+	resp.LotMeasurementUnit = &lotUnit
 	resp.LotPrice = c.Lot.Price
 	resp.LotOverridePrice = c.Lot.OverridePrice
 

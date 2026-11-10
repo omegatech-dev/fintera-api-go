@@ -174,6 +174,21 @@ func TestPublicProjectResponseLegacyProject(t *testing.T) {
 	}
 }
 
+func TestPublicLotResponseResolvesMeasurementUnit(t *testing.T) {
+	lot := &models.Lot{Length: 20, Width: 10}
+	resp := publicLotResponse(lot, models.MeasurementUnitFT2)
+	if resp.MeasurementUnit == nil || *resp.MeasurementUnit != models.MeasurementUnitFT2 {
+		t.Fatalf("measurement_unit = %v, want ft2 project fallback", resp.MeasurementUnit)
+	}
+
+	lotUnit := models.MeasurementUnitVara2
+	lot.MeasurementUnit = &lotUnit
+	resp = publicLotResponse(lot, models.MeasurementUnitM2)
+	if resp.MeasurementUnit == nil || *resp.MeasurementUnit != models.MeasurementUnitVara2 {
+		t.Fatalf("measurement_unit = %v, want vara2 lot value", resp.MeasurementUnit)
+	}
+}
+
 func TestPublicCatalogService_GetProjectNotFound(t *testing.T) {
 	projectRepo := new(mockProjectRepo)
 	projectRepo.On("FindPublishedByGUID", mock.Anything, "missing").Return(nil, errors.New("not found"))
@@ -199,6 +214,9 @@ func TestPublicCatalogService_ListLotsAndPaymentInstructions(t *testing.T) {
 	}
 	if len(lots) != 4 {
 		t.Fatalf("lots = %d, want 4 (inactive excluded)", len(lots))
+	}
+	if lots[0].MeasurementUnit == nil || *lots[0].MeasurementUnit != models.MeasurementUnitM2 {
+		t.Fatalf("measurement_unit = %v, want m2 fallback", lots[0].MeasurementUnit)
 	}
 
 	publicInstructions, err := service.ListPaymentInstructions(context.Background(), "project-1")

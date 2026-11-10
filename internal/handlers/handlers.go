@@ -31,7 +31,7 @@ func NewHandlers(svcs *services.Services, storage *storage.LocalStorage) *Handle
 		Health:       NewHealthHandler(),
 		Auth:         NewAuthHandler(svcs.Auth),
 		User:         NewUserHandler(svcs.User, svcs.Payment, svcs.Contract),
-		Project:      NewProjectHandler(svcs.Project),
+		Project:      NewProjectHandler(svcs.Project, svcs.Media),
 		Lot:          NewLotHandler(svcs.Lot),
 		Contract:     NewContractHandler(svcs.Contract, storage),
 		Payment:      NewPaymentHandler(svcs.Payment, storage),

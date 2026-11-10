@@ -667,6 +667,19 @@ definitions:
       status:
         type: string
     type: object
+  models.PhotoResponse:
+    properties:
+      alt:
+        type: string
+      id:
+        type: integer
+      position:
+        type: integer
+      thumb_url:
+        type: string
+      url:
+        type: string
+    type: object
   models.Project:
     properties:
       address:
@@ -735,6 +748,8 @@ definitions:
         type: number
       commission_rate_direct:
         type: number
+      cover_photo_url:
+        type: string
       created_at:
         type: string
       delivery_date:
@@ -757,6 +772,10 @@ definitions:
         type: string
       name:
         type: string
+      photos:
+        items:
+          $ref: '#/definitions/models.PhotoResponse'
+        type: array
       price_per_square_unit:
         type: number
       project_type:
@@ -3138,6 +3157,64 @@ paths:
       summary: Upload project photos
       tags:
       - Project Media
+  /projects/{project_id}/publish:
+    post:
+      consumes:
+      - application/json
+      description: Publish a project to the customer portal without changing is_active
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ProjectResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Publish Project
+      tags:
+      - Projects
+  /projects/{project_id}/unpublish:
+    post:
+      consumes:
+      - application/json
+      description: Hide a project from the customer portal without changing is_active
+      parameters:
+      - description: Project ID
+        in: path
+        name: project_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ProjectResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Unpublish Project
+      tags:
+      - Projects
   /projects/import:
     post:
       consumes:

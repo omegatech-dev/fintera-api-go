@@ -41,29 +41,31 @@ func (Project) TableName() string {
 
 // ProjectResponse is the JSON response format for projects
 type ProjectResponse struct {
-	ID                   uint      `json:"id"`
-	GUID                 string    `json:"guid"`
-	Name                 string    `json:"name"`
-	Description          string    `json:"description"`
-	ProjectType          string    `json:"project_type"`
-	Address              string    `json:"address"`
-	City                 *string   `json:"city"`
-	Code                 *string   `json:"code"`
-	LotCount             int       `json:"lot_count"`
-	PricePerSquareUnit   float64   `json:"price_per_square_unit"`
-	InterestRate         float64   `json:"interest_rate"`
-	CommissionRate       float64   `json:"commission_rate"`
-	CommissionRateDirect float64   `json:"commission_rate_direct"`
-	CommissionRateBank   float64   `json:"commission_rate_bank"`
-	CommissionRateCash   float64   `json:"commission_rate_cash"`
-	MeasurementUnit      string    `json:"measurement_unit"`
-	DeliveryDate         *string   `json:"delivery_date"`
-	IsPublished          bool      `json:"is_published"`
-	IsActive             bool      `json:"is_active"`
-	AvailableLots        int       `json:"available_lots"`
-	ReservedLots         int       `json:"reserved_lots"`
-	SoldLots             int       `json:"sold_lots"`
-	CreatedAt            time.Time `json:"created_at"`
+	ID                   uint            `json:"id"`
+	GUID                 string          `json:"guid"`
+	Name                 string          `json:"name"`
+	Description          string          `json:"description"`
+	ProjectType          string          `json:"project_type"`
+	Address              string          `json:"address"`
+	City                 *string         `json:"city"`
+	Code                 *string         `json:"code"`
+	LotCount             int             `json:"lot_count"`
+	PricePerSquareUnit   float64         `json:"price_per_square_unit"`
+	InterestRate         float64         `json:"interest_rate"`
+	CommissionRate       float64         `json:"commission_rate"`
+	CommissionRateDirect float64         `json:"commission_rate_direct"`
+	CommissionRateBank   float64         `json:"commission_rate_bank"`
+	CommissionRateCash   float64         `json:"commission_rate_cash"`
+	MeasurementUnit      string          `json:"measurement_unit"`
+	DeliveryDate         *string         `json:"delivery_date"`
+	IsPublished          bool            `json:"is_published"`
+	IsActive             bool            `json:"is_active"`
+	CoverPhotoURL        *string         `json:"cover_photo_url"`
+	Photos               []PhotoResponse `json:"photos"`
+	AvailableLots        int             `json:"available_lots"`
+	ReservedLots         int             `json:"reserved_lots"`
+	SoldLots             int             `json:"sold_lots"`
+	CreatedAt            time.Time       `json:"created_at"`
 }
 
 // ToResponse converts Project to ProjectResponse

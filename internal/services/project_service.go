@@ -24,6 +24,33 @@ func (s *ProjectService) FindByID(ctx context.Context, id uint) (*models.Project
 	return s.repo.FindByID(ctx, id)
 }
 
+// SetProjectPublished changes only the project's visibility. The active flag is
+// intentionally left untouched so admins can publish and deactivate
+// independently.
+func (s *ProjectService) SetProjectPublished(ctx context.Context, id, actorID uint, published bool) (*models.Project, error) {
+	project, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if project.IsPublished == published {
+		return project, nil
+	}
+
+	project.IsPublished = published
+	if err := s.repo.Update(ctx, project); err != nil {
+		return nil, err
+	}
+
+	action := "PUBLISH"
+	message := fmt.Sprintf("Proyecto publicado: %s", project.Name)
+	if !published {
+		action = "UNPUBLISH"
+		message = fmt.Sprintf("Proyecto despublicado: %s", project.Name)
+	}
+	logIgnoredError("audit project visibility", s.auditSvc.Log(ctx, actorID, action, "Project", project.ID, message, "", ""))
+	return project, nil
+}
+
 func (s *ProjectService) List(ctx context.Context, query *repository.ListQuery) ([]models.Project, int64, error) {
 	return s.repo.List(ctx, query)
 }

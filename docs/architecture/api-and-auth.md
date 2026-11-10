@@ -100,6 +100,8 @@ Claimed authorization errors return `403` with `No tienes acceso a esta sección
 | `PUT` | `/projects/:project_id` |
 | `DELETE` | `/projects/:project_id` |
 | `POST` | `/projects/:project_id/approve` |
+| `POST` | `/projects/:project_id/publish` |
+| `POST` | `/projects/:project_id/unpublish` |
 | `POST` | `/projects/import` |
 | `POST` | `/projects/:project_id/lots` |
 | `PUT` | `/projects/:project_id/lots/:lot_id` |
@@ -183,6 +185,9 @@ Claimed authorization errors return `403` with `No tienes acceso a esta sección
   - `{ "contract": { ... } }`
   - `{ "projects": [...], "pagination": { ... } }`
   - `{ "message": "..." }`
+- Admin project responses include `photos`, an ordered preview of up to ten
+  gallery photos (`id`, `position`, `url`, optional `thumb_url`, optional
+  `alt`), plus `cover_photo_url` matching the first preview photo.
 - Errors use `{ "error": "<message>" }`. Many messages are Spanish because the
   frontend is Spanish.
 - List endpoints accept `page`, `per_page`, and often `search_term`, `status`,

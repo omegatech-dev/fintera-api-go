@@ -25,6 +25,8 @@ const (
 	DrawingMaxBytes int64 = 50 * 1024 * 1024
 	// PhotoMaxBytes is the API limit for project and lot photos.
 	PhotoMaxBytes int64 = 10 * 1024 * 1024
+	// ProjectCardPhotoLimit bounds the gallery preview in project responses.
+	ProjectCardPhotoLimit = 10
 )
 
 var drawingExtensions = map[string]string{
@@ -82,6 +84,24 @@ func (s *MediaService) ListDrawings(ctx context.Context, projectID uint) ([]mode
 	responses := make([]models.ProjectDrawingResponse, 0, len(drawings))
 	for i := range drawings {
 		responses = append(responses, drawings[i].ToResponse())
+	}
+	return responses, nil
+}
+
+// ProjectCardPhotos returns the ordered gallery preview used by project cards.
+// The full gallery remains available from ListProjectPhotos.
+func (s *MediaService) ProjectCardPhotos(ctx context.Context, projectID uint) ([]models.PhotoResponse, error) {
+	photos, err := s.projectPhoto.ListByProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if len(photos) > ProjectCardPhotoLimit {
+		photos = photos[:ProjectCardPhotoLimit]
+	}
+
+	responses := make([]models.PhotoResponse, 0, len(photos))
+	for i := range photos {
+		responses = append(responses, photos[i].ToResponse())
 	}
 	return responses, nil
 }
@@ -380,12 +400,18 @@ func (s *MediaService) UpdateProjectPhoto(ctx context.Context, projectID, id, ac
 	if err != nil || (projectID != 0 && photo.ProjectID != projectID) {
 		return nil, ErrNotFound
 	}
-	applyPhotoChanges(photo, position, alt)
-	if err := s.projectPhoto.Update(ctx, photo); err != nil {
-		return nil, err
+	if alt != nil {
+		photo.Alt = alt
+		if err := s.projectPhoto.Update(ctx, photo); err != nil {
+			return nil, err
+		}
 	}
 	if position != nil {
-		s.normalizeProjectPhotos(ctx, photo.ProjectID)
+		newPosition, err := s.reorderProjectPhotos(ctx, photo.ProjectID, photo.ID, *position)
+		if err != nil {
+			return nil, err
+		}
+		photo.Position = newPosition
 	}
 	logIgnoredError("audit project photo update", s.audit.Log(ctx, actorID, "UPDATE", "ProjectPhoto", photo.ID,
 		fmt.Sprintf("Foto del proyecto %d actualizada", photo.ProjectID), "", ""))
@@ -398,21 +424,106 @@ func (s *MediaService) UpdateLotPhoto(ctx context.Context, lotID, id, actorID ui
 	if err != nil || (lotID != 0 && photo.LotID != lotID) {
 		return nil, ErrNotFound
 	}
-	if position != nil {
-		photo.Position = *position
-	}
 	if alt != nil {
 		photo.Alt = alt
-	}
-	if err := s.lotPhoto.Update(ctx, photo); err != nil {
-		return nil, err
+		if err := s.lotPhoto.Update(ctx, photo); err != nil {
+			return nil, err
+		}
 	}
 	if position != nil {
-		s.normalizeLotPhotos(ctx, photo.LotID)
+		newPosition, err := s.reorderLotPhotos(ctx, photo.LotID, photo.ID, *position)
+		if err != nil {
+			return nil, err
+		}
+		photo.Position = newPosition
 	}
 	logIgnoredError("audit lot photo update", s.audit.Log(ctx, actorID, "UPDATE", "LotPhoto", photo.ID,
 		fmt.Sprintf("Foto del lote %d actualizada", photo.LotID), "", ""))
 	return photo, nil
+}
+
+func (s *MediaService) reorderProjectPhotos(ctx context.Context, projectID, id uint, position int) (int, error) {
+	photos, err := s.projectPhoto.ListByProject(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	ordered, newPosition, ok := reorderByID(photos, id, position,
+		func(photo models.ProjectPhoto) uint { return photo.ID },
+		func(photo models.ProjectPhoto) int { return photo.Position },
+	)
+	if !ok {
+		return 0, ErrNotFound
+	}
+	for index := range ordered {
+		if ordered[index].Position == index {
+			continue
+		}
+		ordered[index].Position = index
+		if err := s.projectPhoto.Update(ctx, &ordered[index]); err != nil {
+			return 0, err
+		}
+	}
+	return newPosition, nil
+}
+
+func (s *MediaService) reorderLotPhotos(ctx context.Context, lotID, id uint, position int) (int, error) {
+	photos, err := s.lotPhoto.ListByLot(ctx, lotID)
+	if err != nil {
+		return 0, err
+	}
+	ordered, newPosition, ok := reorderByID(photos, id, position,
+		func(photo models.LotPhoto) uint { return photo.ID },
+		func(photo models.LotPhoto) int { return photo.Position },
+	)
+	if !ok {
+		return 0, ErrNotFound
+	}
+	for index := range ordered {
+		if ordered[index].Position == index {
+			continue
+		}
+		ordered[index].Position = index
+		if err := s.lotPhoto.Update(ctx, &ordered[index]); err != nil {
+			return 0, err
+		}
+	}
+	return newPosition, nil
+}
+
+// reorderByID moves one item to a zero-based position in a stable,
+// position-ordered slice and returns the slice, the clamped position, and
+// whether the item was found.
+func reorderByID[T any](items []T, id uint, position int, idOf func(T) uint, positionOf func(T) int) ([]T, int, bool) {
+	sort.SliceStable(items, func(i, j int) bool {
+		if positionOf(items[i]) == positionOf(items[j]) {
+			return idOf(items[i]) < idOf(items[j])
+		}
+		return positionOf(items[i]) < positionOf(items[j])
+	})
+
+	current := -1
+	for i := range items {
+		if idOf(items[i]) == id {
+			current = i
+			break
+		}
+	}
+	if current == -1 {
+		return items, 0, false
+	}
+
+	moved := items[current]
+	items = append(items[:current], items[current+1:]...)
+	if position < 0 {
+		position = 0
+	}
+	if position > len(items) {
+		position = len(items)
+	}
+	items = append(items, moved)
+	copy(items[position+1:], items[position:])
+	items[position] = moved
+	return items, position, true
 }
 
 // DeleteProjectPhoto removes a project photo and its files.
@@ -500,15 +611,6 @@ func (s *MediaService) normalizeLotPhotos(ctx context.Context, lotID uint) {
 		}
 		photos[index].Position = index
 		logIgnoredError("normalize lot photo", s.lotPhoto.Update(ctx, &photos[index]))
-	}
-}
-
-func applyPhotoChanges(photo *models.ProjectPhoto, position *int, alt *string) {
-	if position != nil {
-		photo.Position = *position
-	}
-	if alt != nil {
-		photo.Alt = alt
 	}
 }
 

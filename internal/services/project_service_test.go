@@ -169,6 +169,50 @@ func TestProjectService_Create(t *testing.T) {
 	mockProjRepo.AssertExpectations(t)
 }
 
+func TestProjectService_SetProjectPublished(t *testing.T) {
+	ctx := context.Background()
+	mockProjRepo := new(mockProjectRepo)
+	mockLotRepo := new(mockLotRepo)
+
+	gdb, mockSQL := setupMockDB(t)
+	mockSQL.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	service := NewProjectService(mockProjRepo, mockLotRepo, NewAuditService(gdb))
+
+	project := &models.Project{
+		ID:          1,
+		Name:        "Altos",
+		IsPublished: false,
+		IsActive:    true,
+	}
+	mockProjRepo.On("FindByID", mock.Anything, uint(1)).Return(project, nil)
+	mockProjRepo.On("Update", mock.Anything, mock.AnythingOfType("*models.Project")).Return(nil)
+
+	published, err := service.SetProjectPublished(ctx, 1, 9, true)
+
+	assert.NoError(t, err)
+	assert.True(t, published.IsPublished)
+	assert.True(t, published.IsActive)
+	mockProjRepo.AssertExpectations(t)
+}
+
+func TestProjectService_SetProjectPublishedNoop(t *testing.T) {
+	ctx := context.Background()
+	mockProjRepo := new(mockProjectRepo)
+	mockLotRepo := new(mockLotRepo)
+
+	service := NewProjectService(mockProjRepo, mockLotRepo, nil)
+
+	project := &models.Project{ID: 1, IsPublished: true, IsActive: true}
+	mockProjRepo.On("FindByID", mock.Anything, uint(1)).Return(project, nil)
+
+	result, err := service.SetProjectPublished(ctx, 1, 9, true)
+
+	assert.NoError(t, err)
+	assert.True(t, result.IsPublished)
+	mockProjRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
 func TestProjectService_Update(t *testing.T) {
 	ctx := context.Background()
 	mockProjRepo := new(mockProjectRepo)

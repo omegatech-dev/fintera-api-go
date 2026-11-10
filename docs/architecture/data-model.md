@@ -80,6 +80,22 @@ Key columns: `lot_id`, `creator_id`, `applicant_user_id`, `payment_term`,
 `balance` is a cached copy of the ledger balance. The ledger is authoritative;
 `PaymentService.updateContractBalance` refreshes it.
 
+### `project_payment_instructions`
+
+Bank accounts a project offers to customers for reservation payments. Managed by
+admins through `/api/v1/projects/:project_id/payment-instructions` and exposed
+publicly (published projects only) through
+`/api/v1/public/projects/:guid/payment-instructions`.
+
+Key columns: `project_id`, `bank_name`, `beneficiary_name`, `account_number`,
+`account_type` (`savings`, `checking`), `notes`, `position`, timestamps. Rows
+are ordered by `position, id`.
+
+The public payload only exposes `bank_name`, `beneficiary_name`,
+`account_number`, `account_type` and `notes`; ids, positions and timestamps stay
+admin-only. Limits enforced by the service: bank 120, beneficiary 160, account
+number 60 and notes 500 characters.
+
 ### `payments`
 
 Scheduled installments and ad-hoc repayment records.
@@ -147,6 +163,7 @@ the `STORAGE_PATH` volume, which must be persistent in production.
 | `contracts.status` | `pending`, `submitted`, `approved`, `signed`, `rejected`, `cancelled`, `closed` |
 | `contracts.financing_type` | `direct`, `bank`, `cash` |
 | `contracts.bank_credit_status` | `not_started`, `pre_qualified`, `pre_approved`, `approved` |
+| `project_payment_instructions.account_type` | `savings`, `checking` |
 | `payments.status` | `pending`, `submitted`, `paid`, `rejected`, `readjustment` |
 | `payments.payment_type` | `reservation`, `down_payment`, `installment`, `full`, `advance`, `capital_repayment` |
 | ledger `entry_type` | `initial`, `payment`, `interest`, `prepayment`, `adjustment` |
@@ -173,6 +190,7 @@ with golang-migrate:
 | 000010 | Profile picture fields |
 | 000011 | `contracts.guid` |
 | 000012 | `contracts.created_at` index |
+| 000015 | `project_payment_instructions` |
 | 000021 | `contracts.bank_name`, `contracts.bank_credit_status` |
 
 Applied migrations are immutable. Add a new numbered pair instead of editing

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -20,16 +21,23 @@ func NewPaymentInstructionHandler(service *services.ProjectPaymentInstructionSer
 	return &PaymentInstructionHandler{service: service}
 }
 
-type paymentInstructionRequest struct {
-	BankName        string  `json:"bank_name"`
-	BeneficiaryName string  `json:"beneficiary_name"`
-	AccountNumber   string  `json:"account_number"`
-	AccountType     string  `json:"account_type"`
-	Notes           *string `json:"notes"`
-	Position        *int    `json:"position"`
+type PaymentInstructionRequest struct {
+	BankName        string  `json:"bank_name" example:"BAC Credomatic"`
+	BeneficiaryName string  `json:"beneficiary_name" example:"Fintera Inversiones Inmobiliarias S.A."`
+	AccountNumber   string  `json:"account_number" example:"741-209-4321"`
+	AccountType     string  `json:"account_type" example:"checking" enums:"savings,checking"`
+	Notes           *string `json:"notes" example:"Indica el número de lote en la referencia"`
+	Position        *int    `json:"position" example:"0"`
 }
 
-// Index lists a project's instructions for the admin view.
+// @Summary List project payment instructions
+// @Description Admin list of the bank accounts configured for a project.
+// @Tags Project Payment Instructions
+// @Produce json
+// @Param project_id path int true "Project ID"
+// @Success 200 {object} map[string]interface{}
+// @Security BearerAuth
+// @Router /projects/{project_id}/payment-instructions [get]
 func (h *PaymentInstructionHandler) Index(c *gin.Context) {
 	projectID, _ := strconv.ParseUint(c.Param("project_id"), 10, 32)
 	instructions, err := h.service.List(c.Request.Context(), uint(projectID))
@@ -37,17 +45,27 @@ func (h *PaymentInstructionHandler) Index(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	responses := make([]interface{}, 0, len(instructions))
+	responses := make([]models.PaymentInstructionResponse, 0, len(instructions))
 	for i := range instructions {
 		responses = append(responses, instructions[i].ToResponse())
 	}
 	c.JSON(http.StatusOK, gin.H{"payment_instructions": responses})
 }
 
-// Create adds an instruction to a project.
+// @Summary Create project payment instruction
+// @Description Add a bank account where customers can pay a project reservation.
+// @Tags Project Payment Instructions
+// @Accept json
+// @Produce json
+// @Param project_id path int true "Project ID"
+// @Param request body PaymentInstructionRequest true "Bank account data"
+// @Success 201 {object} map[string]interface{}
+// @Failure 422 {object} map[string]string
+// @Security BearerAuth
+// @Router /projects/{project_id}/payment-instructions [post]
 func (h *PaymentInstructionHandler) Create(c *gin.Context) {
 	projectID, _ := strconv.ParseUint(c.Param("project_id"), 10, 32)
-	var req paymentInstructionRequest
+	var req PaymentInstructionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Cuerpo de la solicitud inválido"})
 		return
@@ -69,11 +87,23 @@ func (h *PaymentInstructionHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"payment_instruction": instruction.ToResponse()})
 }
 
-// Update edits an instruction.
+// @Summary Update project payment instruction
+// @Description Edit an existing bank account of a project.
+// @Tags Project Payment Instructions
+// @Accept json
+// @Produce json
+// @Param project_id path int true "Project ID"
+// @Param instruction_id path int true "Payment instruction ID"
+// @Param request body PaymentInstructionRequest true "Bank account data"
+// @Success 200 {object} map[string]interface{}
+// @Failure 404 {object} map[string]string
+// @Failure 422 {object} map[string]string
+// @Security BearerAuth
+// @Router /projects/{project_id}/payment-instructions/{instruction_id} [patch]
 func (h *PaymentInstructionHandler) Update(c *gin.Context) {
 	projectID, _ := strconv.ParseUint(c.Param("project_id"), 10, 32)
 	id, _ := strconv.ParseUint(c.Param("instruction_id"), 10, 32)
-	var req paymentInstructionRequest
+	var req PaymentInstructionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Cuerpo de la solicitud inválido"})
 		return
@@ -97,7 +127,16 @@ func (h *PaymentInstructionHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"payment_instruction": updated.ToResponse()})
 }
 
-// Delete removes an instruction.
+// @Summary Delete project payment instruction
+// @Description Remove a bank account from a project.
+// @Tags Project Payment Instructions
+// @Produce json
+// @Param project_id path int true "Project ID"
+// @Param instruction_id path int true "Payment instruction ID"
+// @Success 200 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Security BearerAuth
+// @Router /projects/{project_id}/payment-instructions/{instruction_id} [delete]
 func (h *PaymentInstructionHandler) Delete(c *gin.Context) {
 	projectID, _ := strconv.ParseUint(c.Param("project_id"), 10, 32)
 	id, _ := strconv.ParseUint(c.Param("instruction_id"), 10, 32)
@@ -109,10 +148,12 @@ func (h *PaymentInstructionHandler) Delete(c *gin.Context) {
 }
 
 func mapInstructionError(c *gin.Context, err error) {
-	switch err {
-	case services.ErrNotFound:
+	switch {
+	case errors.Is(err, services.ErrNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "Instrucción no encontrada"})
-	case services.ErrInstructionInvalidType, services.ErrInstructionInvalidData:
+	case errors.Is(err, services.ErrInstructionInvalidType),
+		errors.Is(err, services.ErrInstructionInvalidData),
+		errors.Is(err, services.ErrInstructionInvalidLength):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

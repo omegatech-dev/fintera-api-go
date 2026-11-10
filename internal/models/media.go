@@ -8,10 +8,13 @@ import (
 
 // Drawing file types.
 const (
-	DrawingTypeDWG = "dwg"
-	DrawingTypeDXF = "dxf"
-	DrawingTypePDF = "pdf"
-	DrawingTypeSVG = "svg"
+	DrawingTypeDWG  = "dwg"
+	DrawingTypeDXF  = "dxf"
+	DrawingTypePDF  = "pdf"
+	DrawingTypeSVG  = "svg"
+	DrawingTypePNG  = "png"
+	DrawingTypeJPG  = "jpg"
+	DrawingTypeJPEG = "jpeg"
 )
 
 // ProjectDrawing is a CAD/document plan published for a project.

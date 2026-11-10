@@ -30,10 +30,11 @@ const (
 )
 
 var drawingExtensions = map[string]string{
-	".dwg": models.DrawingTypeDWG,
-	".dxf": models.DrawingTypeDXF,
-	".pdf": models.DrawingTypePDF,
-	".svg": models.DrawingTypeSVG,
+	".png":  models.DrawingTypePNG,
+	".jpg":  models.DrawingTypeJPG,
+	".pdf":  models.DrawingTypePDF,
+	".svg":  models.DrawingTypeSVG,
+	".jpeg": models.DrawingTypeJPEG,
 }
 
 var photoExtensions = map[string]bool{
@@ -198,12 +199,9 @@ func (s *MediaService) UploadDrawing(
 	if _, err := s.projects.FindByID(ctx, projectID); err != nil {
 		return nil, ErrNotFound
 	}
-	fileType, err := drawingType(header.Filename)
+	fileType, err := validateDrawing(header)
 	if err != nil {
 		return nil, err
-	}
-	if header.Size > DrawingMaxBytes {
-		return nil, ErrMediaTooLarge
 	}
 
 	path, err := s.storage.Upload(file, header, "uploads/projects")
@@ -621,6 +619,29 @@ func drawingType(filename string) (string, error) {
 		return "", ErrUnsupportedMedia
 	}
 	return fileType, nil
+}
+
+// validateDrawing checks the extension, size and declared content type of an
+// uploaded plan. The portal only renders SVG, PNG, JPG/JPEG and PDF, so those
+// are the only formats accepted.
+func validateDrawing(header *multipart.FileHeader) (string, error) {
+	fileType, err := drawingType(header.Filename)
+	if err != nil {
+		return "", err
+	}
+	if header.Size > DrawingMaxBytes {
+		return "", ErrMediaTooLarge
+	}
+	contentType := strings.ToLower(header.Header.Get("Content-Type"))
+	switch contentType {
+	case "", "application/octet-stream",
+		"image/svg+xml", "image/png",
+		"image/jpeg", "image/jpg",
+		"application/pdf":
+		return fileType, nil
+	default:
+		return "", ErrUnsupportedMedia
+	}
 }
 
 func validatePhoto(header *multipart.FileHeader) error {

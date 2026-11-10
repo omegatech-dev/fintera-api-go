@@ -4,6 +4,7 @@ import (
 	"context"
 	"mime/multipart"
 	"net/textproto"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,10 +14,11 @@ import (
 
 func TestDrawingType(t *testing.T) {
 	cases := map[string]string{
-		"plan.dwg": "dwg",
-		"plan.DXF": "dxf",
-		"plan.pdf": "pdf",
-		"plan.svg": "svg",
+		"plan.svg":  "svg",
+		"plan.png":  "png",
+		"plan.JPG":  "jpg",
+		"plan.jpeg": "jpeg",
+		"plan.pdf":  "pdf",
 	}
 	for filename, expected := range cases {
 		got, err := drawingType(filename)
@@ -28,8 +30,42 @@ func TestDrawingType(t *testing.T) {
 		}
 	}
 
-	if _, err := drawingType("plan.exe"); err != ErrUnsupportedMedia {
-		t.Fatalf("expected unsupported media error, got %v", err)
+	for _, filename := range []string{"plan.dwg", "plan.dxf", "plan.exe"} {
+		if _, err := drawingType(filename); err != ErrUnsupportedMedia {
+			t.Fatalf("%s: expected unsupported media error, got %v", filename, err)
+		}
+	}
+}
+
+func TestValidateDrawing(t *testing.T) {
+	valid := map[string]string{
+		"plan.svg":  "image/svg+xml",
+		"plan.png":  "image/png",
+		"plan.jpg":  "image/jpeg",
+		"plan.jpeg": "image/jpg",
+		"plan.pdf":  "application/pdf",
+	}
+	for filename, contentType := range valid {
+		fileType, err := validateDrawing(photoHeader(filename, contentType, 1024))
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", filename, err)
+		}
+		if fileType != strings.TrimPrefix(strings.ToLower(filepath.Ext(filename)), ".") {
+			t.Fatalf("%s: unexpected file type %q", filename, fileType)
+		}
+	}
+
+	if _, err := validateDrawing(photoHeader("plan.png", "image/gif", 1024)); err != ErrUnsupportedMedia {
+		t.Fatalf("expected unsupported content type, got %v", err)
+	}
+	if _, err := validateDrawing(photoHeader("plan.dwg", "application/octet-stream", 1024)); err != ErrUnsupportedMedia {
+		t.Fatalf("expected unsupported extension, got %v", err)
+	}
+	if _, err := validateDrawing(photoHeader("plan.png", "image/png", DrawingMaxBytes+1)); err != ErrMediaTooLarge {
+		t.Fatalf("expected size error, got %v", err)
+	}
+	if _, err := validateDrawing(photoHeader("plan.png", "", 1024)); err != nil {
+		t.Fatalf("expected empty content type to be accepted, got %v", err)
 	}
 }
 

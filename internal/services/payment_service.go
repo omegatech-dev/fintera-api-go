@@ -285,6 +285,11 @@ func (s *PaymentService) Reject(ctx context.Context, id uint, actorID uint, reas
 }
 
 func (s *PaymentService) UpdateReceiptPath(ctx context.Context, id uint, path string) error {
+	return s.UpdateReceipt(ctx, id, path, "", "")
+}
+
+// UpdateReceipt stores the uploaded receipt plus the optional bank metadata.
+func (s *PaymentService) UpdateReceipt(ctx context.Context, id uint, path, authorizationNumber, payerAccountName string) error {
 	payment, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return err
@@ -292,8 +297,28 @@ func (s *PaymentService) UpdateReceiptPath(ctx context.Context, id uint, path st
 
 	payment.DocumentPath = &path
 	payment.Status = models.PaymentStatusSubmitted
+	if authorizationNumber != "" {
+		payment.AuthorizationNumber = &authorizationNumber
+	}
+	if payerAccountName != "" {
+		payment.PayerAccountName = &payerAccountName
+	}
 
-	return s.repo.Update(ctx, payment)
+	if err := s.repo.Update(ctx, payment); err != nil {
+		return err
+	}
+
+	// Uploading the reservation voucher moves the reservation from "pending"
+	// (awaiting payment) to "submitted" (awaiting admin review).
+	if payment.PaymentType == models.PaymentTypeReservation {
+		contract, err := s.contractRepo.FindByID(ctx, payment.ContractID)
+		if err == nil && contract.Status == models.ContractStatusPending {
+			contract.Status = models.ContractStatusSubmitted
+			logIgnoredError("advance submitted contract", s.contractRepo.Update(ctx, contract))
+		}
+	}
+
+	return nil
 }
 
 func (s *PaymentService) CheckOverduePayments(ctx context.Context) error {

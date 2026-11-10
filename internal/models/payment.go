@@ -21,7 +21,9 @@ type Payment struct {
 	ApprovedAt             *time.Time `gorm:"index" json:"approved_at"`
 	ApprovedByUserID       *uint      `gorm:"index" json:"approved_by_user_id"`
 	RejectionReason        *string    `gorm:"type:text" json:"rejection_reason,omitempty"`
-	DocumentPath           *string    `json:"-"`                                         // Receipt file path
+	DocumentPath           *string    `json:"-"` // Receipt file path
+	AuthorizationNumber    *string    `gorm:"column:authorization_number;size:64" json:"authorization_number,omitempty"`
+	PayerAccountName       *string    `gorm:"column:payer_account_name;size:64" json:"payer_account_name,omitempty"`
 	OverdueReminderSentAt  *time.Time `gorm:"column:overdue_reminder_sent_at" json:"-"`  // When overdue reminder email was last sent
 	UpcomingReminderSentAt *time.Time `gorm:"column:upcoming_reminder_sent_at" json:"-"` // When "due tomorrow" reminder was sent
 	CreatedAt              time.Time  `gorm:"index" json:"created_at"`
@@ -102,12 +104,17 @@ type PaymentResponse struct {
 	OverdueDays     int        `json:"overdue_days"`
 	Description     *string    `json:"description"`
 	PaymentDate     *time.Time `json:"payment_date"`
+	PaidAt          *time.Time `json:"paid_at"`
 	ApprovedAt      *time.Time `json:"approved_at"`
 	Approver        string     `json:"approver,omitempty"`
 	HasReceipt      bool       `json:"has_receipt"`
+	ReceiptURL      *string    `json:"receipt_url,omitempty"`
 	IsPDF           bool       `json:"is_pdf"`
 	IsOverpayment   bool       `json:"is_overpayment"` // true when paid_amount > amount
 	RejectionReason *string    `json:"rejection_reason,omitempty"`
+
+	AuthorizationNumber *string `json:"authorization_number,omitempty"`
+	PayerAccountName    *string `json:"payer_account_name,omitempty"`
 
 	// Contract details
 	ContractStatus    string  `json:"contract_status,omitempty"`
@@ -124,18 +131,26 @@ type PaymentResponse struct {
 // ToResponse converts Payment to PaymentResponse
 func (p *Payment) ToResponse() PaymentResponse {
 	resp := PaymentResponse{
-		ID:          p.ID,
-		ContractID:  p.ContractID,
-		DueDate:     p.DueDate,
-		Amount:      p.Amount,
-		Status:      p.Status,
-		PaymentType: p.PaymentType,
-		OverdueDays: p.OverdueDays(),
-		Description: p.Description,
-		PaymentDate: p.PaymentDate,
-		ApprovedAt:  p.ApprovedAt,
-		HasReceipt:  p.DocumentPath != nil && *p.DocumentPath != "",
-		IsPDF:       p.DocumentPath != nil && strings.HasSuffix(strings.ToLower(*p.DocumentPath), ".pdf"),
+		ID:                  p.ID,
+		ContractID:          p.ContractID,
+		DueDate:             p.DueDate,
+		Amount:              p.Amount,
+		Status:              p.Status,
+		PaymentType:         p.PaymentType,
+		OverdueDays:         p.OverdueDays(),
+		Description:         p.Description,
+		PaymentDate:         p.PaymentDate,
+		PaidAt:              p.PaymentDate,
+		ApprovedAt:          p.ApprovedAt,
+		HasReceipt:          p.DocumentPath != nil && *p.DocumentPath != "",
+		IsPDF:               p.DocumentPath != nil && strings.HasSuffix(strings.ToLower(*p.DocumentPath), ".pdf"),
+		AuthorizationNumber: p.AuthorizationNumber,
+		PayerAccountName:    p.PayerAccountName,
+	}
+
+	if p.DocumentPath != nil && *p.DocumentPath != "" {
+		url := "/uploads/" + strings.TrimPrefix(strings.ReplaceAll(*p.DocumentPath, "\\", "/"), "/")
+		resp.ReceiptURL = &url
 	}
 
 	if p.ApprovedByUser.ID != 0 {

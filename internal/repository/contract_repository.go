@@ -14,6 +14,7 @@ import (
 type ContractRepository interface {
 	FindByID(ctx context.Context, id uint) (*models.Contract, error)
 	FindByIDWithDetails(ctx context.Context, id uint) (*models.Contract, error)
+	FindByGUIDWithDetails(ctx context.Context, guid string) (*models.Contract, error)
 	FindByLot(ctx context.Context, lotID uint) ([]models.Contract, error)
 	FindByUser(ctx context.Context, userID uint) ([]models.Contract, error)
 	Create(ctx context.Context, contract *models.Contract) error
@@ -22,6 +23,8 @@ type ContractRepository interface {
 	List(ctx context.Context, query *ContractQuery) ([]models.Contract, int64, error)
 	FindActiveByLot(ctx context.Context, lotID uint) (*models.Contract, error)
 	FindPendingReservations(ctx context.Context, olderThan int) ([]models.Contract, error)
+	FindReservationsAwaitingVoucher(ctx context.Context, olderThanHours int) ([]models.Contract, error)
+	MarkReservationReminderSent(ctx context.Context, id uint) error
 	GetStats(ctx context.Context) (*ContractStats, error)
 	HasActiveContracts(ctx context.Context, userID uint) (bool, error)
 }
@@ -70,6 +73,27 @@ func (r *contractRepository) FindByIDWithDetails(ctx context.Context, id uint) (
 			return db.Order("entry_date ASC")
 		}).
 		First(&contract, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &contract, nil
+}
+
+func (r *contractRepository) FindByGUIDWithDetails(ctx context.Context, guid string) (*models.Contract, error) {
+	var contract models.Contract
+	err := r.db.WithContext(ctx).
+		Joins("Lot").
+		Joins("Lot.Project").
+		Joins("ApplicantUser").
+		Joins("Creator").
+		Preload("Payments", func(db *gorm.DB) *gorm.DB {
+			return db.Order("due_date ASC")
+		}).
+		Preload("LedgerEntries", func(db *gorm.DB) *gorm.DB {
+			return db.Order("entry_date ASC")
+		}).
+		Where("contracts.guid = ?", guid).
+		First(&contract).Error
 	if err != nil {
 		return nil, err
 	}
@@ -334,6 +358,30 @@ func (r *contractRepository) FindPendingReservations(ctx context.Context, olderT
 		Preload("ApplicantUser").
 		Find(&contracts).Error
 	return contracts, err
+}
+
+// FindReservationsAwaitingVoucher returns pending reservations older than the
+// given window whose reservation payment still has no receipt uploaded.
+func (r *contractRepository) FindReservationsAwaitingVoucher(ctx context.Context, olderThanHours int) ([]models.Contract, error) {
+	var contracts []models.Contract
+	interval := fmt.Sprintf("%d hours", olderThanHours)
+	err := r.db.WithContext(ctx).
+		Joins("JOIN payments ON payments.contract_id = contracts.id AND payments.payment_type = ? AND payments.status = ?",
+			models.PaymentTypeReservation, models.PaymentStatusPending).
+		Where("contracts.status = ?", models.ContractStatusPending).
+		Where("contracts.reservation_reminder_sent_at IS NULL").
+		Where("contracts.created_at < NOW() - INTERVAL '" + interval + "'").
+		Preload("Lot.Project").
+		Preload("ApplicantUser").
+		Find(&contracts).Error
+	return contracts, err
+}
+
+func (r *contractRepository) MarkReservationReminderSent(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).
+		Model(&models.Contract{}).
+		Where("id = ?", id).
+		Update("reservation_reminder_sent_at", time.Now()).Error
 }
 
 func (r *contractRepository) HasActiveContracts(ctx context.Context, userID uint) (bool, error) {
@@ -714,6 +762,9 @@ func (r *paymentRepository) BatchUpdateInterest(ctx context.Context, updates map
 // ProjectRepository defines the interface for project data access
 type ProjectRepository interface {
 	FindByID(ctx context.Context, id uint) (*models.Project, error)
+	FindByGUID(ctx context.Context, guid string) (*models.Project, error)
+	FindPublishedByGUID(ctx context.Context, guid string) (*models.Project, error)
+	ListPublished(ctx context.Context) ([]models.Project, error)
 	Create(ctx context.Context, project *models.Project) error
 	Update(ctx context.Context, project *models.Project) error
 	Delete(ctx context.Context, id uint) error
@@ -736,6 +787,63 @@ func (r *projectRepository) FindByID(ctx context.Context, id uint) (*models.Proj
 		return nil, err
 	}
 	return &project, nil
+}
+
+func (r *projectRepository) FindPublished(ctx context.Context) ([]models.Project, error) {
+	var projects []models.Project
+	err := r.db.WithContext(ctx).
+		Preload("Lots").
+		Where("is_published = ? AND is_active = ?", true, true).
+		Order("name ASC").
+		Find(&projects).Error
+	return projects, err
+}
+
+func (r *projectRepository) FindByGUID(ctx context.Context, guid string) (*models.Project, error) {
+	var project models.Project
+	err := r.db.WithContext(ctx).
+		Preload("Lots").
+		Preload("Photos", func(db *gorm.DB) *gorm.DB {
+			return db.Order("project_photos.position ASC")
+		}).
+		Where("guid = ?", guid).
+		First(&project).Error
+	if err != nil {
+		return nil, err
+	}
+	return &project, nil
+}
+
+func (r *projectRepository) FindPublishedByGUID(ctx context.Context, guid string) (*models.Project, error) {
+	var project models.Project
+	err := r.db.WithContext(ctx).
+		Preload("Lots", func(db *gorm.DB) *gorm.DB {
+			return db.Order("lots.name ASC")
+		}).
+		Preload("Photos", func(db *gorm.DB) *gorm.DB {
+			return db.Order("project_photos.position ASC")
+		}).
+		Where("guid = ? AND is_published = ? AND is_active = ?", guid, true, true).
+		First(&project).Error
+	if err != nil {
+		return nil, err
+	}
+	return &project, nil
+}
+
+func (r *projectRepository) ListPublished(ctx context.Context) ([]models.Project, error) {
+	var projects []models.Project
+	err := r.db.WithContext(ctx).
+		Preload("Lots", func(db *gorm.DB) *gorm.DB {
+			return db.Order("lots.name ASC")
+		}).
+		Preload("Photos", func(db *gorm.DB) *gorm.DB {
+			return db.Order("project_photos.position ASC")
+		}).
+		Where("is_published = ? AND is_active = ?", true, true).
+		Order("created_at DESC").
+		Find(&projects).Error
+	return projects, err
 }
 
 func (r *projectRepository) Create(ctx context.Context, project *models.Project) error {
@@ -808,7 +916,10 @@ func (r *projectRepository) FindAll(ctx context.Context) ([]models.Project, erro
 // LotRepository defines the interface for lot data access
 type LotRepository interface {
 	FindByID(ctx context.Context, id uint) (*models.Lot, error)
+	FindByGUID(ctx context.Context, guid string) (*models.Lot, error)
+	FindByProjectAndGUID(ctx context.Context, projectID uint, guid string) (*models.Lot, error)
 	FindByProject(ctx context.Context, projectID uint) ([]models.Lot, error)
+	ReserveIfAvailable(ctx context.Context, id uint) (bool, error)
 	Create(ctx context.Context, lot *models.Lot) error
 	Update(ctx context.Context, lot *models.Lot) error
 	Delete(ctx context.Context, id uint) error
@@ -832,6 +943,36 @@ func (r *lotRepository) FindByID(ctx context.Context, id uint) (*models.Lot, err
 	return &lot, nil
 }
 
+func (r *lotRepository) FindByGUID(ctx context.Context, guid string) (*models.Lot, error) {
+	var lot models.Lot
+	err := r.db.WithContext(ctx).
+		Preload("Project").
+		Preload("Photos", func(db *gorm.DB) *gorm.DB {
+			return db.Order("lot_photos.position ASC")
+		}).
+		Where("guid = ?", guid).
+		First(&lot).Error
+	if err != nil {
+		return nil, err
+	}
+	return &lot, nil
+}
+
+func (r *lotRepository) FindByProjectAndGUID(ctx context.Context, projectID uint, guid string) (*models.Lot, error) {
+	var lot models.Lot
+	err := r.db.WithContext(ctx).
+		Preload("Project").
+		Preload("Photos", func(db *gorm.DB) *gorm.DB {
+			return db.Order("lot_photos.position ASC")
+		}).
+		Where("project_id = ? AND guid = ?", projectID, guid).
+		First(&lot).Error
+	if err != nil {
+		return nil, err
+	}
+	return &lot, nil
+}
+
 func (r *lotRepository) FindByProject(ctx context.Context, projectID uint) ([]models.Lot, error) {
 	var lots []models.Lot
 	err := r.db.WithContext(ctx).
@@ -847,6 +988,16 @@ func (r *lotRepository) Create(ctx context.Context, lot *models.Lot) error {
 
 func (r *lotRepository) Update(ctx context.Context, lot *models.Lot) error {
 	return r.db.WithContext(ctx).Save(lot).Error
+}
+
+// ReserveIfAvailable atomically moves a lot from available to reserved. It
+// returns false when another request won the race.
+func (r *lotRepository) ReserveIfAvailable(ctx context.Context, id uint) (bool, error) {
+	result := r.db.WithContext(ctx).
+		Model(&models.Lot{}).
+		Where("id = ? AND status = ?", id, models.LotStatusAvailable).
+		Update("status", models.LotStatusReserved)
+	return result.RowsAffected > 0, result.Error
 }
 
 func (r *lotRepository) Delete(ctx context.Context, id uint) error {

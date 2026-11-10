@@ -17,20 +17,21 @@ type Contract struct {
 	Amount          *float64 `gorm:"type:decimal" json:"amount"`
 	Balance         *float64 `gorm:"type:decimal" json:"balance"`
 	// Commission
-	CommissionAmount float64    `json:"commission_amount" gorm:"type:decimal(15,2);default:0"`
-	DownPayment      *float64   `gorm:"type:decimal" json:"down_payment"`
-	ReserveAmount    *float64   `gorm:"type:decimal" json:"reserve_amount"`
-	MaxPaymentDate   *time.Time `gorm:"type:date" json:"max_payment_date"` // for bank/cash: date by which customer will pay the rest
-	Currency         string     `gorm:"default:HNL;not null" json:"currency"`
-	ApprovedAt       *time.Time `gorm:"index" json:"approved_at"`
-	Active           bool       `gorm:"default:false;index" json:"active"`
-	Note             *string    `gorm:"type:text" json:"note"`
-	RejectionReason  *string    `gorm:"type:text" json:"rejection_reason"`
-	TotalPaid        float64    `gorm:"-" json:"total_paid"`             // Transient field for list view
-	DocumentPaths    *string    `gorm:"type:text" json:"document_paths"` // JSON string of document paths
-	ClosedAt         *time.Time `json:"closed_at"`
-	CreatedAt        time.Time  `gorm:"index" json:"created_at"` // index for list sort and date filters
-	UpdatedAt        time.Time  `json:"updated_at"`
+	CommissionAmount          float64    `json:"commission_amount" gorm:"type:decimal(15,2);default:0"`
+	DownPayment               *float64   `gorm:"type:decimal" json:"down_payment"`
+	ReserveAmount             *float64   `gorm:"type:decimal" json:"reserve_amount"`
+	MaxPaymentDate            *time.Time `gorm:"type:date" json:"max_payment_date"` // for bank/cash: date by which customer will pay the rest
+	Currency                  string     `gorm:"default:HNL;not null" json:"currency"`
+	ApprovedAt                *time.Time `gorm:"index" json:"approved_at"`
+	Active                    bool       `gorm:"default:false;index" json:"active"`
+	Note                      *string    `gorm:"type:text" json:"note"`
+	RejectionReason           *string    `gorm:"type:text" json:"rejection_reason"`
+	TotalPaid                 float64    `gorm:"-" json:"total_paid"`             // Transient field for list view
+	DocumentPaths             *string    `gorm:"type:text" json:"document_paths"` // JSON string of document paths
+	ClosedAt                  *time.Time `json:"closed_at"`
+	ReservationReminderSentAt *time.Time `gorm:"column:reservation_reminder_sent_at" json:"-"`
+	CreatedAt                 time.Time  `gorm:"index" json:"created_at"` // index for list sort and date filters
+	UpdatedAt                 time.Time  `json:"updated_at"`
 
 	// Associations
 	Lot           Lot                   `gorm:"foreignKey:LotID" json:"lot,omitempty"`
@@ -156,6 +157,7 @@ type ContractResponse struct {
 	ApplicantCreditScore   int                           `json:"applicant_credit_score"`
 	CreatedBy              string                        `json:"created_by"`
 	Amount                 *float64                      `json:"amount"`
+	TotalAmount            *float64                      `json:"total_amount"`
 	PaymentTerm            int                           `json:"payment_term"`
 	FinancingType          string                        `json:"financing_type"`
 	ReserveAmount          *float64                      `json:"reserve_amount"`
@@ -168,10 +170,12 @@ type ContractResponse struct {
 	TotalInterestCollected float64                       `json:"total_interest_collected"`
 	TotalPaid              float64                       `json:"total_paid"`
 	ApprovedAt             *time.Time                    `json:"approved_at"`
+	HoldExpiresAt          *time.Time                    `json:"hold_expires_at"`
 	CreatedAt              time.Time                     `json:"created_at"`
 	UpdatedAt              time.Time                     `json:"updated_at"`
 	Note                   *string                       `json:"note"`
 	PaymentSchedule        []PaymentResponse             `json:"payment_schedule"`
+	ReservationPayment     *PaymentResponse              `json:"reservation_payment,omitempty"`
 	LedgerEntries          []ContractLedgerEntryResponse `json:"ledger_entries"`
 }
 
@@ -186,6 +190,7 @@ func (c *Contract) ToResponse() ContractResponse {
 		PaymentTerm:       c.PaymentTerm,
 		FinancingType:     c.FinancingType,
 		Amount:            c.Amount,
+		TotalAmount:       c.Amount,
 		ReserveAmount:     c.ReserveAmount,
 		DownPayment:       c.DownPayment,
 		MaxPaymentDate:    c.MaxPaymentDate,
@@ -206,6 +211,12 @@ func (c *Contract) ToResponse() ContractResponse {
 	resp.LotArea = c.Lot.Area()
 	resp.LotPrice = c.Lot.Price
 	resp.LotOverridePrice = c.Lot.OverridePrice
+
+	// A pending reservation holds the lot for 48 hours from creation.
+	if c.Status == ContractStatusPending {
+		expires := c.CreatedAt.Add(48 * time.Hour)
+		resp.HoldExpiresAt = &expires
+	}
 
 	// Add project info
 	resp.ProjectID = c.Lot.ProjectID
@@ -252,7 +263,19 @@ func (c *Contract) ToResponse() ContractResponse {
 
 	// Add payment schedule
 	for _, payment := range c.Payments {
-		resp.PaymentSchedule = append(resp.PaymentSchedule, payment.ToResponse())
+		paymentResp := payment.ToResponse()
+		resp.PaymentSchedule = append(resp.PaymentSchedule, paymentResp)
+		if payment.PaymentType == PaymentTypeReservation && resp.ReservationPayment == nil {
+			entry := paymentResp
+			resp.ReservationPayment = &entry
+		}
+	}
+
+	// The 48h hold is derived data: only meaningful while the contract is
+	// still pending. Jobs remain the source of truth for releasing lots.
+	if c.Status == ContractStatusPending && !c.CreatedAt.IsZero() {
+		hold := c.CreatedAt.Add(48 * time.Hour)
+		resp.HoldExpiresAt = &hold
 	}
 
 	// Add ledger entries

@@ -14,14 +14,20 @@ import (
 )
 
 type UserHandler struct {
-	userService    *services.UserService
-	paymentService *services.PaymentService
+	userService     *services.UserService
+	paymentService  *services.PaymentService
+	contractService *services.ContractService
 }
 
-func NewUserHandler(userService *services.UserService, paymentService *services.PaymentService) *UserHandler {
+func NewUserHandler(userService *services.UserService, paymentService *services.PaymentService, contractServices ...*services.ContractService) *UserHandler {
+	var contractService *services.ContractService
+	if len(contractServices) > 0 {
+		contractService = contractServices[0]
+	}
 	return &UserHandler{
-		userService:    userService,
-		paymentService: paymentService,
+		userService:     userService,
+		paymentService:  paymentService,
+		contractService: contractService,
 	}
 }
 
@@ -416,8 +422,26 @@ func (h *UserHandler) ResendConfirmation(c *gin.Context) {
 // @Security BearerAuth
 // @Router /users/{user_id}/contracts [get]
 func (h *UserHandler) Contracts(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"contracts": []interface{}{}})
+	userID, err := strconv.ParseUint(c.Param("user_id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de usuario inválido"})
+		return
+	}
+	if h.contractService == nil {
+		c.JSON(http.StatusOK, gin.H{"contracts": []interface{}{}})
+		return
+	}
+
+	contracts, err := h.contractService.FindByUser(c.Request.Context(), uint(userID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al obtener reservas"})
+		return
+	}
+	responses := make([]models.ContractResponse, 0, len(contracts))
+	for i := range contracts {
+		responses = append(responses, contracts[i].ToResponse())
+	}
+	c.JSON(http.StatusOK, gin.H{"contracts": responses})
 }
 
 // @Summary Get User Payments
@@ -460,8 +484,21 @@ func (h *UserHandler) Payments(c *gin.Context) {
 // @Security BearerAuth
 // @Router /users/{user_id}/payment_history [get]
 func (h *UserHandler) PaymentHistory(c *gin.Context) {
-	// TODO: Implement
-	c.JSON(http.StatusOK, gin.H{"payment_history": []interface{}{}})
+	userID, err := strconv.ParseUint(c.Param("user_id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de usuario inválido"})
+		return
+	}
+	payments, err := h.paymentService.GetUserPayments(c.Request.Context(), uint(userID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al obtener historial de pagos"})
+		return
+	}
+	responses := make([]models.PaymentResponse, 0, len(payments))
+	for i := range payments {
+		responses = append(responses, payments[i].ToResponse())
+	}
+	c.JSON(http.StatusOK, gin.H{"payment_history": responses})
 }
 
 // @Summary Get User Summary

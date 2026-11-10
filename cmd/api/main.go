@@ -211,10 +211,41 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 		v1.POST("/users/verify_recovery_code", h.User.VerifyRecoveryCode)
 		v1.POST("/users/update_password_with_code", h.User.UpdatePasswordWithCode)
 
+		// Public customer portal catalog (no auth; 60 req/min per IP)
+		public := v1.Group("/public")
+		public.Use(middleware.RateLimit(60, time.Minute))
+		{
+			public.GET("/projects", h.Public.ListProjects)
+			public.GET("/projects/:guid", h.Public.ShowProject)
+			public.GET("/projects/:guid/lots", h.Public.ListLots)
+			public.GET("/projects/:guid/lots/:lot_guid", h.Public.ShowLot)
+			public.GET("/projects/:guid/payment-instructions", h.Public.PaymentInstructions)
+			public.GET("/projects/:guid/drawings", h.Public.ListDrawings)
+			public.GET("/projects/:guid/photos", h.Public.ListProjectPhotos)
+			public.GET("/projects/:guid/lots/:lot_guid/photos", h.Public.ListLotPhotos)
+
+			// Guest reservation creation is tighter: 5 per IP per hour.
+			public.POST("/projects/:guid/lots/:lot_guid/contracts",
+				middleware.OptionalAuth(cfg.JWTSecret),
+				middleware.RateLimit(5, time.Hour),
+				h.Contract.CreateGuest,
+			)
+
+			// The wizard uploads the reservation voucher before the guest has
+			// a session; only pending reservation payments are accepted.
+			public.POST("/payments/:payment_id/upload_receipt",
+				middleware.RateLimit(10, time.Minute),
+				h.Payment.UploadPublicReservationReceipt,
+			)
+		}
+
 		// Protected routes (requires authentication)
 		protected := v1.Group("")
 		protected.Use(middleware.Auth(cfg.JWTSecret))
 		{
+			// Contract tracking by public GUID (owner/admin/seller checked in the handler).
+			protected.GET("/contracts/:guid", h.Contract.ShowByGUID)
+
 			// Admin-only routes
 			admin := protected.Group("")
 			admin.Use(middleware.RequireAdmin())
@@ -260,6 +291,26 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				admin.POST("/branding/logo", h.Branding.UploadLogo)
 				admin.DELETE("/branding/logo", h.Branding.DeleteLogo)
 
+				// Project media (admin only)
+				admin.GET("/projects/:project_id/drawings", h.Media.ListDrawings)
+				admin.POST("/projects/:project_id/drawings", h.Media.UploadDrawings)
+				admin.PATCH("/drawings/:drawing_id", h.Media.UpdateDrawing)
+				admin.DELETE("/drawings/:drawing_id", h.Media.DeleteDrawing)
+				admin.POST("/projects/:project_id/photos", h.Media.UploadProjectPhotos)
+				admin.GET("/projects/:project_id/photos", h.Media.ListProjectPhotos)
+				admin.PATCH("/project-photos/:photo_id", h.Media.UpdateProjectPhoto)
+				admin.DELETE("/project-photos/:photo_id", h.Media.DeleteProjectPhoto)
+				admin.POST("/projects/:project_id/lots/:lot_id/photos", h.Media.UploadLotPhotos)
+				admin.GET("/projects/:project_id/lots/:lot_id/photos", h.Media.ListLotPhotos)
+				admin.PATCH("/photos/:photo_id", h.Media.UpdateLotPhoto)
+				admin.DELETE("/photos/:photo_id", h.Media.DeleteLotPhoto)
+
+				// Project payment instructions (admin only)
+				admin.GET("/projects/:project_id/payment-instructions", h.Instructions.Index)
+				admin.POST("/projects/:project_id/payment-instructions", h.Instructions.Create)
+				admin.PATCH("/projects/:project_id/payment-instructions/:instruction_id", h.Instructions.Update)
+				admin.DELETE("/projects/:project_id/payment-instructions/:instruction_id", h.Instructions.Delete)
+
 			}
 
 			// User data access (Admin, Seller, or Owner)
@@ -271,6 +322,7 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				userData.GET("/payments", h.User.Payments)
 				userData.GET("/payment_history", h.User.PaymentHistory)
 				userData.GET("/summary", h.User.Summary)
+				userData.GET("/notifications", h.Notification.IndexByUser)
 			}
 
 			// Seller + Admin routes (viewing and managing sales)
@@ -395,6 +447,12 @@ func scheduleJobs(worker *jobs.Worker, svcs *services.Services) {
 	worker.ScheduleEveryImmediate(8*time.Hour, func(ctx context.Context) error {
 		logger.Info("[Job] Releasing unpaid reservations...")
 		return svcs.Contract.ReleaseUnpaidReservations(ctx)
+	})
+
+	// Nudge customers whose 48h hold is about to expire without a voucher.
+	worker.ScheduleEveryImmediate(8*time.Hour, func(ctx context.Context) error {
+		logger.Info("[Job] Sending reservation voucher reminders...")
+		return svcs.Contract.SendReservationVoucherReminders(ctx)
 	})
 
 	// Daily payment reminder emails for active users with active contracts

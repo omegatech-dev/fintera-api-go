@@ -20,6 +20,9 @@ type Handlers struct {
 	Analytics    *AnalyticsHandler
 	Job          *JobHandler
 	Branding     *BrandingHandler
+	Public       *PublicHandler
+	Media        *MediaHandler
+	Instructions *PaymentInstructionHandler
 }
 
 // NewHandlers creates all handler instances
@@ -27,7 +30,7 @@ func NewHandlers(svcs *services.Services, storage *storage.LocalStorage) *Handle
 	return &Handlers{
 		Health:       NewHealthHandler(),
 		Auth:         NewAuthHandler(svcs.Auth),
-		User:         NewUserHandler(svcs.User, svcs.Payment),
+		User:         NewUserHandler(svcs.User, svcs.Payment, svcs.Contract),
 		Project:      NewProjectHandler(svcs.Project),
 		Lot:          NewLotHandler(svcs.Lot),
 		Contract:     NewContractHandler(svcs.Contract, storage),
@@ -38,5 +41,8 @@ func NewHandlers(svcs *services.Services, storage *storage.LocalStorage) *Handle
 		Analytics:    NewAnalyticsHandler(svcs.Analytics, svcs.Export),
 		Job:          NewJobHandler(svcs.Job),
 		Branding:     NewBrandingHandler(svcs.Branding),
+		Public:       NewPublicHandler(svcs.Public, svcs.Media),
+		Media:        NewMediaHandler(svcs.Media),
+		Instructions: NewPaymentInstructionHandler(svcs.Instructions),
 	}
 }

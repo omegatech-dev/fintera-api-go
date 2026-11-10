@@ -397,6 +397,34 @@ func (h *NotificationHandler) Index(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"notifications": responses, "pagination": gin.H{"total": total}})
 }
 
+// IndexByUser lists notifications for the user in the URL. Access is already
+// restricted to the owner (or admin/seller) by the route middleware; this
+// keeps the portal contract `/users/:id/notifications`.
+func (h *NotificationHandler) IndexByUser(c *gin.Context) {
+	userID, err := strconv.ParseUint(c.Param("user_id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de usuario inválido"})
+		return
+	}
+	query := ParseListQuery(c)
+	if status := c.Query("status"); status != "" {
+		query.Filters["status"] = status
+	}
+
+	notifications, total, err := h.notificationService.FindByUser(c.Request.Context(), uint(userID), query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var responses []interface{}
+	for _, n := range notifications {
+		responses = append(responses, n.ToResponse())
+	}
+
+	c.JSON(http.StatusOK, gin.H{"notifications": responses, "pagination": gin.H{"total": total}})
+}
+
 // @Summary Get Notification
 // @Description Get a notification by ID
 // @Tags Notifications

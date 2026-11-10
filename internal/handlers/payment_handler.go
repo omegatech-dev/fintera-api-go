@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sjperalta/fintera-api/internal/models"
 	"github.com/sjperalta/fintera-api/internal/services"
 	"github.com/sjperalta/fintera-api/internal/storage"
 )
@@ -279,13 +280,73 @@ func (h *PaymentHandler) UploadReceipt(c *gin.Context) {
 		return
 	}
 
+	authorizationNumber := strings.TrimSpace(c.Request.FormValue("authorization_number"))
+	payerAccountName := strings.TrimSpace(c.Request.FormValue("payer_account_name"))
+	if len(authorizationNumber) > 64 || len(payerAccountName) > 64 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Los datos bancarios no pueden exceder 64 caracteres"})
+		return
+	}
+
 	path, err := h.storage.Upload(file, header, "receipts")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al guardar archivo"})
 		return
 	}
 
-	if err := h.paymentService.UpdateReceiptPath(c.Request.Context(), uint(id), path); err != nil {
+	if err := h.paymentService.UpdateReceipt(c.Request.Context(), uint(id), path, authorizationNumber, payerAccountName); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Comprobante subido exitosamente"})
+}
+
+// UploadPublicReservationReceipt lets the guest wizard upload the reservation
+// voucher without a session, but only for a pending reservation payment.
+func (h *PaymentHandler) UploadPublicReservationReceipt(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("payment_id"), 10, 32)
+
+	payment, err := h.paymentService.FindByID(c.Request.Context(), uint(id))
+	if err != nil || payment.ID == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Pago no encontrado"})
+		return
+	}
+	if payment.PaymentType != models.PaymentTypeReservation ||
+		payment.Contract.Status != models.ContractStatusPending {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Este pago no admite comprobante público"})
+		return
+	}
+
+	file, header, err := c.Request.FormFile("receipt")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Archivo requerido"})
+		return
+	}
+	defer func() { _ = file.Close() }()
+
+	if c.Request.ContentLength > 0 && c.Request.ContentLength > storage.MaxFileSize() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Archivo demasiado grande"})
+		return
+	}
+	if !storage.IsValidContentType(header.Header.Get("Content-Type")) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Tipo de archivo inválido"})
+		return
+	}
+
+	authorizationNumber := strings.TrimSpace(c.Request.FormValue("authorization_number"))
+	payerAccountName := strings.TrimSpace(c.Request.FormValue("payer_account_name"))
+	if len(authorizationNumber) > 64 || len(payerAccountName) > 64 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Los datos bancarios no pueden exceder 64 caracteres"})
+		return
+	}
+
+	path, err := h.storage.Upload(file, header, "receipts")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al guardar archivo"})
+		return
+	}
+
+	if err := h.paymentService.UpdateReceipt(c.Request.Context(), uint(id), path, authorizationNumber, payerAccountName); err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return
 	}

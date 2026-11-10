@@ -82,6 +82,9 @@ Source: `internal/config/config.go`.
 Never commit real values for `JWT_SECRET`, `RESEND_API_KEY`, `ROLLBAR_TOKEN`, or
 database credentials.
 
+For step-by-step Resend setup (local test inbox, staging and production), see
+[email.md](email.md).
+
 ## Make targets
 
 | Command | Description |

@@ -823,6 +823,9 @@ func (r *projectRepository) FindPublishedByGUID(ctx context.Context, guid string
 		Preload("Photos", func(db *gorm.DB) *gorm.DB {
 			return db.Order("project_photos.position ASC")
 		}).
+		Preload("Drawings", func(db *gorm.DB) *gorm.DB {
+			return db.Order("project_drawings.created_at ASC")
+		}).
 		Where("guid = ? AND is_published = ? AND is_active = ?", guid, true, true).
 		First(&project).Error
 	if err != nil {
@@ -839,6 +842,9 @@ func (r *projectRepository) ListPublished(ctx context.Context) ([]models.Project
 		}).
 		Preload("Photos", func(db *gorm.DB) *gorm.DB {
 			return db.Order("project_photos.position ASC")
+		}).
+		Preload("Drawings", func(db *gorm.DB) *gorm.DB {
+			return db.Order("project_drawings.created_at ASC")
 		}).
 		Where("is_published = ? AND is_active = ?", true, true).
 		Order("created_at DESC").

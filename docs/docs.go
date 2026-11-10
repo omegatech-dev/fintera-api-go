@@ -5621,6 +5621,12 @@ const docTemplate = `{
                 "address": {
                     "type": "string"
                 },
+                "city": {
+                    "type": "string"
+                },
+                "code": {
+                    "type": "string"
+                },
                 "commission_rate": {
                     "type": "number"
                 },
@@ -5692,6 +5698,12 @@ const docTemplate = `{
                 },
                 "available_lots": {
                     "type": "integer"
+                },
+                "city": {
+                    "type": "string"
+                },
+                "code": {
+                    "type": "string"
                 },
                 "commission_rate": {
                     "type": "number"

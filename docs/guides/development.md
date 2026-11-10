@@ -70,8 +70,9 @@ Source: `internal/config/config.go`.
 | `APP_URL` | `https://fintera.securexapp.com` | Used in internal/admin email links |
 | `PORTAL_URL` | `https://portal.fintera.app` | Customer portal origin for email deep links (`/reserva/:guid/seguimiento`, `/mis-reservas`) |
 | `RESEND_API_KEY` | empty | Email is disabled without it |
-| `FROM_EMAIL` | `noreply@fintera.app` | Sender address |
+| `FROM_EMAIL` | `noreply@fintera.app` | Sender address (must be verified in Resend; use `onboarding@resend.dev` for testing) |
 | `ENABLE_EMAIL_NOTIFICATIONS` | `false` | Global email switch |
+| `EMAIL_OVERRIDE_TO` | empty | Redirects every outbound email to this test inbox. Use `delivered@resend.dev` (or `delivered+staging@resend.dev`) locally/staging. **Leave empty in production.** |
 | `ROLLBAR_TOKEN` | empty | Error tracking disabled when empty |
 | `ROLLBAR_CODE_VERSION` | empty | Rollbar metadata |
 | `ROLLBAR_SERVER_ROOT` | `github.com/sjperalta/fintera-api` | Rollbar metadata |
@@ -80,6 +81,9 @@ Source: `internal/config/config.go`.
 
 Never commit real values for `JWT_SECRET`, `RESEND_API_KEY`, `ROLLBAR_TOKEN`, or
 database credentials.
+
+For step-by-step Resend setup (local test inbox, staging and production), see
+[email.md](email.md).
 
 ## Make targets
 

@@ -14,6 +14,7 @@ Go API as it exists in code today, not the historical Rails implementation.
 | Business flows | [architecture/domain-flows.md](architecture/domain-flows.md) |
 | API and authorization | [architecture/api-and-auth.md](architecture/api-and-auth.md) |
 | Testing | [guides/testing.md](guides/testing.md) |
+| Email setup (Resend) | [guides/email.md](guides/email.md) |
 | Deployment and operations | [guides/operations.md](guides/operations.md) |
 | Conventions and PR checklist | [guides/contributing.md](guides/contributing.md) |
 
@@ -29,6 +30,7 @@ docs/
 │   └── api-and-auth.md             # routes, RBAC, auth, response conventions
 ├── guides/
 │   ├── development.md              # local setup and commands
+│   ├── email.md                    # Resend setup, test inbox and production
 │   ├── testing.md                  # tests and CI
 │   ├── operations.md               # deploy, runtime, observability, security
 │   └── contributing.md             # conventions and definition of done

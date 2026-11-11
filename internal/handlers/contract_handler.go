@@ -811,7 +811,7 @@ func parseMaxPaymentDate(financingType, raw string) (*time.Time, error) {
 	switch financingType {
 	case models.FinancingTypeCash:
 		if raw == "" {
-			return nil, errors.New("La fecha máxima de pago es requerida para financiamiento de contado")
+			return nil, errors.New("la fecha máxima de pago es requerida para financiamiento de contado")
 		}
 	case models.FinancingTypeBank:
 		if raw == "" {
@@ -823,13 +823,13 @@ func parseMaxPaymentDate(financingType, raw string) (*time.Time, error) {
 
 	parsed, err := time.Parse("2006-01-02", raw)
 	if err != nil {
-		return nil, errors.New("La fecha máxima de pago debe tener formato YYYY-MM-DD")
+		return nil, errors.New("la fecha máxima de pago debe tener formato YYYY-MM-DD")
 	}
 	today := time.Now().Truncate(24 * time.Hour)
 	maxDateOnly := time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, time.UTC)
 	todayOnly := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
 	if maxDateOnly.Before(todayOnly) {
-		return nil, errors.New("La fecha máxima de pago no puede ser anterior a hoy")
+		return nil, errors.New("la fecha máxima de pago no puede ser anterior a hoy")
 	}
 	return &parsed, nil
 }
@@ -846,14 +846,14 @@ func parseBankCreditDetails(financingType, bankName, creditStatus string) (*stri
 	var namePtr *string
 	if name != "" {
 		if len([]rune(name)) > maxBankNameLength {
-			return nil, nil, errors.New("El nombre del banco no puede superar los 120 caracteres")
+			return nil, nil, errors.New("el nombre del banco no puede superar los 120 caracteres")
 		}
 		namePtr = &name
 	}
 
 	normalized, ok := models.NormalizeBankCreditStatus(creditStatus)
 	if !ok {
-		return nil, nil, errors.New("El estado del crédito bancario no es válido")
+		return nil, nil, errors.New("el estado del crédito bancario no es válido")
 	}
 	var statusPtr *string
 	if normalized != "" {

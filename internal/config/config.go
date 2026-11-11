@@ -41,6 +41,7 @@ type Config struct {
 
 	// Rollbar
 	RollbarToken       string
+	RollbarEnvironment string
 	RollbarCodeVersion string
 	RollbarServerRoot  string
 
@@ -51,9 +52,11 @@ type Config struct {
 
 // Load reads configuration from environment variables
 func Load() (*Config, error) {
+	environment := getEnv("ENVIRONMENT", "development")
+
 	cfg := &Config{
 		Port:                     getEnv("PORT", "8080"),
-		Environment:              getEnv("ENVIRONMENT", "development"),
+		Environment:              environment,
 		DatabaseURL:              getEnv("DATABASE_URL", ""),
 		JWTSecret:                getEnv("JWT_SECRET", ""),
 		JWTExpirationHours:       getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
@@ -67,6 +70,7 @@ func Load() (*Config, error) {
 		EmailOverrideTo:          getEnv("EMAIL_OVERRIDE_TO", ""),
 		EnableEmailNotifications: getEnvAsBool("ENABLE_EMAIL_NOTIFICATIONS", false),
 		RollbarToken:             getEnv("ROLLBAR_TOKEN", ""),
+		RollbarEnvironment:       getEnv("ROLLBAR_ENVIRONMENT", environment),
 		RollbarCodeVersion:       getEnv("ROLLBAR_CODE_VERSION", ""),
 		RollbarServerRoot:        getEnv("ROLLBAR_SERVER_ROOT", "github.com/sjperalta/fintera-api"),
 		DefaultEmail:             getEnv("DEFAULT_EMAIL", ""),

@@ -20,7 +20,7 @@ func TestLoad(t *testing.T) {
 		"PORT", "ENVIRONMENT", "DATABASE_URL", "JWT_SECRET", "JWT_EXPIRATION_HOURS",
 		"STORAGE_PATH", "WORKER_COUNT", "ALLOWED_ORIGINS", "APP_URL",
 		"RESEND_API_KEY", "FROM_EMAIL", "ENABLE_EMAIL_NOTIFICATIONS",
-		"ROLLBAR_TOKEN", "ROLLBAR_CODE_VERSION", "ROLLBAR_SERVER_ROOT",
+		"ROLLBAR_TOKEN", "ROLLBAR_ENVIRONMENT", "ROLLBAR_CODE_VERSION", "ROLLBAR_SERVER_ROOT",
 		"DEFAULT_EMAIL", "DEFAULT_PASSWORD",
 	}
 
@@ -50,6 +50,7 @@ func TestLoad(t *testing.T) {
 		t.Setenv("FROM_EMAIL", "test@example.com")
 		t.Setenv("ENABLE_EMAIL_NOTIFICATIONS", "true")
 		t.Setenv("ROLLBAR_TOKEN", "rb_123")
+		t.Setenv("ROLLBAR_ENVIRONMENT", "staging")
 		t.Setenv("ROLLBAR_CODE_VERSION", "v1.0.0")
 		t.Setenv("ROLLBAR_SERVER_ROOT", "github.com/org/repo")
 		t.Setenv("DEFAULT_EMAIL", "admin@example.com")
@@ -102,6 +103,9 @@ func TestLoad(t *testing.T) {
 		}
 		if cfg.RollbarToken != "rb_123" {
 			t.Errorf("expected RollbarToken rb_123, got %s", cfg.RollbarToken)
+		}
+		if cfg.RollbarEnvironment != "staging" {
+			t.Errorf("expected RollbarEnvironment staging, got %s", cfg.RollbarEnvironment)
 		}
 		if cfg.RollbarCodeVersion != "v1.0.0" {
 			t.Errorf("expected RollbarCodeVersion v1.0.0, got %s", cfg.RollbarCodeVersion)
@@ -165,6 +169,9 @@ func TestLoad(t *testing.T) {
 		if cfg.RollbarServerRoot != "github.com/sjperalta/fintera-api" {
 			t.Errorf("expected RollbarServerRoot github.com/sjperalta/fintera-api, got %s", cfg.RollbarServerRoot)
 		}
+		if cfg.RollbarEnvironment != "development" {
+			t.Errorf("expected RollbarEnvironment development, got %s", cfg.RollbarEnvironment)
+		}
 	})
 
 	t.Run("missing DATABASE_URL", func(t *testing.T) {
@@ -197,6 +204,39 @@ func TestLoad(t *testing.T) {
 		}
 		if err != nil && !strings.Contains(err.Error(), "JWT_SECRET is required in production") {
 			t.Errorf("expected error containing 'JWT_SECRET is required in production', got %v", err)
+		}
+	})
+
+	t.Run("rollbar environment falls back to the app environment", func(t *testing.T) {
+		cleanEnv(t)
+
+		t.Setenv("DATABASE_URL", "postgres://localhost/db")
+		t.Setenv("ENVIRONMENT", "production")
+		t.Setenv("JWT_SECRET", "super-secret")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if cfg.RollbarEnvironment != "production" {
+			t.Errorf("expected RollbarEnvironment production, got %s", cfg.RollbarEnvironment)
+		}
+	})
+
+	t.Run("rollbar environment overrides the app environment", func(t *testing.T) {
+		cleanEnv(t)
+
+		t.Setenv("DATABASE_URL", "postgres://localhost/db")
+		t.Setenv("ENVIRONMENT", "production")
+		t.Setenv("JWT_SECRET", "super-secret")
+		t.Setenv("ROLLBAR_ENVIRONMENT", "rollbar-prod")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if cfg.RollbarEnvironment != "rollbar-prod" {
+			t.Errorf("expected RollbarEnvironment rollbar-prod, got %s", cfg.RollbarEnvironment)
 		}
 	})
 }

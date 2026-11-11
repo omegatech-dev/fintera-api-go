@@ -74,6 +74,7 @@ Source: `internal/config/config.go`.
 | `ENABLE_EMAIL_NOTIFICATIONS` | `false` | Global email switch |
 | `EMAIL_OVERRIDE_TO` | empty | Redirects every outbound email to this test inbox. Use `delivered@resend.dev` (or `delivered+staging@resend.dev`) locally/staging. **Leave empty in production.** |
 | `ROLLBAR_TOKEN` | empty | Error tracking disabled when empty |
+| `ROLLBAR_ENVIRONMENT` | `ENVIRONMENT` | Rollbar environment label; independent from the app environment |
 | `ROLLBAR_CODE_VERSION` | empty | Rollbar metadata |
 | `ROLLBAR_SERVER_ROOT` | `github.com/sjperalta/fintera-api` | Rollbar metadata |
 | `DEFAULT_EMAIL` | empty | Development Swagger default login |

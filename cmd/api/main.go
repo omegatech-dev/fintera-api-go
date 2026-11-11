@@ -62,10 +62,10 @@ func main() {
 	// Initialize Rollbar when token is configured
 	if cfg.RollbarToken != "" {
 		rollbar.SetToken(cfg.RollbarToken)
-		rollbar.SetEnvironment(cfg.Environment)
+		rollbar.SetEnvironment(cfg.RollbarEnvironment)
 		rollbar.SetCodeVersion(cfg.RollbarCodeVersion)
 		rollbar.SetServerRoot(cfg.RollbarServerRoot)
-		logger.Info("Rollbar initialized")
+		logger.Info("Rollbar initialized", "environment", cfg.RollbarEnvironment)
 	}
 
 	// Warn if Resend email is not configured (API loads .env, not .production.env)

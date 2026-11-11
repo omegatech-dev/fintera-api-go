@@ -70,7 +70,8 @@ cmd/api → handlers → services → repository → models
 
 1. `config.Load()` reads environment variables.
 2. `logger.Setup(cfg.Environment)` configures structured logging.
-3. Rollbar is configured when `ROLLBAR_TOKEN` is set.
+3. Rollbar is configured when `ROLLBAR_TOKEN` is set, using
+   `ROLLBAR_ENVIRONMENT` (falling back to `ENVIRONMENT`).
 4. `database.Connect(cfg.DatabaseURL)` opens GORM with a bounded pool.
 5. `storage.NewLocalStorage(cfg.StoragePath)` ensures the storage root exists.
 6. `repository.NewRepositories(db)` creates repository implementations.

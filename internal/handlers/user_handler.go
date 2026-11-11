@@ -380,6 +380,41 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Contraseña actualizada exitosamente"})
 }
 
+// @Summary Change Own Password
+// @Description Change the authenticated user's password (used by the customer portal first login).
+// @Tags Authentication
+// @Accept json
+// @Produce json
+// @Param request body ChangePasswordRequest true "Password Data"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 422 {object} map[string]string
+// @Security BearerAuth
+// @Router /auth/change_password [post]
+func (h *UserHandler) ChangeOwnPassword(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Sesión inválida"})
+		return
+	}
+
+	var req ChangePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.CurrentPassword == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "La contraseña actual es requerida"})
+		return
+	}
+	if err := h.userService.ChangePassword(c.Request.Context(), userID, req.CurrentPassword, req.NewPassword, userID); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Contraseña actualizada exitosamente"})
+}
+
 // @Summary Resend Confirmation
 // @Description Resend email confirmation
 // @Tags Users

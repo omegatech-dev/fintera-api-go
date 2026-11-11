@@ -7,6 +7,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"html/template"
+	"math"
 	"strings"
 	"time"
 
@@ -369,6 +370,15 @@ func (s *ReportService) GenerateOverduePaymentsCSV(ctx context.Context) (*bytes.
 
 // Helper to generate PDF from HTML template (templates are embedded in the binary)
 func (s *ReportService) generatePDF(templateName string, data interface{}) (*bytes.Buffer, error) {
+	return s.generateDocument(templateName, data, false)
+}
+
+// generatePDFWithFooter generates a PDF with page numbers in the footer.
+func (s *ReportService) generatePDFWithFooter(templateName string, data interface{}) (*bytes.Buffer, error) {
+	return s.generateDocument(templateName, data, true)
+}
+
+func (s *ReportService) generateDocument(templateName string, data interface{}, withFooter bool) (*bytes.Buffer, error) {
 	// 1. Parse Template from embedded FS
 	tmplPath := "templates/reports/" + templateName
 	tmpl, err := template.ParseFS(reportTemplates, tmplPath)
@@ -396,9 +406,18 @@ func (s *ReportService) generatePDF(templateName string, data interface{}) (*byt
 	pdfg.Orientation.Set(wkhtmltopdf.OrientationPortrait)
 	pdfg.Grayscale.Set(false)
 
+	if withFooter {
+		pdfg.MarginBottom.Set(18)
+	}
+
 	// Add page from buffer
 	page := wkhtmltopdf.NewPageReader(bytes.NewReader(buf.Bytes()))
 	page.EnableLocalFileAccess.Set(true)
+	if withFooter {
+		page.FooterCenter.Set("Página [page] de [topage]")
+		page.FooterFontSize.Set(8)
+		page.FooterSpacing.Set(5)
+	}
 	pdfg.AddPage(page)
 
 	// Create PDF
@@ -407,6 +426,89 @@ func (s *ReportService) generatePDF(templateName string, data interface{}) (*byt
 	}
 
 	return pdfg.Buffer(), nil
+}
+
+// BalancePaymentData is one row in a statement's payment schedule.
+type BalancePaymentData struct {
+	Index     int
+	Type      string
+	DueDate   string
+	Amount    string
+	Paid      string
+	Status    string
+	StatusKey string
+}
+
+// BalanceLedgerData is one non-initial ledger movement.
+type BalanceLedgerData struct {
+	Date        string
+	EntryType   string
+	Description string
+	Amount      string
+}
+
+// BalanceContractData is one contract section in the statement.
+type BalanceContractData struct {
+	ID              uint
+	Reference       string
+	Status          string
+	StatusKey       string
+	FinancingType   string
+	ProjectName     string
+	ProjectAddress  string
+	LotName         string
+	LotArea         string
+	LotDimensions   string
+	LotRegistration string
+	LotAddress      string
+	Amount          string
+	Reserve         string
+	DownPayment     string
+	Financed        string
+	MonthlyPayment  string
+	TotalPaid       string
+	Balance         string
+	PaymentTerm     string
+	StartDate       string
+	EndDate         string
+	ApprovedAt      string
+	Payments        []BalancePaymentData
+	PaymentCount    int
+	PaidCount       int
+	PendingCount    int
+	HasPayments     bool
+	Ledger          []BalanceLedgerData
+	HasLedger       bool
+}
+
+// BalanceCustomerData is the account holder block.
+type BalanceCustomerData struct {
+	FullName string
+	Identity string
+	Phone    string
+	Email    string
+	Address  string
+}
+
+// BalanceTotalsData is the account-level summary.
+type BalanceTotalsData struct {
+	Contracts  int
+	Financed   string
+	Paid       string
+	Balance    string
+	Overdue    string
+	HasOverdue bool
+}
+
+// BalanceReportData is the full template payload for user_balance.html.
+type BalanceReportData struct {
+	Customer     BalanceCustomerData
+	Date         string
+	Time         string
+	Reference    string
+	Totals       BalanceTotalsData
+	Contracts    []BalanceContractData
+	HasContracts bool
 }
 
 // GenerateUserBalancePDF generates a PDF statement of account for a user
@@ -421,72 +523,394 @@ func (s *ReportService) GenerateUserBalancePDF(ctx context.Context, userID uint)
 		return nil, err
 	}
 
-	// Prepare data for template
-	type PaymentData struct {
-		PaymentType string
-		DueDate     string
-		Amount      string
-		PaidAmount  string
-		Status      string
-	}
-
-	type ContractData struct {
-		ID       uint
-		Payments []PaymentData
-	}
-
-	type ReportData struct {
-		User      interface{}
-		Date      string
-		Contracts []ContractData
-	}
-
-	paymentTypeTranslations := map[string]string{
-		models.PaymentTypeReservation:      "Reservación",
-		models.PaymentTypeDownPayment:      "Prima",
-		models.PaymentTypeInstallment:      "Cuota",
-		models.PaymentTypeFull:             "Pago Total",
-		models.PaymentTypeAdvance:          "Abono a Capital",
-		models.PaymentTypeCapitalRepayment: "Amortización a Capital",
-	}
-
-	var contractDataList []ContractData
+	details := make([]*models.Contract, 0, len(contracts))
 	for _, c := range contracts {
-		cDetails, err := s.contractRepo.FindByIDWithDetails(ctx, c.ID)
-		if err == nil {
-			var payments []PaymentData
-			for _, p := range cDetails.Payments {
-				paid := 0.0
-				if p.PaidAmount != nil {
-					paid = *p.PaidAmount
-				}
-				paymentTypeLabel := p.PaymentType
-				if translated, ok := paymentTypeTranslations[p.PaymentType]; ok {
-					paymentTypeLabel = translated
-				}
-				payments = append(payments, PaymentData{
-					PaymentType: paymentTypeLabel,
-					DueDate:     s.formatDateShort(p.DueDate),
-					Amount:      s.formatCurrency(p.Amount),
-					PaidAmount:  s.formatCurrency(paid),
-					Status:      p.Status,
-				})
-			}
-			contractDataList = append(contractDataList, ContractData{
-				ID:       c.ID,
-				Payments: payments,
-			})
+		detailed, err := s.contractRepo.FindByIDWithDetails(ctx, c.ID)
+		if err == nil && detailed != nil {
+			details = append(details, detailed)
 		}
 	}
 
-	data := ReportData{
-		User:      user,
-		Date:      s.formatDateShort(time.Now()),
-		Contracts: contractDataList,
+	data := s.prepareBalancePDFData(user, details, time.Now())
+	return s.generatePDFWithFooter("user_balance.html", data)
+}
+
+// prepareBalancePDFData builds the statement payload independently of PDF
+// generation so the content can be unit-tested without wkhtmltopdf.
+func (s *ReportService) prepareBalancePDFData(
+	user *models.User,
+	contracts []*models.Contract,
+	now time.Time,
+) BalanceReportData {
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	customer := BalanceCustomerData{
+		FullName: firstNonEmpty(user.FullName, "—"),
+		Identity: firstNonEmpty(user.Identity, "—"),
+		Phone:    firstNonEmpty(user.Phone, "—"),
+		Email:    firstNonEmpty(user.Email, "—"),
+		Address:  firstNonEmpty(pointerValue(user.Address), "—"),
 	}
 
-	return s.generatePDF("user_balance.html", data)
+	var (
+		totalFinanced float64
+		totalPaid     float64
+		totalBalance  float64
+		totalOverdue  float64
+		contractsData []BalanceContractData
+	)
+
+	for _, contract := range contracts {
+		contractData := s.buildBalanceContractData(contract, today)
+		contractsData = append(contractsData, contractData)
+
+		totalFinanced += floatValue(contract.Amount)
+		totalBalance += math.Abs(balanceOf(contract))
+		for _, payment := range contract.Payments {
+			if isPaidPaymentStatus(payment.Status) {
+				totalPaid += paidAmountOf(payment)
+			}
+			if payment.Status == models.PaymentStatusPending && payment.DueDate.Before(today) {
+				totalOverdue += payment.Amount
+			}
+		}
+	}
+
+	return BalanceReportData{
+		Customer:  customer,
+		Date:      s.formatDateShort(now),
+		Time:      now.Format("03:04 PM"),
+		Reference: fmt.Sprintf("EC-%06d", user.ID),
+		Totals: BalanceTotalsData{
+			Contracts:  len(contracts),
+			Financed:   s.formatMoney(totalFinanced),
+			Paid:       s.formatMoney(totalPaid),
+			Balance:    s.formatMoney(totalBalance),
+			Overdue:    s.formatMoney(totalOverdue),
+			HasOverdue: totalOverdue > 0,
+		},
+		Contracts:    contractsData,
+		HasContracts: len(contractsData) > 0,
+	}
 }
+
+func (s *ReportService) buildBalanceContractData(
+	contract *models.Contract,
+	today time.Time,
+) BalanceContractData {
+	amount := floatValue(contract.Amount)
+	reserve := floatValue(contract.ReserveAmount)
+	downPayment := floatValue(contract.DownPayment)
+	financed := amount - reserve - downPayment
+	if financed < 0 {
+		financed = 0
+	}
+
+	var (
+		totalPaid    float64
+		overdue      float64
+		paidCount    int
+		pendingCount int
+		payments     []BalancePaymentData
+		startDate    time.Time
+		endDate      time.Time
+		monthly      float64
+	)
+
+	for index, payment := range contract.Payments {
+		statusLabel, statusKey := translatePaymentStatus(payment.Status)
+		if statusKey == "pending" && payment.DueDate.Before(today) {
+			statusKey = "overdue"
+			overdue += payment.Amount
+		}
+
+		paid := 0.0
+		if isPaidPaymentStatus(payment.Status) {
+			paid = paidAmountOf(payment)
+			totalPaid += paid
+			paidCount++
+		} else if payment.Status == models.PaymentStatusPending || payment.Status == models.PaymentStatusSubmitted {
+			pendingCount++
+		}
+
+		if payment.PaymentType == models.PaymentTypeInstallment && monthly == 0 {
+			monthly = payment.Amount
+		}
+		if !payment.DueDate.IsZero() {
+			if startDate.IsZero() || payment.DueDate.Before(startDate) {
+				startDate = payment.DueDate
+			}
+			if endDate.IsZero() || payment.DueDate.After(endDate) {
+				endDate = payment.DueDate
+			}
+		}
+
+		payments = append(payments, BalancePaymentData{
+			Index:     index + 1,
+			Type:      translatePaymentType(payment.PaymentType),
+			DueDate:   s.formatDateShort(payment.DueDate),
+			Amount:    s.formatMoneyCurrency(contract.Currency, payment.Amount),
+			Paid:      s.formatMoneyCurrency(contract.Currency, paid),
+			Status:    statusLabel,
+			StatusKey: statusKey,
+		})
+	}
+
+	balance := math.Abs(balanceOf(contract))
+	approvedAt := "—"
+	if contract.ApprovedAt != nil {
+		approvedAt = s.formatDateLong(*contract.ApprovedAt)
+	}
+
+	area := contract.Lot.Area()
+	unit := models.ResolveMeasurementUnit(contract.Lot.MeasurementUnit, contract.Lot.Project.MeasurementUnit)
+	dimensions := "—"
+	if contract.Lot.Length > 0 && contract.Lot.Width > 0 {
+		dimensions = fmt.Sprintf("%.2f m × %.2f m", contract.Lot.Length, contract.Lot.Width)
+	}
+	registration := firstNonEmpty(pointerValue(contract.Lot.RegistrationNumber), "—")
+	lotAddress := firstNonEmpty(pointerValue(contract.Lot.Address), "—")
+	projectAddress := firstNonEmpty(contract.Lot.Project.Address, "—")
+
+	ledger := make([]BalanceLedgerData, 0)
+	for _, entry := range contract.LedgerEntries {
+		if entry.EntryType == models.EntryTypeInitial {
+			continue
+		}
+		ledger = append(ledger, BalanceLedgerData{
+			Date:        s.formatDateShort(entry.EntryDate),
+			EntryType:   translateLedgerType(entry.EntryType),
+			Description: firstNonEmpty(entry.Description, "—"),
+			Amount:      s.formatSignedMoney(entry.Amount),
+		})
+	}
+
+	statusLabel, statusKey := translateContractStatus(contract.Status)
+
+	return BalanceContractData{
+		ID:              contract.ID,
+		Reference:       shortContractReference(contract),
+		Status:          statusLabel,
+		StatusKey:       statusKey,
+		FinancingType:   translateFinancingType(contract.FinancingType),
+		ProjectName:     firstNonEmpty(contract.Lot.Project.Name, "—"),
+		ProjectAddress:  projectAddress,
+		LotName:         firstNonEmpty(contract.Lot.Name, "—"),
+		LotArea:         fmt.Sprintf("%.2f %s", area, unit),
+		LotDimensions:   dimensions,
+		LotRegistration: registration,
+		LotAddress:      lotAddress,
+		Amount:          s.formatMoneyCurrency(contract.Currency, amount),
+		Reserve:         s.formatMoneyCurrency(contract.Currency, reserve),
+		DownPayment:     s.formatMoneyCurrency(contract.Currency, downPayment),
+		Financed:        s.formatMoneyCurrency(contract.Currency, financed),
+		MonthlyPayment:  s.formatMoneyCurrency(contract.Currency, monthly),
+		TotalPaid:       s.formatMoneyCurrency(contract.Currency, totalPaid),
+		Balance:         s.formatMoneyCurrency(contract.Currency, balance),
+		PaymentTerm:     fmt.Sprintf("%d meses", contract.PaymentTerm),
+		StartDate:       formatOptionalDate(s, startDate),
+		EndDate:         formatOptionalDate(s, endDate),
+		ApprovedAt:      approvedAt,
+		Payments:        payments,
+		PaymentCount:    len(payments),
+		PaidCount:       paidCount,
+		PendingCount:    pendingCount,
+		HasPayments:     len(payments) > 0,
+		Ledger:          ledger,
+		HasLedger:       len(ledger) > 0,
+	}
+}
+
+func translateContractStatus(status string) (string, string) {
+	switch status {
+	case models.ContractStatusPending:
+		return "Pendiente de pago", "pending"
+	case models.ContractStatusSubmitted:
+		return "En validación", "submitted"
+	case models.ContractStatusApproved, models.ContractStatusSigned:
+		return "Aprobado", "paid"
+	case models.ContractStatusClosed:
+		return "Cerrado", "closed"
+	case models.ContractStatusRejected:
+		return "Rechazado", "danger"
+	case models.ContractStatusCancelled:
+		return "Cancelado", "danger"
+	default:
+		return firstNonEmpty(status, "—"), "closed"
+	}
+}
+
+func translatePaymentStatus(status string) (string, string) {
+	switch status {
+	case models.PaymentStatusPending:
+		return "Pendiente", "pending"
+	case models.PaymentStatusSubmitted:
+		return "En validación", "submitted"
+	case models.PaymentStatusPaid, "approved":
+		return "Pagado", "paid"
+	case models.PaymentStatusRejected:
+		return "Rechazado", "danger"
+	case models.PaymentStatusReadjustment:
+		return "Reajuste", "pending"
+	default:
+		return firstNonEmpty(status, "—"), "closed"
+	}
+}
+
+func translateFinancingType(financingType string) string {
+	switch financingType {
+	case models.FinancingTypeDirect:
+		return "Financiamiento directo"
+	case models.FinancingTypeBank:
+		return "Crédito bancario"
+	case models.FinancingTypeCash:
+		return "Pago de contado"
+	default:
+		return firstNonEmpty(financingType, "—")
+	}
+}
+
+func translatePaymentType(paymentType string) string {
+	switch paymentType {
+	case models.PaymentTypeReservation:
+		return "Reservación"
+	case models.PaymentTypeDownPayment:
+		return "Prima"
+	case models.PaymentTypeInstallment:
+		return "Cuota"
+	case models.PaymentTypeFull:
+		return "Pago total"
+	case models.PaymentTypeAdvance:
+		return "Abono a capital"
+	case models.PaymentTypeCapitalRepayment:
+		return "Pago anticipado"
+	default:
+		return firstNonEmpty(paymentType, "—")
+	}
+}
+
+func translateLedgerType(entryType string) string {
+	switch entryType {
+	case models.EntryTypePayment:
+		return "Pago"
+	case models.EntryTypeInterest:
+		return "Interés"
+	case models.EntryTypePrepayment:
+		return "Abono a capital"
+	case models.EntryTypeAdjustment:
+		return "Ajuste"
+	case models.EntryTypeInitial:
+		return "Saldo inicial"
+	default:
+		return firstNonEmpty(entryType, "—")
+	}
+}
+
+func shortContractReference(contract *models.Contract) string {
+	if contract.GUID != "" {
+		parts := strings.SplitN(contract.GUID, "-", 2)
+		return strings.ToUpper(parts[0])
+	}
+	return fmt.Sprintf("#%d", contract.ID)
+}
+
+func balanceOf(contract *models.Contract) float64 {
+	if contract.Balance != nil {
+		return *contract.Balance
+	}
+	paid := 0.0
+	for _, payment := range contract.Payments {
+		paid += paidAmountOf(payment)
+	}
+	return floatValue(contract.Amount) - paid
+}
+
+func paidAmountOf(payment models.Payment) float64 {
+	if payment.PaidAmount != nil {
+		return *payment.PaidAmount
+	}
+	return payment.Amount
+}
+
+func isPaidPaymentStatus(status string) bool {
+	switch status {
+	case models.PaymentStatusPaid, "approved":
+		return true
+	default:
+		return false
+	}
+}
+
+func floatValue(value *float64) float64 {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func pointerValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func formatOptionalDate(s *ReportService, value time.Time) string {
+	if value.IsZero() {
+		return "—"
+	}
+	return s.formatDateLong(value)
+}
+
+// formatMoney renders an HNL amount with thousands separators, e.g. L 1,125,000.00.
+func (s *ReportService) formatMoney(amount float64) string {
+	return s.formatMoneyCurrency("HNL", amount)
+}
+
+// formatMoneyCurrency renders an amount with the currency symbol and thousands
+// separators, e.g. L 1,125,000.00 or $ 1,125,000.00.
+func (s *ReportService) formatMoneyCurrency(currency string, amount float64) string {
+	sign := ""
+	if amount < 0 {
+		sign = "-"
+		amount = -amount
+	}
+
+	raw := fmt.Sprintf("%.2f", amount)
+	parts := strings.SplitN(raw, ".", 2)
+	intPart := parts[0]
+
+	var formatted strings.Builder
+	for index, char := range intPart {
+		if index > 0 && (len(intPart)-index)%3 == 0 {
+			formatted.WriteByte(',')
+		}
+		formatted.WriteRune(char)
+	}
+
+	symbol := "L"
+	if strings.EqualFold(currency, "USD") {
+		symbol = "$"
+	}
+	return fmt.Sprintf("%s%s %s.%s", sign, symbol, formatted.String(), parts[1])
+}
+
+func (s *ReportService) formatSignedMoney(amount float64) string {
+	if amount > 0 {
+		return "+" + s.formatMoney(amount)
+	}
+	return s.formatMoney(amount)
+}
+
 
 // GenerateContractPDF generates a PDF for a specific contract
 func (s *ReportService) GenerateContractPDF(ctx context.Context, contractID uint) (*bytes.Buffer, error) {

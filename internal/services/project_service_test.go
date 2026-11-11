@@ -303,6 +303,39 @@ func TestProjectService_Update(t *testing.T) {
 	mockLotRepo.AssertExpectations(t)
 }
 
+func TestProjectService_UpdateGeneratesGUIDForLegacyProject(t *testing.T) {
+	ctx := context.Background()
+	mockProjRepo := new(mockProjectRepo)
+	mockLotRepo := new(mockLotRepo)
+
+	gdb, mockSQL := setupMockDB(t)
+	mockSQL.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	service := NewProjectService(mockProjRepo, mockLotRepo, NewAuditService(gdb))
+
+	existingProject := &models.Project{
+		ID:                 1,
+		GUID:               "",
+		MeasurementUnit:    "m2",
+		PricePerSquareUnit: 100,
+	}
+	updatedProject := &models.Project{
+		ID:                 1,
+		MeasurementUnit:    "m2",
+		PricePerSquareUnit: 100,
+	}
+
+	mockProjRepo.On("FindByID", ctx, uint(1)).Return(existingProject, nil)
+	mockProjRepo.On("Update", ctx, mock.AnythingOfType("*models.Project")).Return(nil)
+
+	if err := service.Update(ctx, updatedProject, 1); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	assert.NotEmpty(t, updatedProject.GUID)
+
+	mockProjRepo.AssertExpectations(t)
+}
+
 func TestProjectService_UpdatePricePerUnit(t *testing.T) {
 	ctx := context.Background()
 	mockProjRepo := new(mockProjectRepo)

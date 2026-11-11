@@ -95,6 +95,10 @@ func (s *ProjectService) Update(ctx context.Context, project *models.Project, ac
 	if project.GUID == "" {
 		project.GUID = existing.GUID
 	}
+	// Heal legacy projects that still have no public GUID.
+	if project.GUID == "" {
+		project.GUID = uuid.New().String()
+	}
 
 	// Visibility is managed separately from the edit form; preserve it so a
 	// normal project update never unpublishes the project.

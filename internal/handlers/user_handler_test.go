@@ -122,7 +122,7 @@ func TestUserHandler_Index_DefaultStatus(t *testing.T) {
 
 	mockRepo := &mockUserRepo{}
 	userService := services.NewUserService(mockRepo, nil, nil, nil, nil, nil) // Updated with nil ContractRepo and ImageService
-	handler := NewUserHandler(userService, nil)
+	handler := NewUserHandler(userService, nil, nil, nil)
 
 	var capturedStatus string
 	mockRepo.mockList = func(ctx context.Context, query *repository.ListQuery) ([]models.User, int64, error) {
@@ -161,7 +161,7 @@ func TestUploadProfilePicture(t *testing.T) {
 
 	mockRepo := &mockUserRepo{}
 	userService := services.NewUserService(mockRepo, nil, nil, nil, nil, imageService)
-	handler := NewUserHandler(userService, nil)
+	handler := NewUserHandler(userService, nil, nil, nil)
 
 	userID := uint(1)
 	mockUser := &models.User{ID: userID, Email: "test@example.com"}

@@ -113,46 +113,21 @@ func (s *PaymentService) Approve(ctx context.Context, id uint, amount, interestA
 	}
 	extraAmount := paidAmount - expectedTotal
 
-	// Calculate capital repayment part for ledger (before consuming extraAmount in loop)
+	// A capital repayment applies the whole approved amount to pending
+	// installments. A regular payment only applies the amount that exceeds its
+	// own obligation.
+	isCapitalRepayment := payment.PaymentType == models.PaymentTypeCapitalRepayment
 	capitalRepayment := 0.0
-	if extraAmount > 0 {
+	switch {
+	case isCapitalRepayment:
+		capitalRepayment = paidAmount
+		if err := s.applyToPendingInstallments(ctx, payment, paidAmount); err != nil {
+			return nil, err
+		}
+	case extraAmount > 0:
 		capitalRepayment = extraAmount
-	}
-
-	if extraAmount > 0 {
-		// Apply extra amount to remaining payments from last to first
-		pendingPayments, err := s.repo.FindByContract(ctx, payment.ContractID)
-		if err == nil {
-			// Find only pending/submitted ones excluding current
-			var targets []*models.Payment
-			for i := range pendingPayments {
-				p := &pendingPayments[i]
-				if p.ID != payment.ID && (p.Status == models.PaymentStatusPending || p.Status == models.PaymentStatusSubmitted) {
-					targets = append(targets, p)
-				}
-			}
-
-			// Iterate backwards (last payments first)
-			for i := len(targets) - 1; i >= 0 && extraAmount > 0; i-- {
-				target := targets[i]
-
-				// Apply capital payment ONLY to Principal (Amount)
-				// We do not pay off future interest with capital payments; we simply delete the principal obligation.
-				targetAmount := target.Amount
-
-				if extraAmount >= targetAmount {
-					// Fully paid by extra amount - DELETE the schedule record
-					if err := s.repo.Delete(ctx, target.ID); err != nil {
-						return nil, fmt.Errorf("failed to delete payment #%d: %w", target.ID, err)
-					}
-					extraAmount -= targetAmount
-				} else {
-					// Partially paid
-					target.Amount -= extraAmount
-					extraAmount = 0
-					logIgnoredError("adjust partially covered payment", s.repo.Update(ctx, target))
-				}
-			}
+		if err := s.applyToPendingInstallments(ctx, payment, extraAmount); err != nil {
+			return nil, err
 		}
 	}
 
@@ -164,17 +139,19 @@ func (s *PaymentService) Approve(ctx context.Context, id uint, amount, interestA
 	// Create ledger entry for payment (credit)
 	// 1. Regular Payment (Installment)
 	regularAmount := paidAmount - capitalRepayment
-	ledgerEntry := &models.ContractLedgerEntry{
-		ContractID:  payment.ContractID,
-		PaymentID:   &payment.ID,
-		Amount:      regularAmount, // Positive for credit
-		Description: desc,
-		EntryType:   models.EntryTypePayment,
-		EntryDate:   now,
-	}
+	if regularAmount > 0 {
+		ledgerEntry := &models.ContractLedgerEntry{
+			ContractID:  payment.ContractID,
+			PaymentID:   &payment.ID,
+			Amount:      regularAmount, // Positive for credit
+			Description: desc,
+			EntryType:   models.EntryTypePayment,
+			EntryDate:   now,
+		}
 
-	if err := s.ledgerRepo.Create(ctx, ledgerEntry); err != nil {
-		return nil, fmt.Errorf("failed to create ledger entry: %w", err)
+		if err := s.ledgerRepo.Create(ctx, ledgerEntry); err != nil {
+			return nil, fmt.Errorf("failed to create ledger entry: %w", err)
+		}
 	}
 
 	// 2. Prepayment (Capital Repayment)
@@ -235,6 +212,51 @@ func (s *PaymentService) Approve(ctx context.Context, id uint, amount, interestA
 		fmt.Sprintf("Pago de %.2f aprobado para contrato #%d", paidAmount, payment.ContractID), ip, userAgent))
 
 	return payment, nil
+}
+
+// applyToPendingInstallments reduces future obligations from the end of the
+// schedule so a capital repayment shortens the term instead of paying interest
+// ahead of time. Fully covered installments are removed; the last one may be
+// reduced.
+func (s *PaymentService) applyToPendingInstallments(ctx context.Context, payment *models.Payment, amount float64) error {
+	if amount <= 0 {
+		return nil
+	}
+
+	pendingPayments, err := s.repo.FindByContract(ctx, payment.ContractID)
+	if err != nil {
+		return fmt.Errorf("failed to load pending payments: %w", err)
+	}
+
+	var targets []*models.Payment
+	for i := range pendingPayments {
+		target := &pendingPayments[i]
+		if target.ID != payment.ID &&
+			(target.Status == models.PaymentStatusPending || target.Status == models.PaymentStatusSubmitted) {
+			targets = append(targets, target)
+		}
+	}
+
+	for i := len(targets) - 1; i >= 0 && amount > 0; i-- {
+		target := targets[i]
+		targetAmount := target.Amount
+
+		if amount >= targetAmount {
+			if err := s.repo.Delete(ctx, target.ID); err != nil {
+				return fmt.Errorf("failed to delete payment #%d: %w", target.ID, err)
+			}
+			amount -= targetAmount
+			continue
+		}
+
+		target.Amount -= amount
+		amount = 0
+		if err := s.repo.Update(ctx, target); err != nil {
+			return fmt.Errorf("failed to adjust payment #%d: %w", target.ID, err)
+		}
+	}
+
+	return nil
 }
 
 func (s *PaymentService) Reject(ctx context.Context, id uint, actorID uint, reason string, ip, userAgent string) (*models.Payment, error) { // Updated signature verification

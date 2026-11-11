@@ -499,3 +499,132 @@ func TestContractService_Cancel(t *testing.T) {
 	mockPaymentRepo.AssertExpectations(t)
 	mockLedgerRepo.AssertExpectations(t)
 }
+
+func newPrepaymentService() (*ContractService, *mockContractRepo, *mockPaymentRepo, *mockLedgerRepo) {
+	contractRepo := new(mockContractRepo)
+	paymentRepo := new(mockPaymentRepo)
+	ledgerRepo := new(mockLedgerRepo)
+	service := NewContractService(
+		contractRepo,
+		new(mockLotRepo),
+		new(mockUserRepoForContract),
+		paymentRepo,
+		ledgerRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+	return service, contractRepo, paymentRepo, ledgerRepo
+}
+
+func TestContractService_CreatePrepaymentRequest(t *testing.T) {
+	logger.Setup("test")
+	ctx := context.Background()
+	service, contractRepo, paymentRepo, ledgerRepo := newPrepaymentService()
+
+	contract := &models.Contract{
+		ID:              7,
+		GUID:            "contract-guid",
+		Status:          models.ContractStatusApproved,
+		ApplicantUserID: 2,
+	}
+
+	contractRepo.On("FindByGUIDWithDetails", ctx, "contract-guid").Return(contract, nil)
+	ledgerRepo.On("CalculateBalance", ctx, uint(7)).Return(-10000.0, nil)
+	paymentRepo.On("FindByContract", ctx, uint(7)).Return([]models.Payment{}, nil)
+	paymentRepo.On("Create", ctx, mock.MatchedBy(func(p *models.Payment) bool {
+		return p.ContractID == 7 &&
+			p.Amount == 2500 &&
+			p.Status == models.PaymentStatusSubmitted &&
+			p.PaymentType == models.PaymentTypeCapitalRepayment
+	})).Return(nil)
+
+	payment, err := service.CreatePrepaymentRequest(ctx, "contract-guid", 2500)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 2500.0, payment.Amount)
+	assert.Equal(t, models.PaymentStatusSubmitted, payment.Status)
+	assert.Equal(t, models.PaymentTypeCapitalRepayment, payment.PaymentType)
+
+	contractRepo.AssertExpectations(t)
+	paymentRepo.AssertExpectations(t)
+	ledgerRepo.AssertExpectations(t)
+}
+
+func TestContractService_CreatePrepaymentRequest_Validation(t *testing.T) {
+	logger.Setup("test")
+	ctx := context.Background()
+
+	tests := []struct {
+		name       string
+		amount     float64
+		status     string
+		balance    float64
+		payments   []models.Payment
+		errorMatch string
+	}{
+		{
+			name:       "non-positive amount",
+			amount:     0,
+			status:     models.ContractStatusApproved,
+			balance:    -10000,
+			errorMatch: "mayor a cero",
+		},
+		{
+			name:       "contract not approved",
+			amount:     1000,
+			status:     models.ContractStatusSubmitted,
+			balance:    -10000,
+			errorMatch: "contrato aprobado",
+		},
+		{
+			name:       "no outstanding balance",
+			amount:     1000,
+			status:     models.ContractStatusApproved,
+			balance:    0,
+			errorMatch: "no tiene saldo pendiente",
+		},
+		{
+			name:       "amount exceeds balance",
+			amount:     12000,
+			status:     models.ContractStatusApproved,
+			balance:    -10000,
+			errorMatch: "no puede superar el saldo",
+		},
+		{
+			name:    "duplicate request in review",
+			amount:  1000,
+			status:  models.ContractStatusApproved,
+			balance: -10000,
+			payments: []models.Payment{
+				{ID: 9, Status: models.PaymentStatusSubmitted, PaymentType: models.PaymentTypeCapitalRepayment},
+			},
+			errorMatch: "en revisión",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			service, contractRepo, paymentRepo, ledgerRepo := newPrepaymentService()
+			contract := &models.Contract{
+				ID:     7,
+				GUID:   "contract-guid",
+				Status: tc.status,
+			}
+
+			contractRepo.On("FindByGUIDWithDetails", ctx, "contract-guid").Return(contract, nil)
+			if tc.amount > 0 {
+				ledgerRepo.On("CalculateBalance", ctx, uint(7)).Return(tc.balance, nil).Maybe()
+			}
+			if tc.status == models.ContractStatusApproved && tc.balance < 0 {
+				paymentRepo.On("FindByContract", ctx, uint(7)).Return(tc.payments, nil).Maybe()
+			}
+
+			_, err := service.CreatePrepaymentRequest(ctx, "contract-guid", tc.amount)
+
+			assert.ErrorContains(t, err, tc.errorMatch)
+			paymentRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+		})
+	}
+}

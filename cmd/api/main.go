@@ -254,6 +254,8 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 		{
 			// Contract tracking by public GUID (owner/admin/seller checked in the handler).
 			protected.GET("/contracts/:guid", h.Contract.ShowByGUID)
+			// Customer-requested early payment (partial or full capital payment).
+			protected.POST("/contracts/:guid/prepayments", h.Contract.RequestPrepayment)
 
 			// Admin-only routes
 			admin := protected.Group("")
@@ -337,6 +339,11 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				userData.GET("/payment_history", h.User.PaymentHistory)
 				userData.GET("/summary", h.User.Summary)
 				userData.GET("/notifications", h.Notification.IndexByUser)
+				// Customer document downloads (owner-scoped by RequireAdminSellerOrOwner
+				// and a contract ownership check inside the handlers).
+				userData.GET("/promise_contract_pdf", h.User.PromiseContractPDF)
+				userData.GET("/customer_record_pdf", h.User.CustomerRecordPDF)
+				userData.GET("/balance_pdf", h.User.BalancePDF)
 			}
 
 			// Seller + Admin routes (viewing and managing sales)

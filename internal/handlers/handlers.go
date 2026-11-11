@@ -31,7 +31,7 @@ func NewHandlers(svcs *services.Services, storage *storage.LocalStorage) *Handle
 	return &Handlers{
 		Health:       NewHealthHandler(),
 		Auth:         NewAuthHandler(svcs.Auth),
-		User:         NewUserHandler(svcs.User, svcs.Payment, svcs.Contract),
+		User:         NewUserHandler(svcs.User, svcs.Payment, svcs.Contract, svcs.Report),
 		Project:      NewProjectHandler(svcs.Project, svcs.Media),
 		Lot:          NewLotHandler(svcs.Lot),
 		Contract:     NewContractHandler(svcs.Contract, storage),

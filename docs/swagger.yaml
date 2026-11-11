@@ -109,6 +109,13 @@ definitions:
         example: 0
         type: integer
     type: object
+  handlers.PrepaymentRequest:
+    properties:
+      amount:
+        type: number
+    required:
+    - amount
+    type: object
   handlers.RefreshRequest:
     properties:
       refresh_token:
@@ -1428,6 +1435,54 @@ paths:
       security:
       - BearerAuth: []
       summary: Get Contract by GUID
+      tags:
+      - Contracts
+  /contracts/{guid}/prepayments:
+    post:
+      consumes:
+      - application/json
+      description: Customer request to pay part or all of the outstanding balance
+      parameters:
+      - description: Contract GUID
+        in: path
+        name: guid
+        required: true
+        type: string
+      - description: Amount
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.PrepaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Request Prepayment
       tags:
       - Contracts
   /contracts/stats:
@@ -3945,6 +4000,33 @@ paths:
       summary: Update User
       tags:
       - Users
+  /users/{user_id}/balance_pdf:
+    get:
+      description: Download the account balance PDF for a customer
+      parameters:
+      - description: User ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      produces:
+      - application/pdf
+      responses:
+        "200":
+          description: balance.pdf
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Download Account Balance PDF
+      tags:
+      - Users
   /users/{user_id}/change_password:
     patch:
       consumes:
@@ -3998,6 +4080,50 @@ paths:
       security:
       - BearerAuth: []
       summary: Get User Contracts
+      tags:
+      - Users
+  /users/{user_id}/customer_record_pdf:
+    get:
+      description: Download the customer record PDF for a customer contract
+      parameters:
+      - description: User ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      - description: Contract ID
+        in: query
+        name: contract_id
+        required: true
+        type: integer
+      produces:
+      - application/pdf
+      responses:
+        "200":
+          description: customer_record.pdf
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Download Customer Record PDF
       tags:
       - Users
   /users/{user_id}/payment_history:
@@ -4072,6 +4198,50 @@ paths:
           schema:
             $ref: '#/definitions/models.UserResponse'
       summary: Upload Profile Picture
+      tags:
+      - Users
+  /users/{user_id}/promise_contract_pdf:
+    get:
+      description: Download the promise of sale contract PDF for a customer contract
+      parameters:
+      - description: User ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      - description: Contract ID
+        in: query
+        name: contract_id
+        required: true
+        type: integer
+      produces:
+      - application/pdf
+      responses:
+        "200":
+          description: promise_contract.pdf
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Download Promise of Sale Contract PDF
       tags:
       - Users
   /users/{user_id}/resend_confirmation:

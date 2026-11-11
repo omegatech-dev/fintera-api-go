@@ -139,6 +139,53 @@ func (h *ContractHandler) ShowByGUID(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"contract": contract.ToResponse()})
 }
 
+type PrepaymentRequest struct {
+	Amount float64 `json:"amount" binding:"required,gt=0"`
+}
+
+// @Summary Request Prepayment
+// @Description Customer request to pay part or all of the outstanding balance
+// ahead of schedule. The payment stays submitted until staff validates the
+// uploaded receipt.
+// @Tags Contracts
+// @Accept json
+// @Produce json
+// @Param guid path string true "Contract GUID"
+// @Param request body PrepaymentRequest true "Amount"
+// @Success 201 {object} map[string]interface{}
+// @Failure 403,404,422 {object} map[string]string
+// @Security BearerAuth
+// @Router /contracts/{guid}/prepayments [post]
+func (h *ContractHandler) RequestPrepayment(c *gin.Context) {
+	contract, err := h.contractService.FindByGUIDWithDetails(c.Request.Context(), c.Param("guid"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Contrato no encontrado"})
+		return
+	}
+	role := middleware.GetUserRole(c)
+	if role != "admin" && role != "seller" && contract.ApplicantUserID != middleware.GetUserID(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "No tienes acceso a esta reserva"})
+		return
+	}
+
+	var req PrepaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Monto requerido y debe ser mayor a 0"})
+		return
+	}
+
+	payment, err := h.contractService.CreatePrepaymentRequest(c.Request.Context(), contract.GUID, req.Amount)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"payment": payment.ToResponse(),
+		"message": "Solicitud de pago anticipado registrada",
+	})
+}
+
 // @Summary Create Contract
 // @Description Create a new contract with optional new user and documents
 // @Tags Contracts

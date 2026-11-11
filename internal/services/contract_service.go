@@ -581,6 +581,62 @@ func (s *ContractService) Close(ctx context.Context, id uint) (*models.Contract,
 	return contract, nil
 }
 
+// CreatePrepaymentRequest records a customer request to pay part (or all) of
+// the outstanding balance ahead of schedule. The payment stays submitted until
+// staff validates the uploaded receipt; approving it applies the amount as a
+// capital repayment and shortens the schedule.
+func (s *ContractService) CreatePrepaymentRequest(ctx context.Context, contractGUID string, amount float64) (*models.Payment, error) {
+	if amount <= 0 {
+		return nil, fmt.Errorf("el monto debe ser mayor a cero")
+	}
+
+	contract, err := s.repo.FindByGUIDWithDetails(ctx, contractGUID)
+	if err != nil {
+		return nil, fmt.Errorf("contrato no encontrado")
+	}
+	if contract.Status != models.ContractStatusApproved {
+		return nil, fmt.Errorf("solo puedes solicitar un pago anticipado de un contrato aprobado")
+	}
+
+	balance, err := s.ledgerRepo.CalculateBalance(ctx, contract.ID)
+	if err != nil {
+		return nil, fmt.Errorf("no se pudo calcular el saldo del contrato")
+	}
+	outstanding := -balance
+	if outstanding <= 0.005 {
+		return nil, fmt.Errorf("el contrato no tiene saldo pendiente")
+	}
+	if amount > outstanding+0.005 {
+		return nil, fmt.Errorf("el monto no puede superar el saldo pendiente de L%.2f", outstanding)
+	}
+
+	payments, err := s.paymentRepo.FindByContract(ctx, contract.ID)
+	if err != nil {
+		return nil, fmt.Errorf("no se pudieron revisar los pagos del contrato")
+	}
+	for _, payment := range payments {
+		if payment.PaymentType == models.PaymentTypeCapitalRepayment && payment.Status == models.PaymentStatusSubmitted {
+			return nil, fmt.Errorf("ya tienes una solicitud de pago anticipado en revisión")
+		}
+	}
+
+	now := time.Now()
+	description := fmt.Sprintf("Pago anticipado: L%.2f", amount)
+	prepayment := &models.Payment{
+		ContractID:  contract.ID,
+		Amount:      amount,
+		DueDate:     now,
+		Status:      models.PaymentStatusSubmitted,
+		PaymentType: models.PaymentTypeCapitalRepayment,
+		Description: &description,
+	}
+	if err := s.paymentRepo.Create(ctx, prepayment); err != nil {
+		return nil, fmt.Errorf("no se pudo registrar la solicitud de pago anticipado")
+	}
+
+	return prepayment, nil
+}
+
 // CapitalRepayment applies a capital repayment to the contract, marking pending installments as paid
 // and adjusting the last partially covered installment.
 func (s *ContractService) CapitalRepayment(ctx context.Context, id uint, amount float64, actorID uint, ip, userAgent string) error {

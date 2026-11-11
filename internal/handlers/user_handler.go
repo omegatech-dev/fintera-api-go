@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,23 +14,36 @@ import (
 	"github.com/sjperalta/fintera-api/internal/middleware"
 	"github.com/sjperalta/fintera-api/internal/models"
 	"github.com/sjperalta/fintera-api/internal/services"
+	"github.com/sjperalta/fintera-api/pkg/logger"
 )
+
+// documentPDFGenerator is the subset of ReportService used by the customer
+// document endpoints. Keeping it as an interface lets handlers be tested
+// without spinning up the full report service.
+type documentPDFGenerator interface {
+	GenerateContractPDF(ctx context.Context, contractID uint) (*bytes.Buffer, error)
+	GenerateCustomerRecordPDF(ctx context.Context, contractID uint) (*bytes.Buffer, error)
+	GenerateUserBalancePDF(ctx context.Context, userID uint) (*bytes.Buffer, error)
+}
 
 type UserHandler struct {
 	userService     *services.UserService
 	paymentService  *services.PaymentService
 	contractService *services.ContractService
+	reportService   documentPDFGenerator
 }
 
-func NewUserHandler(userService *services.UserService, paymentService *services.PaymentService, contractServices ...*services.ContractService) *UserHandler {
-	var contractService *services.ContractService
-	if len(contractServices) > 0 {
-		contractService = contractServices[0]
-	}
+func NewUserHandler(
+	userService *services.UserService,
+	paymentService *services.PaymentService,
+	contractService *services.ContractService,
+	reportService documentPDFGenerator,
+) *UserHandler {
 	return &UserHandler{
 		userService:     userService,
 		paymentService:  paymentService,
 		contractService: contractService,
+		reportService:   reportService,
 	}
 }
 
@@ -559,6 +575,157 @@ func (h *UserHandler) Summary(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, summary)
+}
+
+// authorizedContract resolves the contract referenced by `contract_id` and
+// verifies that the current user may access its documents. It writes the error
+// response and returns ok=false when access must be denied.
+func (h *UserHandler) authorizedContract(c *gin.Context) (*models.Contract, bool) {
+	userID, err := strconv.ParseUint(c.Param("user_id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de usuario inválido"})
+		return nil, false
+	}
+
+	contractID, err := strconv.ParseUint(c.Query("contract_id"), 10, 32)
+	if err != nil || contractID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "contract_id es requerido"})
+		return nil, false
+	}
+
+	if h.contractService == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Servicio de contratos no disponible"})
+		return nil, false
+	}
+
+	contract, err := h.contractService.FindByID(c.Request.Context(), uint(contractID))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Contrato no encontrado"})
+		return nil, false
+	}
+
+	role := strings.ToLower(middleware.GetUserRole(c))
+	if role == "admin" || role == "seller" {
+		return contract, true
+	}
+	if contract.ApplicantUserID != uint(userID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "No tienes permiso para ver este documento"})
+		return nil, false
+	}
+
+	return contract, true
+}
+
+// @Summary Download Promise of Sale Contract PDF
+// @Description Download the promise of sale contract PDF for a customer contract
+// @Tags Users
+// @Produce application/pdf
+// @Param user_id path int true "User ID"
+// @Param contract_id query int true "Contract ID"
+// @Success 200 {file} file "promise_contract.pdf"
+// @Failure 400 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Security BearerAuth
+// @Router /users/{user_id}/promise_contract_pdf [get]
+func (h *UserHandler) PromiseContractPDF(c *gin.Context) {
+	contract, ok := h.authorizedContract(c)
+	if !ok {
+		return
+	}
+	if h.reportService == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Servicio de reportes no disponible"})
+		return
+	}
+
+	buf, err := h.reportService.GenerateContractPDF(c.Request.Context(), contract.ID)
+	if err != nil {
+		logger.Error("failed to generate promise contract PDF",
+			"user_id", middleware.GetUserID(c),
+			"contract_id", contract.ID,
+			"error", err,
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo generar el documento"})
+		return
+	}
+
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=promise_contract_%d.pdf", contract.ID))
+	c.Data(http.StatusOK, "application/pdf", buf.Bytes())
+}
+
+// @Summary Download Customer Record PDF
+// @Description Download the customer record PDF for a customer contract
+// @Tags Users
+// @Produce application/pdf
+// @Param user_id path int true "User ID"
+// @Param contract_id query int true "Contract ID"
+// @Success 200 {file} file "customer_record.pdf"
+// @Failure 400 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Security BearerAuth
+// @Router /users/{user_id}/customer_record_pdf [get]
+func (h *UserHandler) CustomerRecordPDF(c *gin.Context) {
+	contract, ok := h.authorizedContract(c)
+	if !ok {
+		return
+	}
+	if h.reportService == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Servicio de reportes no disponible"})
+		return
+	}
+
+	buf, err := h.reportService.GenerateCustomerRecordPDF(c.Request.Context(), contract.ID)
+	if err != nil {
+		logger.Error("failed to generate customer record PDF",
+			"user_id", middleware.GetUserID(c),
+			"contract_id", contract.ID,
+			"error", err,
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo generar el documento"})
+		return
+	}
+
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=customer_record_%d.pdf", contract.ID))
+	c.Data(http.StatusOK, "application/pdf", buf.Bytes())
+}
+
+// @Summary Download Account Balance PDF
+// @Description Download the account balance PDF for a customer
+// @Tags Users
+// @Produce application/pdf
+// @Param user_id path int true "User ID"
+// @Success 200 {file} file "balance.pdf"
+// @Failure 400 {object} map[string]string
+// @Security BearerAuth
+// @Router /users/{user_id}/balance_pdf [get]
+func (h *UserHandler) BalancePDF(c *gin.Context) {
+	userID, err := strconv.ParseUint(c.Param("user_id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de usuario inválido"})
+		return
+	}
+	if h.reportService == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Servicio de reportes no disponible"})
+		return
+	}
+
+	buf, err := h.reportService.GenerateUserBalancePDF(c.Request.Context(), uint(userID))
+	if err != nil {
+		logger.Error("failed to generate balance PDF",
+			"user_id", middleware.GetUserID(c),
+			"target_user_id", userID,
+			"error", err,
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo generar el documento"})
+		return
+	}
+
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=balance_%d.pdf", userID))
+	c.Data(http.StatusOK, "application/pdf", buf.Bytes())
 }
 
 // @Summary Restore User

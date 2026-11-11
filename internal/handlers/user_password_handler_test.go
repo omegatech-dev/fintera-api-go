@@ -23,7 +23,7 @@ func changeOwnPasswordContext(body string, userID uint) (*gin.Context, *httptest
 }
 
 func TestChangeOwnPasswordRequiresSession(t *testing.T) {
-	handler := NewUserHandler(nil, nil, nil)
+	handler := NewUserHandler(nil, nil, nil, nil)
 	c, w := changeOwnPasswordContext(`{"current_password":"old","new_password":"newpass123"}`, 0)
 
 	handler.ChangeOwnPassword(c)
@@ -32,7 +32,7 @@ func TestChangeOwnPasswordRequiresSession(t *testing.T) {
 }
 
 func TestChangeOwnPasswordRequiresCurrentPassword(t *testing.T) {
-	handler := NewUserHandler(nil, nil, nil)
+	handler := NewUserHandler(nil, nil, nil, nil)
 	c, w := changeOwnPasswordContext(`{"new_password":"newpass123"}`, 5)
 
 	handler.ChangeOwnPassword(c)
@@ -42,7 +42,7 @@ func TestChangeOwnPasswordRequiresCurrentPassword(t *testing.T) {
 }
 
 func TestChangeOwnPasswordValidatesNewPassword(t *testing.T) {
-	handler := NewUserHandler(nil, nil, nil)
+	handler := NewUserHandler(nil, nil, nil, nil)
 	c, w := changeOwnPasswordContext(`{"current_password":"old","new_password":"123"}`, 5)
 
 	handler.ChangeOwnPassword(c)
@@ -51,7 +51,7 @@ func TestChangeOwnPasswordValidatesNewPassword(t *testing.T) {
 }
 
 func TestChangeOwnPasswordValidatesJSON(t *testing.T) {
-	handler := NewUserHandler(nil, nil, nil)
+	handler := NewUserHandler(nil, nil, nil, nil)
 	c, w := changeOwnPasswordContext(`not-json`, 5)
 
 	handler.ChangeOwnPassword(c)

@@ -1,8 +1,10 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
+	"html/template"
 	"strings"
 	"testing"
 	"time"
@@ -160,6 +162,7 @@ func TestGenerateRevenueCSV(t *testing.T) {
 type mockContractRepository struct {
 	repository.ContractRepository
 	mockFindByIDWithDetails func(ctx context.Context, id uint) (*models.Contract, error)
+	mockFindByUser          func(ctx context.Context, userID uint) ([]models.Contract, error)
 	mockList                func(ctx context.Context, query *repository.ContractQuery) ([]models.Contract, int64, error)
 }
 
@@ -176,6 +179,9 @@ func (m *mockContractRepository) FindByLot(ctx context.Context, lotID uint) ([]m
 	return nil, nil
 }
 func (m *mockContractRepository) FindByUser(ctx context.Context, userID uint) ([]models.Contract, error) {
+	if m.mockFindByUser != nil {
+		return m.mockFindByUser(ctx, userID)
+	}
 	return nil, nil
 }
 func (m *mockContractRepository) Create(ctx context.Context, contract *models.Contract) error {
@@ -396,4 +402,207 @@ func TestGenerateCommissions(t *testing.T) {
 	// 4. Pre-calculated: 500
 	assert.Equal(t, "Directo", items[3].FinancingType)
 	assert.InDelta(t, 500.0, items[3].Commission, 0.01)
+}
+
+type mockBalanceUserRepository struct {
+	repository.UserRepository
+	user *models.User
+}
+
+func (m *mockBalanceUserRepository) FindByID(ctx context.Context, id uint) (*models.User, error) {
+	return m.user, nil
+}
+
+func balanceTestUser() *models.User {
+	address := "Barrio El Centro, Omoa"
+	return &models.User{
+		ID:       36,
+		FullName: "Milton Perez",
+		Identity: "0801-1990-12345",
+		Phone:    "9999-8888",
+		Email:    "milton@example.com",
+		Address:  &address,
+	}
+}
+
+func balanceTestContract() *models.Contract {
+	amount := 1125000.0
+	reserve := 5000.0
+	down := 168750.0
+	balance := -1120000.0
+	paid := 5000.0
+	unit := "m2"
+	registration := "ABC-123"
+	lotAddress := "Lote 12, Ciudad Jaguar"
+	approved := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
+
+	return &models.Contract{
+		ID:            15,
+		GUID:          "f7cf8e4d-5939-47bb-b7be-2fa0a15bd622",
+		Status:        models.ContractStatusApproved,
+		FinancingType: models.FinancingTypeDirect,
+		PaymentTerm:   84,
+		Currency:      "HNL",
+		Amount:        &amount,
+		Balance:       &balance,
+		ReserveAmount: &reserve,
+		DownPayment:   &down,
+		ApprovedAt:    &approved,
+		Lot: models.Lot{
+			ID:                 7,
+			Name:               "Lote 12",
+			Length:             15,
+			Width:              30,
+			MeasurementUnit:    &unit,
+			RegistrationNumber: &registration,
+			Address:            &lotAddress,
+			Project: models.Project{
+				ID:              2,
+				Name:            "Ciudad Jaguar",
+				Address:         "Omoa, Cortés",
+				MeasurementUnit: "m2",
+			},
+		},
+		Payments: []models.Payment{
+			{
+				ID:          190,
+				PaymentType: models.PaymentTypeReservation,
+				Amount:      5000,
+				PaidAmount:  &paid,
+				Status:      models.PaymentStatusPaid,
+				DueDate:     time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC),
+			},
+			{
+				ID:          191,
+				PaymentType: models.PaymentTypeInstallment,
+				Amount:      11358,
+				Status:      models.PaymentStatusPending,
+				DueDate:     time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
+			},
+			{
+				ID:          192,
+				PaymentType: models.PaymentTypeInstallment,
+				Amount:      11358,
+				Status:      models.PaymentStatusPending,
+				DueDate:     time.Date(2026, 12, 11, 0, 0, 0, 0, time.UTC),
+			},
+		},
+		LedgerEntries: []models.ContractLedgerEntry{
+			{
+				EntryType:   models.EntryTypeInitial,
+				Amount:      -1125000,
+				Description: "Monto Inicial del Contrato",
+				EntryDate:   approved,
+			},
+			{
+				EntryType:   models.EntryTypePayment,
+				Amount:      5000,
+				Description: "Pago de Reserva",
+				EntryDate:   time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC),
+			},
+			{
+				EntryType:   models.EntryTypeInterest,
+				Amount:      -100,
+				Description: "Interés por mora",
+				EntryDate:   time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+}
+
+func TestPrepareBalancePDFData(t *testing.T) {
+	service := NewReportService(nil, nil, nil)
+	now := time.Date(2026, 11, 11, 15, 30, 0, 0, time.UTC)
+
+	data := service.prepareBalancePDFData(
+		balanceTestUser(),
+		[]*models.Contract{balanceTestContract()},
+		now,
+	)
+
+	assert.Equal(t, "Milton Perez", data.Customer.FullName)
+	assert.Equal(t, "EC-000036", data.Reference)
+	assert.Equal(t, "11/11/2026", data.Date)
+	assert.Equal(t, 1, data.Totals.Contracts)
+	assert.Equal(t, "L 1,125,000.00", data.Totals.Financed)
+	assert.Equal(t, "L 5,000.00", data.Totals.Paid)
+	assert.Equal(t, "L 1,120,000.00", data.Totals.Balance)
+	assert.Equal(t, "L 11,358.00", data.Totals.Overdue)
+	assert.True(t, data.Totals.HasOverdue)
+
+	contract := data.Contracts[0]
+	assert.Equal(t, "F7CF8E4D", contract.Reference)
+	assert.Equal(t, "Aprobado", contract.Status)
+	assert.Equal(t, "Financiamiento directo", contract.FinancingType)
+	assert.Equal(t, "84 meses", contract.PaymentTerm)
+	assert.Equal(t, "L 11,358.00", contract.MonthlyPayment)
+	assert.Equal(t, 3, contract.PaymentCount)
+	assert.Equal(t, 1, contract.PaidCount)
+	assert.Equal(t, 2, contract.PendingCount)
+	assert.Equal(t, "Pagado", contract.Payments[0].Status)
+	assert.Equal(t, "overdue", contract.Payments[1].StatusKey)
+	assert.True(t, contract.HasLedger)
+	assert.Len(t, contract.Ledger, 2)
+	assert.Equal(t, "Pago", contract.Ledger[0].EntryType)
+	assert.Equal(t, "+L 5,000.00", contract.Ledger[0].Amount)
+	assert.Equal(t, "Interés", contract.Ledger[1].EntryType)
+	assert.Equal(t, "-L 100.00", contract.Ledger[1].Amount)
+}
+
+func TestUserBalanceTemplateRendersStatementContent(t *testing.T) {
+	service := NewReportService(nil, nil, nil)
+	now := time.Date(2026, 11, 11, 15, 30, 0, 0, time.UTC)
+	data := service.prepareBalancePDFData(
+		balanceTestUser(),
+		[]*models.Contract{balanceTestContract()},
+		now,
+	)
+
+	tmpl, err := template.ParseFS(reportTemplates, "templates/reports/user_balance.html")
+	assert.NoError(t, err)
+
+	var buf bytes.Buffer
+	assert.NoError(t, tmpl.Execute(&buf, data))
+	html := buf.String()
+
+	for _, expected := range []string{
+		"INVERSIONES FAMA",
+		"Estado de Cuenta",
+		"Milton Perez",
+		"0801-1990-12345",
+		"Ciudad Jaguar",
+		"Lote 12",
+		"ABC-123",
+		"L 1,125,000.00",
+		"L 1,120,000.00",
+		"Plan de pagos",
+		"Otros movimientos",
+		"Interés por mora",
+	} {
+		assert.Contains(t, html, expected)
+	}
+}
+
+func TestGenerateUserBalancePDF(t *testing.T) {
+	userRepo := &mockBalanceUserRepository{user: balanceTestUser()}
+	contractRepo := &mockContractRepository{
+		mockFindByUser: func(ctx context.Context, userID uint) ([]models.Contract, error) {
+			return []models.Contract{*balanceTestContract()}, nil
+		},
+		mockFindByIDWithDetails: func(ctx context.Context, id uint) (*models.Contract, error) {
+			return balanceTestContract(), nil
+		},
+	}
+	service := NewReportService(nil, contractRepo, userRepo)
+
+	buf, err := service.GenerateUserBalancePDF(context.Background(), 36)
+	if err != nil && strings.Contains(err.Error(), "wkhtmltopdf") {
+		t.Skip("wkhtmltopdf not found, skipping PDF generation test")
+	}
+
+	assert.NoError(t, err)
+	assert.NotNil(t, buf)
+	if buf != nil {
+		assert.Greater(t, buf.Len(), 0, "PDF buffer should not be empty")
+	}
 }

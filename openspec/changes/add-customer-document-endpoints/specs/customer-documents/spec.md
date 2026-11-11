@@ -56,6 +56,31 @@ The API SHALL expose `GET /api/v1/users/:user_id/balance_pdf` that returns the a
 - **WHEN** a customer requests the balance of another user
 - **THEN** the API responds `403`
 
+### Requirement: Balance PDF content
+
+The balance PDF SHALL be a complete account statement, not a raw list of payments. It SHALL include the customer's identity and contact details, an account summary, and a detailed section per contract.
+
+#### Scenario: Customer statement
+
+- **WHEN** the statement is generated
+- **THEN** it includes the customer name, identity, phone, email and address
+- **AND** an account summary with the total contract amount, total paid, outstanding balance and overdue amount
+- **AND** per contract: project, lot, area, dimensions, registration, address and financing conditions
+- **AND** a financial summary with price, reserve, down payment, financed amount, paid amount and balance
+- **AND** the full numbered payment schedule with type, due date, amount, paid amount and Spanish status
+- **AND** interest and prepayment ledger movements when present
+- **AND** the issue date and page numbers
+
+#### Scenario: Closed contract
+
+- **WHEN** a contract is closed with no outstanding balance
+- **THEN** it is still listed with its payment history and a zero balance
+
+#### Scenario: No contracts
+
+- **WHEN** the customer has no contracts
+- **THEN** the PDF renders an explanatory empty state
+
 ### Requirement: Staff access
 
 Admins and sellers SHALL be able to download any customer's documents so support can assist.

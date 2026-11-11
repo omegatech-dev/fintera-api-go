@@ -2,6 +2,9 @@ package models
 
 import (
 	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // Project represents a real estate project
@@ -37,6 +40,14 @@ type Project struct {
 // TableName specifies the table name for Project
 func (Project) TableName() string {
 	return "projects"
+}
+
+// BeforeCreate assigns a public GUID when the caller did not provide one.
+func (p *Project) BeforeCreate(tx *gorm.DB) error {
+	if p.GUID == "" {
+		p.GUID = uuid.New().String()
+	}
+	return nil
 }
 
 // ProjectResponse is the JSON response format for projects

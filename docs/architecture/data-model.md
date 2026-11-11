@@ -52,6 +52,10 @@ catalog also derives `price_from` / `price_to` from the effective lot prices and
 `drawing_count` from the project's drawings; it never exposes interest or
 commission rates.
 
+`guid` is the public identifier used by portal URLs and media endpoints. It is
+`NOT NULL`, uniquely indexed, and defaults to `gen_random_uuid()::text`; legacy
+rows are backfilled by migration `000024`.
+
 ### `lots`
 
 Individual lots inside a project.
@@ -206,6 +210,7 @@ with golang-migrate:
 | 000021 | `contracts.bank_name`, `contracts.bank_credit_status` |
 | 000022 | `general_settings` |
 | 000023 | `contracts.submitted_at`, `contracts.rejected_at` |
+| 000024 | `projects.guid` backfill + default |
 
 Applied migrations are immutable. Add a new numbered pair instead of editing
 history.

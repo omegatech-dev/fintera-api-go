@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"html/template"
 	"strings"
-	"time"
 
 	"github.com/resend/resend-go/v2"
 	"github.com/sjperalta/fintera-api/internal/config"
@@ -63,6 +62,31 @@ func (s *EmailService) validateEmail(email string) error {
 	return nil
 }
 
+// applyRecipientOverride redirects an outbound email to a test inbox when
+// EMAIL_OVERRIDE_TO is configured. It prefixes the subject with the original
+// recipients so test mail stays traceable, and returns them for logging.
+// An empty override leaves the message untouched (production behavior).
+func applyRecipientOverride(params *resend.SendEmailRequest, overrideTo string) string {
+	overrideTo = strings.TrimSpace(overrideTo)
+	if overrideTo == "" || params == nil || len(params.To) == 0 {
+		return ""
+	}
+	original := strings.Join(params.To, ", ")
+	params.To = []string{overrideTo}
+	params.Subject = fmt.Sprintf("[TEST → %s] %s", original, params.Subject)
+	return original
+}
+
+// sendEmail applies the optional test-recipient override and sends through
+// Resend. All email methods must go through this wrapper.
+func (s *EmailService) sendEmail(params *resend.SendEmailRequest) error {
+	if original := applyRecipientOverride(params, s.config.EmailOverrideTo); original != "" {
+		logger.Info(fmt.Sprintf("📧 [Email Redirect] %s → %s", original, s.config.EmailOverrideTo))
+	}
+	_, err := s.resendClient.Emails.Send(params)
+	return err
+}
+
 // checkEmailPreconditions checks if email notifications are enabled and configured, and if the user has a valid email.
 // It returns false if emails are disabled or if there's an error.
 // The caller should return the error if this returns false.
@@ -113,7 +137,7 @@ func (s *EmailService) SendRecoveryCode(ctx context.Context, user *models.User, 
 		Subject: "Código de reseteo",
 		Html:    body,
 	}
-	_, err = s.resendClient.Emails.Send(params)
+	err = s.sendEmail(params)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to send email to %s: %v", user.Email, err))
 		return err
@@ -153,7 +177,7 @@ func (s *EmailService) SendAccountCreated(ctx context.Context, user *models.User
 		Subject: "¡Bienvenido a Fintera!",
 		Html:    body,
 	}
-	_, err = s.resendClient.Emails.Send(params)
+	err = s.sendEmail(params)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to send email to %s: %v", user.Email, err))
 		return err
@@ -215,7 +239,7 @@ func (s *EmailService) SendContractSubmitted(ctx context.Context, contract *mode
 		Subject: "Contrato Creado",
 		Html:    body,
 	}
-	_, err = s.resendClient.Emails.Send(params)
+	err = s.sendEmail(params)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to send email to %s: %v", contract.ApplicantUser.Email, err))
 		return err
@@ -236,7 +260,7 @@ func (s *EmailService) SendReservationVoucherReminder(ctx context.Context, contr
 	if contract.ReserveAmount != nil {
 		reserveAmount = *contract.ReserveAmount
 	}
-	holdExpiresAt := contract.CreatedAt.Add(48 * time.Hour)
+	holdExpiresAt := models.HoldExpiresAt(contract.CreatedAt)
 
 	data := struct {
 		Name          string
@@ -266,7 +290,7 @@ func (s *EmailService) SendReservationVoucherReminder(ctx context.Context, contr
 		Subject: "Tu reserva está por vencer",
 		Html:    body,
 	}
-	_, err = s.resendClient.Emails.Send(params)
+	err = s.sendEmail(params)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to send email to %s: %v", contract.ApplicantUser.Email, err))
 		return err
@@ -334,7 +358,7 @@ func (s *EmailService) SendContractApproved(ctx context.Context, contract *model
 		Subject: "Contrato Aprobado",
 		Html:    body,
 	}
-	_, err = s.resendClient.Emails.Send(params)
+	err = s.sendEmail(params)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to send email to %s: %v", contract.ApplicantUser.Email, err))
 		return err
@@ -388,7 +412,7 @@ func (s *EmailService) SendContractRejected(ctx context.Context, contract *model
 		Subject: "Contrato rechazado",
 		Html:    body,
 	}
-	_, err = s.resendClient.Emails.Send(params)
+	err = s.sendEmail(params)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to send email to %s: %v", contract.ApplicantUser.Email, err))
 		return err
@@ -455,7 +479,7 @@ func (s *EmailService) SendPaymentApproved(ctx context.Context, payment *models.
 		Subject: "Pago Aprobado",
 		Html:    body,
 	}
-	_, err = s.resendClient.Emails.Send(params)
+	err = s.sendEmail(params)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to send email to %s: %v", payment.Contract.ApplicantUser.Email, err))
 		return err
@@ -499,7 +523,7 @@ func (s *EmailService) SendPaymentRejected(ctx context.Context, contract *models
 		Subject: "Pago Rechazado",
 		Html:    body,
 	}
-	_, err = s.resendClient.Emails.Send(params)
+	err = s.sendEmail(params)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to send email to %s: %v", contract.ApplicantUser.Email, err))
 		return err
@@ -551,7 +575,7 @@ func (s *EmailService) SendOverduePayments(ctx context.Context, user *models.Use
 		Subject: fmt.Sprintf("Pagos Vencidos (%d pagos)", len(payments)),
 		Html:    body,
 	}
-	_, err = s.resendClient.Emails.Send(params)
+	err = s.sendEmail(params)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to send email to %s: %v", user.Email, err))
 		return err
@@ -602,7 +626,7 @@ func (s *EmailService) SendUpcomingPayments(ctx context.Context, user *models.Us
 		Subject: subject,
 		Html:    body,
 	}
-	_, err = s.resendClient.Emails.Send(params)
+	err = s.sendEmail(params)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to send email to %s: %v", user.Email, err))
 		return err
@@ -652,7 +676,7 @@ func (s *EmailService) SendReservationApproved(ctx context.Context, contract *mo
 		Subject: "Reserva Aprobada",
 		Html:    body,
 	}
-	_, err = s.resendClient.Emails.Send(params)
+	err = s.sendEmail(params)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to send email to %s: %v", contract.ApplicantUser.Email, err))
 		return err

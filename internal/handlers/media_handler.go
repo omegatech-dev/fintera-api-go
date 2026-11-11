@@ -78,7 +78,7 @@ func (h *MediaHandler) ListLotPhotos(c *gin.Context) {
 }
 
 // @Summary Upload project drawings
-// @Description Upload one or more plans (dwg, dxf, pdf, svg; max 50 MB each).
+// @Description Upload one or more plans (svg, png, jpg, jpeg, pdf; max 50 MB each).
 // @Tags Project Media
 // @Accept multipart/form-data
 // @Produce json

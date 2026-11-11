@@ -438,6 +438,32 @@ type UpdateContractRequest struct {
 	Note             *string  `json:"note"`
 }
 
+// @Summary Resend guest account setup email
+// @Description Regenerate the temporary password and resend the customer account setup email for a reservation (no auth).
+// @Tags Public Catalog
+// @Produce json
+// @Param guid path string true "Contract GUID"
+// @Success 200 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 409 {object} map[string]string
+// @Router /public/reservations/{guid}/resend-access [post]
+func (h *ContractHandler) ResendGuestAccess(c *gin.Context) {
+	err := h.contractService.ResendAccountSetup(c.Request.Context(), c.Param("guid"))
+	if err != nil {
+		if errors.Is(err, services.ErrAccountAlreadyConfigured) {
+			c.JSON(http.StatusConflict, gin.H{"error": "Tu cuenta ya está configurada. Inicia sesión con tu contraseña."})
+			return
+		}
+		if errors.Is(err, services.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Reserva no encontrada"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo reenviar el correo de acceso"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Te enviamos un nuevo correo para configurar tu cuenta"})
+}
+
 // @Summary Update Contract
 // @Description Update contract schedule fields (payment_term, reserve_amount, down_payment). Allowed only when status is pending, rejected, or submitted. Schedule is recalculated on approval.
 // @Tags Contracts
@@ -785,7 +811,7 @@ func parseMaxPaymentDate(financingType, raw string) (*time.Time, error) {
 	switch financingType {
 	case models.FinancingTypeCash:
 		if raw == "" {
-			return nil, errors.New("La fecha máxima de pago es requerida para financiamiento de contado")
+			return nil, errors.New("la fecha máxima de pago es requerida para financiamiento de contado")
 		}
 	case models.FinancingTypeBank:
 		if raw == "" {
@@ -797,13 +823,13 @@ func parseMaxPaymentDate(financingType, raw string) (*time.Time, error) {
 
 	parsed, err := time.Parse("2006-01-02", raw)
 	if err != nil {
-		return nil, errors.New("La fecha máxima de pago debe tener formato YYYY-MM-DD")
+		return nil, errors.New("la fecha máxima de pago debe tener formato YYYY-MM-DD")
 	}
 	today := time.Now().Truncate(24 * time.Hour)
 	maxDateOnly := time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, time.UTC)
 	todayOnly := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
 	if maxDateOnly.Before(todayOnly) {
-		return nil, errors.New("La fecha máxima de pago no puede ser anterior a hoy")
+		return nil, errors.New("la fecha máxima de pago no puede ser anterior a hoy")
 	}
 	return &parsed, nil
 }
@@ -820,14 +846,14 @@ func parseBankCreditDetails(financingType, bankName, creditStatus string) (*stri
 	var namePtr *string
 	if name != "" {
 		if len([]rune(name)) > maxBankNameLength {
-			return nil, nil, errors.New("El nombre del banco no puede superar los 120 caracteres")
+			return nil, nil, errors.New("el nombre del banco no puede superar los 120 caracteres")
 		}
 		namePtr = &name
 	}
 
 	normalized, ok := models.NormalizeBankCreditStatus(creditStatus)
 	if !ok {
-		return nil, nil, errors.New("El estado del crédito bancario no es válido")
+		return nil, nil, errors.New("el estado del crédito bancario no es válido")
 	}
 	var statusPtr *string
 	if normalized != "" {

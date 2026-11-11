@@ -6,6 +6,10 @@ import (
 )
 
 func TestContractResponse_HoldExpiresAt(t *testing.T) {
+	previous := ReservationHoldHours()
+	t.Cleanup(func() { SetReservationHoldHours(previous) })
+	SetReservationHoldHours(48)
+
 	created := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
 	contract := Contract{
 		ID:        1,
@@ -23,8 +27,12 @@ func TestContractResponse_HoldExpiresAt(t *testing.T) {
 		t.Fatalf("hold_expires_at = %v, want %v", resp.HoldExpiresAt, want)
 	}
 
+	contract.Status = ContractStatusSubmitted
+	if got := contract.ToResponse().HoldExpiresAt; got == nil {
+		t.Fatal("expected hold_expires_at while the reservation is submitted")
+	}
+
 	for _, status := range []string{
-		ContractStatusSubmitted,
 		ContractStatusApproved,
 		ContractStatusRejected,
 		ContractStatusCancelled,

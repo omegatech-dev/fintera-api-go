@@ -3,6 +3,7 @@ package services
 import (
 	"testing"
 
+	"github.com/resend/resend-go/v2"
 	"github.com/sjperalta/fintera-api/internal/config"
 	"github.com/sjperalta/fintera-api/internal/models"
 	"github.com/sjperalta/fintera-api/pkg/logger"
@@ -61,4 +62,24 @@ func TestEmailService_checkEmailPreconditions(t *testing.T) {
 	assert.False(t, ok, "Should return false when email is invalid")
 	assert.Error(t, err, "Should return error when email is invalid")
 	assert.Equal(t, "email address is empty", err.Error())
+}
+
+func TestApplyRecipientOverride(t *testing.T) {
+	params := &resend.SendEmailRequest{
+		To:      []string{"customer@example.com"},
+		Subject: "Bienvenido",
+	}
+	original := applyRecipientOverride(params, "delivered+local@resend.dev")
+	assert.Equal(t, "customer@example.com", original)
+	assert.Equal(t, []string{"delivered+local@resend.dev"}, params.To)
+	assert.Equal(t, "[TEST → customer@example.com] Bienvenido", params.Subject)
+
+	prod := &resend.SendEmailRequest{
+		To:      []string{"customer@example.com"},
+		Subject: "Bienvenido",
+	}
+	original = applyRecipientOverride(prod, "   ")
+	assert.Empty(t, original)
+	assert.Equal(t, []string{"customer@example.com"}, prod.To)
+	assert.Equal(t, "Bienvenido", prod.Subject)
 }

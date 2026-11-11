@@ -187,6 +187,15 @@ definitions:
       app_name:
         type: string
     type: object
+  handlers.generalSettingsUpdateRequest:
+    properties:
+      reservation_hold_hours:
+        type: integer
+      support_email:
+        type: string
+      support_whatsapp:
+        type: string
+    type: object
   models.BrandingResponse:
     properties:
       app_name:
@@ -262,11 +271,15 @@ definitions:
         items:
           $ref: '#/definitions/models.Payment'
         type: array
+      rejected_at:
+        type: string
       rejection_reason:
         type: string
       reserve_amount:
         type: number
       status:
+        type: string
+      submitted_at:
         type: string
       total_paid:
         description: Transient field for list view
@@ -384,6 +397,8 @@ definitions:
         type: number
       lot_price:
         type: number
+      lot_status:
+        type: string
       lot_width:
         type: number
       max_payment_date:
@@ -404,6 +419,8 @@ definitions:
         type: integer
       project_name:
         type: string
+      rejected_at:
+        type: string
       rejection_reason:
         type: string
       reservation_payment:
@@ -411,6 +428,8 @@ definitions:
       reserve_amount:
         type: number
       status:
+        type: string
+      submitted_at:
         type: string
       total_amount:
         type: number
@@ -1107,6 +1126,45 @@ paths:
       summary: List Audit Logs
       tags:
       - Audit
+  /auth/change_password:
+    post:
+      consumes:
+      - application/json
+      description: Change the authenticated user's password (used by the customer
+        portal first login).
+      parameters:
+      - description: Password Data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.ChangePasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Change Own Password
+      tags:
+      - Authentication
   /auth/login:
     post:
       consumes:
@@ -2119,7 +2177,7 @@ paths:
     post:
       consumes:
       - multipart/form-data
-      description: Upload one or more plans (dwg, dxf, pdf, svg; max 50 MB each).
+      description: Upload one or more plans (svg, png, jpg, jpeg, pdf; max 50 MB each).
       parameters:
       - description: Project ID
         in: path
@@ -3466,6 +3524,40 @@ paths:
       summary: Public project photos
       tags:
       - Public Catalog
+  /public/reservations/{guid}/resend-access:
+    post:
+      description: Regenerate the temporary password and resend the customer account
+        setup email for a reservation (no auth).
+      parameters:
+      - description: Contract GUID
+        in: path
+        name: guid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Resend guest account setup email
+      tags:
+      - Public Catalog
   /reports/commissions:
     get:
       consumes:
@@ -3643,6 +3735,50 @@ paths:
       summary: Contract Rescission PDF
       tags:
       - Reports
+  /settings:
+    get:
+      description: 'Public customer settings: support contact and reservation hold.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get general settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: Update support contact and reservation hold duration (Admin).
+      parameters:
+      - description: Settings data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.generalSettingsUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update general settings
+      tags:
+      - Settings
   /users:
     get:
       consumes:

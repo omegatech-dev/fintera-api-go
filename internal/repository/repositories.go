@@ -16,6 +16,7 @@ type Repositories struct {
 	Ledger       LedgerRepository
 	Analytics    AnalyticsRepository
 	Branding     BrandingRepository
+	Settings     GeneralSettingsRepository
 	Drawings     ProjectDrawingRepository
 	ProjectPhoto ProjectPhotoRepository
 	LotPhoto     LotPhotoRepository
@@ -35,6 +36,7 @@ func NewRepositories(db *gorm.DB) *Repositories {
 		Ledger:       NewLedgerRepository(db),
 		Analytics:    NewAnalyticsRepository(db),
 		Branding:     NewBrandingRepository(db),
+		Settings:     NewGeneralSettingsRepository(db),
 		Drawings:     NewProjectDrawingRepository(db),
 		ProjectPhoto: NewProjectPhotoRepository(db),
 		LotPhoto:     NewLotPhotoRepository(db),

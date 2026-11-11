@@ -20,6 +20,7 @@ type Handlers struct {
 	Analytics    *AnalyticsHandler
 	Job          *JobHandler
 	Branding     *BrandingHandler
+	Settings     *GeneralSettingsHandler
 	Public       *PublicHandler
 	Media        *MediaHandler
 	Instructions *PaymentInstructionHandler
@@ -41,6 +42,7 @@ func NewHandlers(svcs *services.Services, storage *storage.LocalStorage) *Handle
 		Analytics:    NewAnalyticsHandler(svcs.Analytics, svcs.Export),
 		Job:          NewJobHandler(svcs.Job),
 		Branding:     NewBrandingHandler(svcs.Branding),
+		Settings:     NewGeneralSettingsHandler(svcs.Settings),
 		Public:       NewPublicHandler(svcs.Public, svcs.Media),
 		Media:        NewMediaHandler(svcs.Media),
 		Instructions: NewPaymentInstructionHandler(svcs.Instructions),

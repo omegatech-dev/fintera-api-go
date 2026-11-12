@@ -211,6 +211,7 @@ with golang-migrate:
 | 000022 | `general_settings` |
 | 000023 | `contracts.submitted_at`, `contracts.rejected_at` |
 | 000024 | `projects.guid` backfill + default |
+| 000026 | `payments.amount`, `payments.interest_amount` widened to `NUMERIC(15,2)` |
 
 Applied migrations are immutable. Add a new numbered pair instead of editing
 history.

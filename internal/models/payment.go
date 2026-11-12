@@ -10,14 +10,14 @@ import (
 type Payment struct {
 	ID                     uint       `gorm:"primaryKey" json:"id"`
 	ContractID             uint       `gorm:"not null;index" json:"contract_id"`
-	Amount                 float64    `gorm:"type:decimal(10,2);not null" json:"amount"`
+	Amount                 float64    `gorm:"type:decimal(15,2);not null" json:"amount"`
 	PaidAmount             *float64   `gorm:"type:decimal(15,2);default:0" json:"paid_amount"`
 	DueDate                time.Time  `gorm:"type:date;not null;index" json:"due_date"`
 	PaymentDate            *time.Time `gorm:"type:date" json:"payment_date"`
 	Status                 string     `gorm:"default:pending;not null;index" json:"status"`
 	PaymentType            string     `gorm:"default:installment" json:"payment_type"`
 	Description            *string    `json:"description"`
-	InterestAmount         *float64   `gorm:"type:decimal(10,2)" json:"interest_amount"`
+	InterestAmount         *float64   `gorm:"type:decimal(15,2)" json:"interest_amount"`
 	ApprovedAt             *time.Time `gorm:"index" json:"approved_at"`
 	ApprovedByUserID       *uint      `gorm:"index" json:"approved_by_user_id"`
 	RejectionReason        *string    `gorm:"type:text" json:"rejection_reason,omitempty"`

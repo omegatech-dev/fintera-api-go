@@ -1,0 +1,2 @@
+-- Data repair only: regenerated GUIDs cannot be restored to their previous
+-- (empty) value without breaking the unique index.

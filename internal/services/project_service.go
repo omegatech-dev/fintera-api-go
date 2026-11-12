@@ -274,6 +274,15 @@ func (s *LotService) Update(ctx context.Context, lot *models.Lot, actorID uint) 
 		lot.Status = existingLot.Status
 	}
 
+	// Ensure GUID is preserved if not provided in the update.
+	if lot.GUID == "" {
+		lot.GUID = existingLot.GUID
+	}
+	// Heal legacy lots that still have no public GUID.
+	if lot.GUID == "" {
+		lot.GUID = uuid.New().String()
+	}
+
 	// Preserve metadata fields if not provided (zero/nil)
 	if lot.Address == nil {
 		lot.Address = existingLot.Address

@@ -745,7 +745,18 @@ func (h *ContractHandler) Reopen(c *gin.Context) {
 }
 
 type CapitalRepaymentRequest struct {
-	Amount float64 `json:"capital_repayment_amount" binding:"required,gt=0"`
+	CapitalRepaymentAmount float64 `json:"capital_repayment_amount"`
+	// Amount is accepted as a legacy alias used by older admin clients.
+	Amount float64 `json:"amount"`
+}
+
+// resolvedAmount returns the requested repayment using the documented field
+// first and the legacy alias as a fallback.
+func (r CapitalRepaymentRequest) resolvedAmount() float64 {
+	if r.CapitalRepaymentAmount != 0 {
+		return r.CapitalRepaymentAmount
+	}
+	return r.Amount
 }
 
 // @Summary Capital Repayment
@@ -767,8 +778,13 @@ func (h *ContractHandler) CapitalRepayment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Monto requerido y debe ser mayor a 0"})
 		return
 	}
+	amount := req.resolvedAmount()
+	if amount <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Monto requerido y debe ser mayor a 0"})
+		return
+	}
 
-	err := h.contractService.CapitalRepayment(c.Request.Context(), uint(contractID), req.Amount,
+	err := h.contractService.CapitalRepayment(c.Request.Context(), uint(contractID), amount,
 		middleware.GetUserID(c),
 		c.ClientIP(),
 		c.Request.UserAgent(),

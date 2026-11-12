@@ -149,7 +149,11 @@ func (p *Payment) ToResponse() PaymentResponse {
 	}
 
 	if p.DocumentPath != nil && *p.DocumentPath != "" {
-		url := "/uploads/" + strings.TrimPrefix(strings.ReplaceAll(*p.DocumentPath, "\\", "/"), "/")
+		// Receipts are stored under {StoragePath}/receipts and served from
+		// /receipts, so the "receipts/" prefix of the stored path is dropped.
+		relativePath := strings.TrimPrefix(strings.ReplaceAll(*p.DocumentPath, "\\", "/"), "/")
+		relativePath = strings.TrimPrefix(relativePath, "receipts/")
+		url := "/receipts/" + relativePath
 		resp.ReceiptURL = &url
 	}
 

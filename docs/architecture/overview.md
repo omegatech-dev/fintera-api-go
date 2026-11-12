@@ -134,7 +134,9 @@ cmd/api → handlers → services → repository → models
   `internal/services/errors.go`.
 - **CORS:** `middleware.CORS` uses `ALLOWED_ORIGINS` (comma-separated).
 - **Compression:** gzip middleware is global.
-- **Static files:** `/uploads` is served from `${STORAGE_PATH}/uploads`.
+- **Static files:** `/uploads` is served from `${STORAGE_PATH}/uploads` and
+  `/receipts` from `${STORAGE_PATH}/receipts`, so payment `receipt_url` values
+  resolve for anonymous tracking visitors.
 - **Observability:** Rollbar captures panics and errors when configured; the
   worker exposes stats through `GET /api/v1/jobs/status` (admin only).
 

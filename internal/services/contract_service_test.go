@@ -518,6 +518,24 @@ func newPrepaymentService() (*ContractService, *mockContractRepo, *mockPaymentRe
 	return service, contractRepo, paymentRepo, ledgerRepo
 }
 
+func TestContractService_CapitalRepayment_RequiresApprovedContract(t *testing.T) {
+	logger.Setup("test")
+	ctx := context.Background()
+	service, contractRepo, paymentRepo, ledgerRepo := newPrepaymentService()
+
+	contractRepo.On("FindByIDWithDetails", ctx, uint(7)).Return(&models.Contract{
+		ID:     7,
+		Status: models.ContractStatusSubmitted,
+	}, nil)
+
+	err := service.CapitalRepayment(ctx, 7, 1000, 1, "", "")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "approved")
+	paymentRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+	ledgerRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
 func TestContractService_CreatePrepaymentRequest(t *testing.T) {
 	logger.Setup("test")
 	ctx := context.Background()

@@ -45,7 +45,7 @@ context.
 | `POST` | `/api/v1/users/update_password_with_code` |
 | `GET` | `/api/v1/branding` |
 
-`GET /swagger/*any`, `/`, and `/uploads/*` are also public.
+`GET /swagger/*any`, `/`, `/uploads/*`, and `/receipts/*` are also public.
 
 ## RBAC
 

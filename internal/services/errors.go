@@ -12,6 +12,7 @@ var (
 	ErrInvalidPassword     = errors.New("contraseña inválida")
 	ErrUnauthorized        = errors.New("no autorizado")
 	ErrInvalidState        = errors.New("transición de estado inválida")
+	ErrContractNotApproved = errors.New("no se puede aprobar el pago de reserva sin antes aprobar el contrato")
 	ErrDuplicate           = errors.New("registro duplicado")
 	ErrInvalidRecoveryCode = errors.New("código de recuperación inválido o expirado")
 )

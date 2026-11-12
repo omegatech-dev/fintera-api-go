@@ -1376,7 +1376,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Approve a payment (Admin)",
+                "description": "Approve a payment (Admin). Reservation payments can only be approved once their contract is approved.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1410,6 +1410,15 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/models.PaymentResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Invalid state or contract not approved yet",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -5434,10 +5443,11 @@ const docTemplate = `{
         },
         "handlers.CapitalRepaymentRequest": {
             "type": "object",
-            "required": [
-                "capital_repayment_amount"
-            ],
             "properties": {
+                "amount": {
+                    "description": "Amount is accepted as a legacy alias used by older admin clients.",
+                    "type": "number"
+                },
                 "capital_repayment_amount": {
                     "type": "number"
                 }

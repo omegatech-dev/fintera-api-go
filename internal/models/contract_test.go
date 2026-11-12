@@ -121,7 +121,7 @@ func TestContractResponse_ReservationPayment(t *testing.T) {
 	if resp.ReservationPayment.PaidAt == nil || !resp.ReservationPayment.PaidAt.Equal(paidAt) {
 		t.Fatalf("paid_at = %v, want %v", resp.ReservationPayment.PaidAt, paidAt)
 	}
-	if resp.ReservationPayment.ReceiptURL == nil || *resp.ReservationPayment.ReceiptURL != "/uploads/receipts/2026/11/voucher.pdf" {
+	if resp.ReservationPayment.ReceiptURL == nil || *resp.ReservationPayment.ReceiptURL != "/receipts/2026/11/voucher.pdf" {
 		t.Fatalf("receipt_url = %v", resp.ReservationPayment.ReceiptURL)
 	}
 	if len(resp.PaymentSchedule) != 1 {

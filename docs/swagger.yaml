@@ -25,10 +25,11 @@ definitions:
     type: object
   handlers.CapitalRepaymentRequest:
     properties:
+      amount:
+        description: Amount is accepted as a legacy alias used by older admin clients.
+        type: number
       capital_repayment_amount:
         type: number
-    required:
-    - capital_repayment_amount
     type: object
   handlers.ChangePasswordRequest:
     properties:
@@ -1809,7 +1810,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Approve a payment (Admin)
+      description: Approve a payment (Admin). Reservation payments can only be approved
+        once their contract is approved.
       parameters:
       - description: Payment ID
         in: path
@@ -1829,6 +1831,12 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/models.PaymentResponse'
+        "422":
+          description: Invalid state or contract not approved yet
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Approve Payment

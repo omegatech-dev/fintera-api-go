@@ -106,6 +106,11 @@ stateDiagram-v2
 FSM source: `internal/statemachine/payment_fsm.go`.
 Model guards: `Payment.MaySubmit`, `MayApprove`, `MayReject`, `MayUndo`.
 
+Reservation payments also require their contract to be approved before the
+approval succeeds; otherwise the service returns `ErrContractNotApproved`.
+Uploading a replacement receipt resets the payment to `submitted` and clears
+the previous rejection reason.
+
 ### Payment schedule generation
 
 `PaymentScheduleService.GenerateSchedule` runs on contract approval.

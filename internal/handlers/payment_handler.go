@@ -150,13 +150,14 @@ type ApprovePaymentRequest struct {
 }
 
 // @Summary Approve Payment
-// @Description Approve a payment (Admin)
+// @Description Approve a payment (Admin). Reservation payments can only be approved once their contract is approved.
 // @Tags Payments
 // @Accept json
 // @Produce json
 // @Param payment_id path int true "Payment ID"
 // @Param request body ApprovePaymentRequest true "Amount"
 // @Success 200 {object} models.PaymentResponse
+// @Failure 422 {object} map[string]string "Invalid state or contract not approved yet"
 // @Security BearerAuth
 // @Router /payments/{payment_id}/approve [post]
 func (h *PaymentHandler) Approve(c *gin.Context) {

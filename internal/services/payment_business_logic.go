@@ -16,6 +16,10 @@ func (s *PaymentService) ApprovePaymentWithLedger(ctx context.Context, id uint, 
 		return fmt.Errorf("failed to load payment: %w", err)
 	}
 
+	if err := s.ensureReservationContractApproved(ctx, payment); err != nil {
+		return err
+	}
+
 	// Use FSM to validate and transition
 	fsm := statemachine.NewPaymentFSM(payment)
 	if err := fsm.Approve(ctx); err != nil {

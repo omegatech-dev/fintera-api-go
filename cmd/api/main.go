@@ -189,6 +189,9 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 	// Verify that StoragePath is correct; it's usually an absolute path or relative to CWD
 	// We want to serve /uploads from {StoragePath}/uploads
 	router.Static("/uploads", cfg.StoragePath+"/uploads")
+	// Payment receipts are stored directly under {StoragePath}/receipts and
+	// reported as /receipts/<document path> by the payment response DTO.
+	router.Static("/receipts", cfg.StoragePath+"/receipts")
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")

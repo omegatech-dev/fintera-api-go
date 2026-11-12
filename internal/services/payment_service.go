@@ -76,6 +76,24 @@ func (s *PaymentService) List(ctx context.Context, query *repository.ListQuery) 
 	return s.repo.List(ctx, query)
 }
 
+// ensureReservationContractApproved enforces the review order: the contract
+// must be approved before its reservation payment can be accepted.
+func (s *PaymentService) ensureReservationContractApproved(ctx context.Context, payment *models.Payment) error {
+	if payment.PaymentType != models.PaymentTypeReservation {
+		return nil
+	}
+
+	contract, err := s.contractRepo.FindByID(ctx, payment.ContractID)
+	if err != nil {
+		return fmt.Errorf("failed to load contract: %w", err)
+	}
+	if contract == nil || contract.Status != models.ContractStatusApproved {
+		return ErrContractNotApproved
+	}
+
+	return nil
+}
+
 func (s *PaymentService) Approve(ctx context.Context, id uint, amount, interestAmount, paidAmount float64, actorID uint, ip, userAgent string) (*models.Payment, error) {
 	payment, err := s.repo.FindByID(ctx, id)
 	if err != nil {
@@ -84,6 +102,10 @@ func (s *PaymentService) Approve(ctx context.Context, id uint, amount, interestA
 
 	if !payment.MayApprove() {
 		return nil, ErrInvalidState
+	}
+
+	if err := s.ensureReservationContractApproved(ctx, payment); err != nil {
+		return nil, err
 	}
 
 	// Default to full payment amount (Amount + InterestAmount) if not specified
@@ -319,6 +341,8 @@ func (s *PaymentService) UpdateReceipt(ctx context.Context, id uint, path, autho
 
 	payment.DocumentPath = &path
 	payment.Status = models.PaymentStatusSubmitted
+	// A new receipt starts a fresh review; the previous rejection no longer applies.
+	payment.RejectionReason = nil
 	if authorizationNumber != "" {
 		payment.AuthorizationNumber = &authorizationNumber
 	}

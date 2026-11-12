@@ -418,6 +418,86 @@ func TestLotService_Create(t *testing.T) {
 	mockProjRepo.AssertExpectations(t)
 }
 
+func TestLotService_UpdatePreservesGUID(t *testing.T) {
+	ctx := context.Background()
+	mockLotRepo := new(mockLotRepo)
+	mockProjRepo := new(mockProjectRepo)
+
+	gdb, mockSQL := setupMockDB(t)
+	mockSQL.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	service := NewLotService(mockLotRepo, mockProjRepo, NewAuditService(gdb))
+
+	unit := "m2"
+	existingLot := &models.Lot{
+		ID:              1,
+		GUID:            "existing-lot-guid",
+		ProjectID:       2,
+		Status:          models.LotStatusAvailable,
+		MeasurementUnit: &unit,
+		Project:         models.Project{ID: 2, MeasurementUnit: unit},
+	}
+	updatedLot := &models.Lot{
+		ID:     1,
+		Name:   "Updated Lot",
+		Length: 10,
+		Width:  20,
+		Price:  2000,
+	}
+
+	mockLotRepo.On("FindByID", ctx, uint(1)).Return(existingLot, nil)
+	mockLotRepo.On("Update", ctx, mock.MatchedBy(func(lot *models.Lot) bool {
+		return lot.GUID == "existing-lot-guid"
+	})).Return(nil)
+
+	err := service.Update(ctx, updatedLot, 7)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "existing-lot-guid", updatedLot.GUID)
+
+	mockLotRepo.AssertExpectations(t)
+}
+
+func TestLotService_UpdateHealsEmptyGUID(t *testing.T) {
+	ctx := context.Background()
+	mockLotRepo := new(mockLotRepo)
+	mockProjRepo := new(mockProjectRepo)
+
+	gdb, mockSQL := setupMockDB(t)
+	mockSQL.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	service := NewLotService(mockLotRepo, mockProjRepo, NewAuditService(gdb))
+
+	unit := "m2"
+	existingLot := &models.Lot{
+		ID:              1,
+		GUID:            "",
+		ProjectID:       2,
+		Status:          models.LotStatusAvailable,
+		MeasurementUnit: &unit,
+		Project:         models.Project{ID: 2, MeasurementUnit: unit},
+	}
+	updatedLot := &models.Lot{
+		ID:     1,
+		Name:   "Updated Lot",
+		Length: 10,
+		Width:  20,
+		Price:  2000,
+	}
+
+	mockLotRepo.On("FindByID", ctx, uint(1)).Return(existingLot, nil)
+	mockLotRepo.On("Update", ctx, mock.MatchedBy(func(lot *models.Lot) bool {
+		return lot.GUID != ""
+	})).Return(nil)
+
+	err := service.Update(ctx, updatedLot, 7)
+
+	assert.NoError(t, err)
+	assert.NotEmpty(t, updatedLot.GUID)
+
+	mockLotRepo.AssertExpectations(t)
+}
+
 func TestLotService_Delete(t *testing.T) {
 	ctx := context.Background()
 	mockLotRepo := new(mockLotRepo)

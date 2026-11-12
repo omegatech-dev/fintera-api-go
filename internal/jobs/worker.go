@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rollbar/rollbar-go"
+
 	"github.com/sjperalta/fintera-api/pkg/logger"
 )
 
@@ -65,7 +67,7 @@ func (w *Worker) Enqueue(job Job) {
 	case w.queue <- job:
 	default:
 		logger.Warn("[Worker] Queue full, running job synchronously")
-		if err := job(w.ctx); err != nil {
+		if err := w.execute(job); err != nil {
 			logger.Error(fmt.Sprintf("[Worker] Job error: %v", err))
 		}
 	}
@@ -85,19 +87,24 @@ func (w *Worker) EnqueueAsync(job Job) {
 		w.trackJobStart()
 		defer w.trackJobEnd()
 
-		// Recover from panics
-		defer func() {
-			if r := recover(); r != nil {
-				logger.Error(fmt.Sprintf("[Worker] Async job panic: %v", r))
-				w.trackJobFailure()
-			}
-		}()
-
-		if err := job(w.ctx); err != nil {
+		if err := w.execute(job); err != nil {
 			logger.Error(fmt.Sprintf("[Worker] Async job error: %v", err))
 			w.trackJobFailure()
 		}
 	}()
+}
+
+// execute runs a job and converts panics into errors, reporting them to
+// Rollbar. Background goroutines are not covered by Gin's recovery middleware,
+// so without this a panicking job would crash the whole process.
+func (w *Worker) execute(job Job) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = panicError(r)
+			reportToRollbar(err)
+		}
+	}()
+	return job(w.ctx)
 }
 
 // process handles jobs from the queue
@@ -113,7 +120,7 @@ func (w *Worker) process(workerID int) {
 			}
 			w.trackJobStart()
 			start := time.Now()
-			if err := job(w.ctx); err != nil {
+			if err := w.execute(job); err != nil {
 				logger.Error(fmt.Sprintf("[Worker %d] Job error: %v", workerID, err))
 				w.trackJobFailure()
 			} else {
@@ -165,16 +172,9 @@ func (w *Worker) ScheduleEveryImmediate(interval time.Duration, job Job) {
 }
 
 func (w *Worker) runScheduledJob(job Job) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Error(fmt.Sprintf("[Scheduler] Job panic: %v", r))
-			w.trackJobFailure()
-			w.trackJobEnd()
-		}
-	}()
 	w.trackJobStart()
 	start := time.Now()
-	if err := job(w.ctx); err != nil {
+	if err := w.execute(job); err != nil {
 		logger.Error(fmt.Sprintf("[Scheduler] Job error: %v", err))
 		w.trackJobFailure()
 	} else {
@@ -196,7 +196,7 @@ func (w *Worker) ScheduleAt(at time.Time, job Job) {
 			return
 		case <-timer.C:
 			w.trackJobStart()
-			if err := job(w.ctx); err != nil {
+			if err := w.execute(job); err != nil {
 				logger.Error(fmt.Sprintf("[Scheduler] Scheduled job error: %v", err))
 				w.trackJobFailure()
 			}
@@ -225,6 +225,25 @@ func (w *Worker) GetStats() WorkerStats {
 	stats.QueueLength = len(w.queue)
 	stats.MaxConcurrent = w.maxConcurrent
 	return stats
+}
+
+// panicError normalizes a recover() value into an error. Plain string panics
+// (panic("boom")) are the common case, and the SDK only captures a stack trace
+// when the reported value implements error.
+func panicError(r interface{}) error {
+	if err, ok := r.(error); ok {
+		return err
+	}
+	return fmt.Errorf("panic: %v", r)
+}
+
+// reportToRollbar sends background job panic reports to Rollbar. It is a no-op
+// when no token is configured, so local and test runs never make network calls.
+func reportToRollbar(err error) {
+	if err == nil || rollbar.Token() == "" {
+		return
+	}
+	rollbar.ErrorWithLevel(rollbar.ERR, err)
 }
 
 func (w *Worker) trackJobStart() {

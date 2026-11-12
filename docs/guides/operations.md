@@ -89,8 +89,11 @@ scheduler.
 - **Logs:** structured `slog`. JSON in production, text elsewhere, written to
   stdout.
 - **Rollbar:** panics and reported errors when `ROLLBAR_TOKEN` is set. Events
-  are labeled with `ROLLBAR_ENVIRONMENT`, falling back to `ENVIRONMENT`. The
-  middleware re-panics so Gin recovery still handles the request.
+  are labeled with `ROLLBAR_ENVIRONMENT`, falling back to `ENVIRONMENT`.
+  Credentials and session keys are scrubbed from payloads. HTTP panics are
+  reported with request context and re-panicked so Gin recovery still handles
+  the request; background job panics are normalized and reported as well.
+  Reporting is disabled entirely when no token is configured.
 - **Worker stats:** `GET /api/v1/jobs/status` (admin only) returns active,
   completed, failed, queue length, and max concurrency.
 - **Health:** `GET /api/v1/health`.

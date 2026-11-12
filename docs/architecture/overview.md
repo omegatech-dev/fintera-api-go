@@ -71,7 +71,9 @@ cmd/api → handlers → services → repository → models
 1. `config.Load()` reads environment variables.
 2. `logger.Setup(cfg.Environment)` configures structured logging.
 3. Rollbar is configured when `ROLLBAR_TOKEN` is set, using
-   `ROLLBAR_ENVIRONMENT` (falling back to `ENVIRONMENT`).
+   `ROLLBAR_ENVIRONMENT` (falling back to `ENVIRONMENT`). Reporting is disabled
+   when the token is empty, and payload keys matching credentials/session data
+   are scrubbed.
 4. `database.Connect(cfg.DatabaseURL)` opens GORM with a bounded pool.
 5. `storage.NewLocalStorage(cfg.StoragePath)` ensures the storage root exists.
 6. `repository.NewRepositories(db)` creates repository implementations.
@@ -81,12 +83,15 @@ cmd/api → handlers → services → repository → models
 10. `handlers.NewHandlers(...)` creates HTTP handlers.
 11. `setupRouter(...)` registers middleware and all routes.
 12. A graceful HTTP server starts and waits for `SIGINT`/`SIGTERM`.
-13. On shutdown: HTTP server, worker, then Rollbar flush.
+13. On shutdown: HTTP server, worker, then Rollbar flush. Fatal startup errors
+    (database, storage, server bind) also flush Rollbar before `os.Exit`.
 
 ## Request lifecycle
 
 1. Global middleware runs: Rollbar recovery (when configured), Gin recovery,
-   request logger, CORS, gzip.
+   request logger, CORS, gzip. The Rollbar middleware normalizes any panic value
+   to an error and attaches method, path, route, IP, user agent, and (when
+   authenticated) `user_id`/`user_role` before re-panicking to Gin recovery.
 2. `/api/v1` group applies route-specific middleware:
    - public routes (health, auth, password recovery), or
    - `middleware.Auth` for protected routes, then role middleware.

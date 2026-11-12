@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -17,7 +19,6 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/sjperalta/fintera-api/docs"
-	_ "github.com/sjperalta/fintera-api/docs" // Swagger docs
 	"github.com/sjperalta/fintera-api/internal/config"
 	"github.com/sjperalta/fintera-api/internal/database"
 	"github.com/sjperalta/fintera-api/internal/handlers"
@@ -65,7 +66,14 @@ func main() {
 		rollbar.SetEnvironment(cfg.RollbarEnvironment)
 		rollbar.SetCodeVersion(cfg.RollbarCodeVersion)
 		rollbar.SetServerRoot(cfg.RollbarServerRoot)
+		// Scrub credentials and session data before sending items. The SDK
+		// default only covers password|secret|token.
+		rollbar.SetScrubFields(regexp.MustCompile(`(?i)password|passwd|secret|token|authorization|cookie|api[_-]?key|session|jwt`))
 		logger.Info("Rollbar initialized", "environment", cfg.RollbarEnvironment)
+	} else {
+		// Reporting is a no-op without a token, so background jobs and tests
+		// never attempt network calls to Rollbar.
+		rollbar.SetEnabled(false)
 	}
 
 	// Warn if Resend email is not configured (API loads .env, not .production.env)
@@ -82,6 +90,7 @@ func main() {
 	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
 		logger.Error("Failed to connect to database", "error", err)
+		flushRollbar()
 		os.Exit(1)
 	}
 	logger.Info("Connected to database")
@@ -90,6 +99,7 @@ func main() {
 	store, err := storage.NewLocalStorage(cfg.StoragePath)
 	if err != nil {
 		logger.Error("Failed to initialize storage", "error", err)
+		flushRollbar()
 		os.Exit(1)
 	}
 	logger.Info("Initialized local storage")
@@ -133,6 +143,7 @@ func main() {
 		logger.Info("Server starting", "port", cfg.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("Failed to start server", "error", err)
+			flushRollbar()
 			os.Exit(1)
 		}
 	}()
@@ -157,9 +168,7 @@ func main() {
 	logger.Info("Background worker stopped")
 
 	// Close Rollbar and flush events before exit
-	if cfg.RollbarToken != "" {
-		rollbar.Wait()
-	}
+	flushRollbar()
 
 	logger.Info("Server exited gracefully")
 }
@@ -490,17 +499,50 @@ func scheduleJobs(worker *jobs.Worker, svcs *services.Services) {
 	logger.Info("Scheduled recurring jobs")
 }
 
-// rollbarRecoveryMiddleware creates a Gin middleware that catches panics and reports them to Rollbar
+// flushRollbar blocks until queued Rollbar items are sent. It is safe to call
+// when reporting is disabled.
+func flushRollbar() {
+	rollbar.Wait()
+}
+
+// rollbarRecoveryMiddleware catches panics and reports them to Rollbar before
+// re-panicking so gin.Recovery() writes the 500 response.
+//
+// The SDK only captures a stack trace when the reported value implements error,
+// and treats a bare string as a message without one. Panic values are therefore
+// normalized to errors so panic("boom") is still reported with useful context
+// (plain string or non-error panics would otherwise lose the stack trace).
 func rollbarRecoveryMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
-			if err := recover(); err != nil {
-				// Report the panic to Rollbar
-				rollbar.Error(rollbar.ERR, err)
-
-				// Re-panic so Gin's recovery can handle it
-				panic(err)
+			r := recover()
+			if r == nil {
+				return
 			}
+
+			err, ok := r.(error)
+			if !ok {
+				err = fmt.Errorf("panic: %v", r)
+			}
+
+			extras := map[string]interface{}{
+				"method":     c.Request.Method,
+				"path":       c.Request.URL.Path,
+				"route":      c.FullPath(),
+				"ip":         c.ClientIP(),
+				"user_agent": c.Request.UserAgent(),
+			}
+			if userID, exists := c.Get("userID"); exists {
+				extras["user_id"] = userID
+			}
+			if userRole, exists := c.Get("userRole"); exists {
+				extras["user_role"] = userRole
+			}
+
+			rollbar.ErrorWithExtras(rollbar.ERR, err, extras)
+
+			// Re-panic so Gin's recovery handles the response.
+			panic(r)
 		}()
 		c.Next()
 	}

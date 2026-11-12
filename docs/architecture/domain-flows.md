@@ -192,7 +192,10 @@ Worker characteristics (`internal/jobs/worker.go`):
 
 - Buffered queue of 100 jobs, `WORKER_COUNT` consumers.
 - `EnqueueAsync` is fire-and-forget with a bounded semaphore (2× workers, min
-  10) and panic recovery.
+  10).
+- Every job path (queued, async, scheduled, one-off) runs through `execute`,
+  which converts panics into errors, reports them to Rollbar, and keeps the
+  worker alive.
 - `ScheduleEvery` waits for the first interval; `ScheduleEveryImmediate` does
   not.
 - Stats are exposed by `GET /api/v1/jobs/status` (admin).

@@ -46,8 +46,8 @@ go test ./...
 
 The Makefile resolves every Go tool from `$(go env GOBIN)` and installs it on
 demand, so `make dev`, `make swagger`, `make migrate-*`, `make lint`, and
-`make security` work without a separate tool setup. `psql`, Docker, and
-`wkhtmltopdf` remain external prerequisites for their respective targets. Use
+`make security` work without a separate tool setup. `psql` and Docker remain external prerequisites for their respective
+targets. Use
 `make GO=/path/to/go <target>` when multiple Go versions are installed.
 
 Repo-local opencode commands (see `.opencode/command/`): `/verify`,
@@ -178,8 +178,8 @@ Applied migrations are immutable. Add the next numbered pair. Seeds live in
 
 ### Add a report
 
-1. Add an embedded HTML template under
-   `internal/services/templates/reports/`.
+1. Add a native renderer under `internal/services` using `gofpdf` and the
+   shared helpers in `pdf_renderer.go`.
 2. Add a `ReportService` generator.
 3. Add a handler and route in the admin/seller group.
 4. Add a mocked unit test.

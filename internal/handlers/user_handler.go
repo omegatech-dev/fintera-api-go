@@ -289,6 +289,25 @@ func (h *UserHandler) Update(c *gin.Context) {
 
 	isAdmin := middleware.IsAdmin(c)
 
+	// Admins can reset another user's password from the edit form. The password
+	// arrives in the same PUT payload as the profile fields, so validate it
+	// before applying any change to keep the update atomic from the caller's
+	// point of view.
+	var newPassword string
+	if isAdmin {
+		if v, ok := req["password"].(string); ok && strings.TrimSpace(v) != "" {
+			newPassword = v
+			if len([]rune(newPassword)) < 8 {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "La contraseña debe tener al menos 8 caracteres"})
+				return
+			}
+			if confirm, ok := req["password_confirmation"].(string); ok && confirm != "" && confirm != newPassword {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Las contraseñas no coinciden"})
+				return
+			}
+		}
+	}
+
 	if v, ok := req["full_name"].(string); ok {
 		user.FullName = v
 	}
@@ -325,6 +344,13 @@ func (h *UserHandler) Update(c *gin.Context) {
 	if err := h.userService.Update(c.Request.Context(), user, actorID); err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return
+	}
+
+	if newPassword != "" {
+		if err := h.userService.ForceChangePassword(c.Request.Context(), uint(id), newPassword, actorID); err != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"user": user.ToResponse(), "message": "Usuario actualizado exitosamente"})

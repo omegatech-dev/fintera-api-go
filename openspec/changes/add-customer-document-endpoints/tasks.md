@@ -26,11 +26,11 @@
       details, full payment schedule and ledger movements.
 - [x] 3b.2 Format money with thousands separators and translate contract,
       payment, financing and ledger labels to Spanish.
-- [x] 3b.3 Redesign `user_balance.html` with the Inversiones FAMA header,
+- [x] 3b.3 Render the balance PDF natively with the Inversiones FAMA header,
       summary tiles, per-contract lot/financing details and a full schedule.
 - [x] 3b.4 Add page numbers to the balance PDF footer.
 - [x] 3b.5 Test the statement payload and template rendering, plus PDF
-      generation when wkhtmltopdf is available.
+      generation through the native gofpdf renderer.
 
 ## 4. Tests
 

@@ -4463,7 +4463,7 @@ const docTemplate = `{
         },
         "/settings": {
             "get": {
-                "description": "Public customer settings: support contact and reservation hold.",
+                "description": "Public customer settings: support contact, reservation hold, legal data and terms content.",
                 "produces": [
                     "application/json"
                 ],
@@ -4487,7 +4487,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update support contact and reservation hold duration (Admin).",
+                "description": "Update support contact, reservation hold, legal data and terms content (Admin).",
                 "consumes": [
                     "application/json"
                 ],
@@ -5813,6 +5813,15 @@ const docTemplate = `{
         "handlers.generalSettingsUpdateRequest": {
             "type": "object",
             "properties": {
+                "legal_address": {
+                    "type": "string"
+                },
+                "legal_name": {
+                    "type": "string"
+                },
+                "legal_tax_id": {
+                    "type": "string"
+                },
                 "reservation_hold_hours": {
                     "type": "integer"
                 },
@@ -5820,6 +5829,18 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "support_whatsapp": {
+                    "type": "string"
+                },
+                "terms_content_en": {
+                    "type": "string"
+                },
+                "terms_content_es": {
+                    "type": "string"
+                },
+                "terms_effective_date": {
+                    "type": "string"
+                },
+                "website": {
                     "type": "string"
                 }
             }

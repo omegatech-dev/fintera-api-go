@@ -33,7 +33,7 @@ This document outlines a comprehensive migration strategy to transition the Fint
 | Versioning/Audit | PaperTrail |
 | Pagination | Pagy |
 | File Storage | ActiveStorage |
-| PDF Generation | WickedPDF + wkhtmltopdf |
+| PDF Generation | WickedPDF (legacy) |
 | Error Tracking | Sentry |
 | API Docs | Rswag (OpenAPI/Swagger) |
 | Email | Resend |
@@ -181,7 +181,7 @@ Audits:
 | **State Machine** | [looplab/fsm](https://github.com/looplab/fsm) | Finite state machine implementation |
 | **Background Jobs** | **Native Go** (goroutines + channels + time.Ticker) | No external dependencies, in-memory processing |
 | **File Storage** | **Native Go** (os, io, path/filepath) | Local file system storage |
-| **PDF Generation** | [go-wkhtmltopdf](https://github.com/SebastiaanKlipwordt/go-wkhtmltopdf) or [gofpdf](https://github.com/jung-kurt/gofpdf) | PDF generation |
+| **PDF Generation** | [gofpdf](https://github.com/jung-kurt/gofpdf) | Native PDF generation |
 | **CSV** | Standard library `encoding/csv` | CSV export |
 | **Email** | [Resend Go SDK](https://github.com/resendlabs/resend-go) | Same provider as Rails version |
 | **Error Tracking** | [sentry-go](https://github.com/getsentry/sentry-go) | Sentry integration |
@@ -344,7 +344,7 @@ fintera-api-go/
 **Goal**: Implement reporting and email
 
 - [ ] CSV report generators
-- [ ] PDF report generators (using wkhtmltopdf or gofpdf)
+- [ ] PDF report generators (native gofpdf)
 - [ ] Resend email integration
 - [ ] Notification service
 - [ ] Contract approval email

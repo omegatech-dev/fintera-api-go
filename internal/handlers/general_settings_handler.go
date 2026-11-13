@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sjperalta/fintera-api/internal/middleware"
@@ -21,7 +22,7 @@ func NewGeneralSettingsHandler(service *services.GeneralSettingsService) *Genera
 }
 
 // @Summary Get general settings
-// @Description Public customer settings: support contact and reservation hold.
+// @Description Public customer settings: support contact, reservation hold, legal data and terms content.
 // @Tags Settings
 // @Produce json
 // @Success 200 {object} map[string]interface{}
@@ -40,10 +41,38 @@ type generalSettingsUpdateRequest struct {
 	SupportWhatsApp      string `json:"support_whatsapp"`
 	SupportEmail         string `json:"support_email"`
 	ReservationHoldHours int    `json:"reservation_hold_hours"`
+	LegalName            string `json:"legal_name"`
+	LegalTaxID           string `json:"legal_tax_id"`
+	LegalAddress         string `json:"legal_address"`
+	Website              string `json:"website"`
+	TermsEffectiveDate   string `json:"terms_effective_date"`
+	TermsContentES       string `json:"terms_content_es"`
+	TermsContentEN       string `json:"terms_content_en"`
+}
+
+func optionalTrimmedString(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func isSettingsValidationError(err error) bool {
+	return errors.Is(err, services.ErrInvalidSupportWhatsApp) ||
+		errors.Is(err, services.ErrInvalidSupportEmail) ||
+		errors.Is(err, services.ErrInvalidHoldHours) ||
+		errors.Is(err, services.ErrInvalidWebsite) ||
+		errors.Is(err, services.ErrInvalidTermsDate) ||
+		errors.Is(err, services.ErrLegalNameTooLong) ||
+		errors.Is(err, services.ErrLegalTaxIDTooLong) ||
+		errors.Is(err, services.ErrLegalAddressTooLong) ||
+		errors.Is(err, services.ErrWebsiteTooLong) ||
+		errors.Is(err, services.ErrTermsContentTooLong)
 }
 
 // @Summary Update general settings
-// @Description Update support contact and reservation hold duration (Admin).
+// @Description Update support contact, reservation hold, legal data and terms content (Admin).
 // @Tags Settings
 // @Accept json
 // @Produce json
@@ -58,15 +87,25 @@ func (h *GeneralSettingsHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Formato JSON inválido: " + err.Error()})
 		return
 	}
+	termsDate, err := services.ParseTermsEffectiveDate(req.TermsEffectiveDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	settings, err := h.service.Update(c.Request.Context(), middleware.GetUserID(c), models.GeneralSettings{
 		SupportWhatsApp:      req.SupportWhatsApp,
 		SupportEmail:         req.SupportEmail,
 		ReservationHoldHours: req.ReservationHoldHours,
+		LegalName:            req.LegalName,
+		LegalTaxID:           req.LegalTaxID,
+		LegalAddress:         optionalTrimmedString(req.LegalAddress),
+		Website:              req.Website,
+		TermsEffectiveDate:   termsDate,
+		TermsContentES:       optionalTrimmedString(req.TermsContentES),
+		TermsContentEN:       optionalTrimmedString(req.TermsContentEN),
 	})
 	if err != nil {
-		if errors.Is(err, services.ErrInvalidSupportWhatsApp) ||
-			errors.Is(err, services.ErrInvalidSupportEmail) ||
-			errors.Is(err, services.ErrInvalidHoldHours) {
+		if isSettingsValidationError(err) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}

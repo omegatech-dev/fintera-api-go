@@ -4,7 +4,6 @@ go 1.27.3
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/SebastiaanKlippert/go-wkhtmltopdf v1.9.3
 	github.com/disintegration/imaging v1.6.2
 	github.com/gin-contrib/gzip v1.2.5
 	github.com/gin-gonic/gin v1.11.0

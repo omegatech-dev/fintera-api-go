@@ -83,7 +83,7 @@ When changing transitions or ledger signs, add tests asserting:
 - Receipt upload authorization and path traversal protection.
 - Pagination/filter/sort behavior in repositories.
 - Background job idempotency.
-- Report PDF rendering (requires `wkhtmltopdf`).
+- Long, multi-page report PDF layouts (tables and page breaks).
 
 ## Definition of done for test changes
 

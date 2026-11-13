@@ -19,7 +19,7 @@ contract, payment, user, reporting, and notification concepts.
 | Background work | In-process goroutine worker pool (`internal/jobs`) |
 | File storage | Local filesystem (`internal/storage`) |
 | Email | Resend (`resend-go/v2`) with embedded HTML templates |
-| PDF generation | `go-wkhtmltopdf` and `gofpdf` with embedded templates |
+| PDF generation | `gofpdf` (native, no external binary) |
 | Spreadsheets | `excelize/v2` |
 | Error tracking | Rollbar |
 | Logging | `log/slog` wrapper (`pkg/logger`) |

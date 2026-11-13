@@ -19,28 +19,14 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/api
 # Final stage
 FROM alpine:latest
 
-# Install dependencies: make, curl (for migrate), ca-certificates, tzdata, and libraries for wkhtmltopdf
+# Install dependencies: make, curl (for migrate), ca-certificates, tzdata,
+# and postgresql-client for migrations/seeds.
 RUN apk --no-cache add \
     ca-certificates \
     tzdata \
     make \
     curl \
-    libc6-compat \
-    libstdc++ \
-    libx11 \
-    libxrender \
-    libxext \
-    libssl3 \
-    fontconfig \
-    freetype \
-    ttf-dejavu \
-    ttf-droid \
-    ttf-freefont \
-    ttf-liberation \
     postgresql-client
-
-# Copy wkhtmltopdf from specialized image
-COPY --from=surnet/alpine-wkhtmltopdf:3.19.0-0.12.6-full /bin/wkhtmltopdf /bin/wkhtmltopdf
 
 # Install golang-migrate
 RUN curl -L https://github.com/golang-migrate/migrate/releases/download/v4.20.1/migrate.linux-amd64.tar.gz | tar xvz && \

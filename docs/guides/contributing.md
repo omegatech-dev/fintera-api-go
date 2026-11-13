@@ -83,8 +83,9 @@
 
 ### Add a report
 
-1. Add a template under `internal/services/templates/reports/`.
-2. Implement the generator in `ReportService` and embed the template.
+1. Add a native renderer under `internal/services` using `gofpdf` and the
+   shared helpers in `pdf_renderer.go`.
+2. Implement the generator in `ReportService`.
 3. Add a handler and route in the admin/seller group.
 4. Add a test with mocked repositories.
 5. Update the route list in

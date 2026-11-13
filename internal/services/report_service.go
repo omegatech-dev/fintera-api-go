@@ -3,21 +3,15 @@ package services
 import (
 	"bytes"
 	"context"
-	"embed"
 	"encoding/csv"
 	"fmt"
-	"html/template"
 	"math"
 	"strings"
 	"time"
 
-	"github.com/SebastiaanKlippert/go-wkhtmltopdf"
 	"github.com/sjperalta/fintera-api/internal/models"
 	"github.com/sjperalta/fintera-api/internal/repository"
 )
-
-//go:embed templates/reports/*.html
-var reportTemplates embed.FS
 
 type CommissionReportItem struct {
 	ContractID       uint       `json:"contract_id"`
@@ -34,20 +28,23 @@ type CommissionReportItem struct {
 }
 
 type ReportService struct {
-	paymentRepo  repository.PaymentRepository
-	contractRepo repository.ContractRepository
-	userRepo     repository.UserRepository
+	paymentRepo     repository.PaymentRepository
+	contractRepo    repository.ContractRepository
+	userRepo        repository.UserRepository
+	instructionRepo repository.ProjectPaymentInstructionRepository
 }
 
 func NewReportService(
 	paymentRepo repository.PaymentRepository,
 	contractRepo repository.ContractRepository,
 	userRepo repository.UserRepository,
+	instructionRepo repository.ProjectPaymentInstructionRepository,
 ) *ReportService {
 	return &ReportService{
-		paymentRepo:  paymentRepo,
-		contractRepo: contractRepo,
-		userRepo:     userRepo,
+		paymentRepo:     paymentRepo,
+		contractRepo:    contractRepo,
+		userRepo:        userRepo,
+		instructionRepo: instructionRepo,
 	}
 }
 
@@ -378,66 +375,6 @@ func (s *ReportService) GenerateOverduePaymentsCSV(ctx context.Context) (*bytes.
 	return b, nil
 }
 
-// Helper to generate PDF from HTML template (templates are embedded in the binary)
-func (s *ReportService) generatePDF(templateName string, data interface{}) (*bytes.Buffer, error) {
-	return s.generateDocument(templateName, data, false)
-}
-
-// generatePDFWithFooter generates a PDF with page numbers in the footer.
-func (s *ReportService) generatePDFWithFooter(templateName string, data interface{}) (*bytes.Buffer, error) {
-	return s.generateDocument(templateName, data, true)
-}
-
-func (s *ReportService) generateDocument(templateName string, data interface{}, withFooter bool) (*bytes.Buffer, error) {
-	// 1. Parse Template from embedded FS
-	tmplPath := "templates/reports/" + templateName
-	tmpl, err := template.ParseFS(reportTemplates, tmplPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse template %s (path: %s): %w", templateName, tmplPath, err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return nil, fmt.Errorf("failed to execute template: %w", err)
-	}
-
-	// 2. Convert to PDF using wkhtmltopdf
-	pdfg, err := wkhtmltopdf.NewPDFGenerator()
-	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "wkhtmltopdf") && (strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "not installed")) {
-			return nil, fmt.Errorf("wkhtmltopdf is required for PDF generation but is not installed. Install it: macOS: brew install --cask wkhtmltopdf (or download from https://wkhtmltopdf.org); Linux: apt-get install wkhtmltopdf. Original error: %w", err)
-		}
-		return nil, fmt.Errorf("failed to create pdf generator: %w", err)
-	}
-
-	// Set options
-	pdfg.Dpi.Set(300)
-	pdfg.Orientation.Set(wkhtmltopdf.OrientationPortrait)
-	pdfg.Grayscale.Set(false)
-
-	if withFooter {
-		pdfg.MarginBottom.Set(18)
-	}
-
-	// Add page from buffer
-	page := wkhtmltopdf.NewPageReader(bytes.NewReader(buf.Bytes()))
-	page.EnableLocalFileAccess.Set(true)
-	if withFooter {
-		page.FooterCenter.Set("Página [page] de [topage]")
-		page.FooterFontSize.Set(8)
-		page.FooterSpacing.Set(5)
-	}
-	pdfg.AddPage(page)
-
-	// Create PDF
-	if err := pdfg.Create(); err != nil {
-		return nil, fmt.Errorf("failed to create pdf: %w", err)
-	}
-
-	return pdfg.Buffer(), nil
-}
-
 // BalancePaymentData is one row in a statement's payment schedule.
 type BalancePaymentData struct {
 	Index     int
@@ -510,7 +447,7 @@ type BalanceTotalsData struct {
 	HasOverdue bool
 }
 
-// BalanceReportData is the full template payload for user_balance.html.
+// BalanceReportData is the full payload for the account statement PDF.
 type BalanceReportData struct {
 	Customer     BalanceCustomerData
 	Date         string
@@ -521,7 +458,8 @@ type BalanceReportData struct {
 	HasContracts bool
 }
 
-// GenerateUserBalancePDF generates a PDF statement of account for a user
+// GenerateUserBalancePDF generates a PDF statement of account for a user. The
+// statement is rendered natively with gofpdf (see balance_pdf.go).
 func (s *ReportService) GenerateUserBalancePDF(ctx context.Context, userID uint) (*bytes.Buffer, error) {
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
@@ -542,11 +480,11 @@ func (s *ReportService) GenerateUserBalancePDF(ctx context.Context, userID uint)
 	}
 
 	data := s.prepareBalancePDFData(user, details, time.Now())
-	return s.generatePDFWithFooter("user_balance.html", data)
+	return buildBalancePDF(data)
 }
 
 // prepareBalancePDFData builds the statement payload independently of PDF
-// generation so the content can be unit-tested without wkhtmltopdf.
+// generation so the content can be unit-tested.
 func (s *ReportService) prepareBalancePDFData(
 	user *models.User,
 	contracts []*models.Contract,
@@ -816,11 +754,9 @@ func translateLedgerType(entryType string) string {
 	}
 }
 
+// shortContractReference returns the UI-facing contract reference (#ID), which
+// is also used in the downloaded file names.
 func shortContractReference(contract *models.Contract) string {
-	if contract.GUID != "" {
-		parts := strings.SplitN(contract.GUID, "-", 2)
-		return strings.ToUpper(parts[0])
-	}
 	return fmt.Sprintf("#%d", contract.ID)
 }
 
@@ -921,222 +857,40 @@ func (s *ReportService) formatSignedMoney(amount float64) string {
 	return s.formatMoney(amount)
 }
 
-// GenerateContractPDF generates a PDF for a specific contract
+// GenerateContractPDF generates a PDF for a specific contract. The contract
+// PDF is rendered natively with gofpdf (see contract_pdf.go).
 func (s *ReportService) GenerateContractPDF(ctx context.Context, contractID uint) (*bytes.Buffer, error) {
 	contract, err := s.contractRepo.FindByIDWithDetails(ctx, contractID)
 	if err != nil {
 		return nil, err
 	}
 
-	data := s.prepareContractPDFData(contract)
-	return s.generatePDF("contract_promise.html", data)
+	data := s.prepareContractPDFData(ctx, contract)
+	return buildContractPDF(data)
 }
 
-// GenerateCustomerRecordPDF generates a PDF report for a customer record
+// GenerateCustomerRecordPDF generates a native PDF report for a customer
+// record.
 func (s *ReportService) GenerateCustomerRecordPDF(ctx context.Context, contractID uint) (*bytes.Buffer, error) {
 	contract, err := s.contractRepo.FindByIDWithDetails(ctx, contractID)
 	if err != nil {
 		return nil, err
 	}
 
-	clientName := contract.ApplicantUser.FullName
-	clientID := contract.ApplicantUser.Identity
-	clientPhone := contract.ApplicantUser.Phone
-	clientEmail := contract.ApplicantUser.Email
-	clientAddress := "_______________________"
-	if contract.ApplicantUser.Address != nil && *contract.ApplicantUser.Address != "" {
-		clientAddress = *contract.ApplicantUser.Address
-	}
-
-	projectName := "N/A"
-	lotName := "N/A"
-	dimensions := "0m x 0m"
-	measureUnit := "V2"
-	areaStr := "0"
-
-	if contract.Lot.ID != 0 {
-		lotName = contract.Lot.Name
-		dimensions = fmt.Sprintf("%.2fm x %.2fm", contract.Lot.Length, contract.Lot.Width)
-		areaStr = fmt.Sprintf("%.2f", contract.Lot.Area())
-		if contract.Lot.MeasurementUnit != nil {
-			measureUnit = *contract.Lot.MeasurementUnit
-		} else if contract.Lot.Project.ID != 0 {
-			measureUnit = contract.Lot.Project.MeasurementUnit
-		}
-
-		if contract.Lot.Project.ID != 0 {
-			projectName = contract.Lot.Project.Name
-		}
-	}
-
-	effectivePrice := 0.0
-	basePrice := 0.0
-	overridePrice := 0.0
-	hasOverride := false
-
-	if contract.Lot.ID != 0 {
-		effectivePrice = contract.Lot.EffectivePrice()
-		basePrice = contract.Lot.Price
-		if contract.Lot.OverridePrice != nil {
-			overridePrice = *contract.Lot.OverridePrice
-			hasOverride = true
-		}
-	}
-
-	reserveAmount := 0.0
-	if contract.ReserveAmount != nil {
-		reserveAmount = *contract.ReserveAmount
-	}
-
-	downPayment := 0.0
-	if contract.DownPayment != nil {
-		downPayment = *contract.DownPayment
-	}
-
-	installmentAmount := 0.0
-	endDate := "N/A"
-	var maxDate time.Time
-	for _, p := range contract.Payments {
-		if p.PaymentType == models.PaymentTypeInstallment {
-			if installmentAmount == 0 {
-				installmentAmount = p.Amount
-			}
-			if p.DueDate.After(maxDate) {
-				maxDate = p.DueDate
-			}
-		}
-	}
-	if !maxDate.IsZero() {
-		endDate = s.formatDateShort(maxDate)
-	}
-
-	startDate := s.formatDateShort(contract.CreatedAt)
-
-	financingType := contract.FinancingType
-	financingTypeEs := map[string]string{
-		models.FinancingTypeDirect: "Directo",
-		models.FinancingTypeBank:   "Bancario",
-		models.FinancingTypeCash:   "Contado",
-	}
-	if val, ok := financingTypeEs[contract.FinancingType]; ok {
-		financingType = val
-	}
-
-	data := map[string]interface{}{
-		"ClientName":        clientName,
-		"ClientID":          clientID,
-		"ClientPhone":       clientPhone,
-		"ClientEmail":       clientEmail,
-		"ClientAddress":     clientAddress,
-		"ProjectName":       projectName,
-		"LotName":           lotName,
-		"Dimensions":        dimensions,
-		"Area":              fmt.Sprintf("%s %s", areaStr, measureUnit),
-		"ContractID":        contract.ID,
-		"FinancingType":     financingType,
-		"Price":             s.formatCurrencyWithLempiras(effectivePrice),
-		"HasOverride":       hasOverride,
-		"BasePrice":         s.formatCurrencyWithLempiras(basePrice),
-		"OverridePrice":     s.formatCurrencyWithLempiras(overridePrice),
-		"ReserveAmount":     s.formatCurrencyWithLempiras(reserveAmount),
-		"DownPayment":       s.formatCurrencyWithLempiras(downPayment),
-		"InstallmentAmount": s.formatCurrencyWithLempiras(installmentAmount),
-		"Term":              fmt.Sprintf("%d meses", contract.PaymentTerm),
-		"StartDate":         startDate,
-		"EndDate":           endDate,
-		"GeneratedDate":     s.formatDateShort(time.Now()),
-	}
-
-	return s.generatePDF("customer_record.html", data)
+	data := s.prepareCustomerRecordPDFData(ctx, contract)
+	return buildCustomerRecordPDF(data)
 }
 
-// GenerateRescissionContractPDF generates a PDF for contract rescission
+// GenerateRescissionContractPDF generates a native PDF for a contract
+// rescission.
 func (s *ReportService) GenerateRescissionContractPDF(ctx context.Context, contractID uint, refundAmount, penaltyAmount float64) (*bytes.Buffer, error) {
 	contract, err := s.contractRepo.FindByIDWithDetails(ctx, contractID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Prepare data
-	clientName := "EL CLIENTE"
-	clientIdentity := "____________________"
-	clientAddress := ""
-	if contract.ApplicantUser.ID != 0 {
-		clientName = contract.ApplicantUser.FullName
-		clientIdentity = contract.ApplicantUser.Identity
-		if contract.ApplicantUser.Address != nil {
-			clientAddress = *contract.ApplicantUser.Address
-		}
-	}
-
-	projectName := "EL PROYECTO"
-	projectAddress := "____________________"
-	lotName := "DEL LOTE"
-	lotLength := 0.0
-	lotWidth := 0.0
-	north := "__________"
-	south := "__________"
-	east := "__________"
-	west := "__________"
-
-	if contract.Lot.ID != 0 {
-		lotName = contract.Lot.Name
-		lotLength = contract.Lot.Length
-		lotWidth = contract.Lot.Width
-
-		if contract.Lot.North != nil {
-			north = *contract.Lot.North
-		}
-		if contract.Lot.South != nil {
-			south = *contract.Lot.South
-		}
-		if contract.Lot.East != nil {
-			east = *contract.Lot.East
-		}
-		if contract.Lot.West != nil {
-			west = *contract.Lot.West
-		}
-
-		if contract.Lot.Project.ID != 0 {
-			projectName = contract.Lot.Project.Name
-			projectAddress = contract.Lot.Project.Address
-		}
-	}
-
-	// Date Formatting
-	now := time.Now()
-	dayStr := fmt.Sprintf("%d", now.Day())
-	monthStr := s.getSpanishMonthFull(now.Month())
-	yearStr := fmt.Sprintf("%d", now.Year())
-
-	contractDate := ""
-	if !contract.CreatedAt.IsZero() {
-		contractDate = s.formatDateLong(contract.CreatedAt)
-	}
-
-	data := map[string]interface{}{
-		"ApplicantName":      clientName,
-		"ApplicantNameUpper": clientName, // In templates we can just use ToUpper but pre-calculating is fine
-		"ApplicantIdentity":  clientIdentity,
-		"ApplicantAddress":   clientAddress,
-		"ContractDate":       contractDate,
-		"LotName":            lotName,
-		"ProjectName":        projectName,
-		"ProjectAddress":     projectAddress,
-		"LotLength":          fmt.Sprintf("%.2f", lotLength),
-		"LotWidth":           fmt.Sprintf("%.2f", lotWidth),
-		"North":              north,
-		"South":              south,
-		"East":               east,
-		"West":               west,
-		"RefundAmount":       s.formatCurrency(refundAmount),
-		"PenaltyAmount":      s.formatCurrency(penaltyAmount),
-		"Day":                dayStr,
-		"Month":              monthStr,
-		"Year":               yearStr,
-	}
-
-	return s.generatePDF("rescission_contract.html", data)
+	data := s.prepareRescissionPDFData(ctx, contract, refundAmount, penaltyAmount)
+	return buildRescissionPDF(data)
 }
 
 // SellerDashboardStats holds aggregated data for the seller dashboard
@@ -1202,13 +956,19 @@ func (s *ReportService) GetSellerDashboardStats(ctx context.Context, userID uint
 	}
 
 	var totalSales float64
+	var totalCommission float64
 	for _, c := range approvedContracts {
 		if c.Amount != nil {
 			totalSales += *c.Amount
 		}
+		commission := c.CommissionAmount
+		if commission == 0 {
+			commission = c.CalculateCommission()
+		}
+		totalCommission += commission
 	}
 	stats.TotalSalesValue = totalSales
-	stats.PendingCommission = totalSales * 0.02 // 2% commission
+	stats.PendingCommission = totalCommission
 
 	// 4. Conversion Rate (last 6 months: approved / (approved + active leads) * 100)
 	approvedCount := float64(len(approvedContracts))
@@ -1308,14 +1068,6 @@ func getMonthNameSpanish(m time.Month) string {
 	return m.String()[:3]
 }
 
-func (s *ReportService) formatCurrency(amount float64) string {
-	return fmt.Sprintf("%.2f", amount)
-}
-
-func (s *ReportService) formatCurrencyWithLempiras(amount float64) string {
-	return fmt.Sprintf("L. %.2f", amount)
-}
-
 func (s *ReportService) formatDateLong(t time.Time) string {
 	return fmt.Sprintf("%d de %s del %d", t.Day(), s.getSpanishMonthFull(t.Month()), t.Year())
 }
@@ -1334,143 +1086,4 @@ func (s *ReportService) formatDateShort(t time.Time) string {
 
 func (s *ReportService) formatAmountToWords(amount float64) string {
 	return fmt.Sprintf("%.2f", amount)
-}
-
-func (s *ReportService) prepareContractPDFData(contract *models.Contract) map[string]interface{} {
-	// Prepare Applicant Data
-	clientName := "EL CLIENTE"
-	clientIdentity := "____________________"
-	clientAddress := "____________________"
-	if contract.ApplicantUser.ID != 0 {
-		clientName = contract.ApplicantUser.FullName
-		if contract.ApplicantUser.Identity != "" {
-			clientIdentity = contract.ApplicantUser.Identity
-		}
-		if contract.ApplicantUser.Address != nil && *contract.ApplicantUser.Address != "" {
-			clientAddress = *contract.ApplicantUser.Address
-		}
-	}
-
-	// Prepare Project & Lot Data
-	projectName := "EL PROYECTO"
-	projectAddress := "________________"
-	projectInterestRate := 0.0
-	measurementUnit := "V2" // default
-
-	lotName := "DEL LOTE"
-	lotAddress := ""
-	lotWidth := 0.0
-	lotLength := 0.0
-	lotArea := 0.0
-	lotAreaUnit := 0.0
-
-	if contract.Lot.ID != 0 {
-		lotName = contract.Lot.Name
-		lotWidth = contract.Lot.Width
-		lotLength = contract.Lot.Length
-		lotArea = contract.Lot.Area()
-
-		if contract.Lot.Address != nil {
-			lotAddress = *contract.Lot.Address
-		}
-
-		if contract.Lot.MeasurementUnit != nil {
-			measurementUnit = *contract.Lot.MeasurementUnit
-		}
-
-		if contract.Lot.Project.ID != 0 {
-			projectName = contract.Lot.Project.Name
-			projectAddress = contract.Lot.Project.Address
-			projectInterestRate = contract.Lot.Project.InterestRate
-			if contract.Lot.MeasurementUnit == nil {
-				measurementUnit = contract.Lot.Project.MeasurementUnit
-			}
-		}
-		lotAreaUnit = lotArea
-	}
-
-	amount := 0.0
-	if contract.Amount != nil {
-		amount = *contract.Amount
-	}
-
-	reserveAmount := 0.0
-	if contract.ReserveAmount != nil {
-		reserveAmount = *contract.ReserveAmount
-	}
-
-	downPayment := 0.0
-	if contract.DownPayment != nil {
-		downPayment = *contract.DownPayment
-	}
-
-	financingAmount := amount - reserveAmount - downPayment
-
-	// Payment details
-	firstPaymentDate := "__________"
-	lastPaymentDate := "__________"
-	monthlyPayment := 0.0
-
-	var installments []models.Payment
-	for _, p := range contract.Payments {
-		if p.PaymentType == models.PaymentTypeInstallment {
-			installments = append(installments, p)
-		}
-	}
-
-	if len(installments) > 0 {
-		// Find first and last by due date
-		first := installments[0]
-		last := installments[0]
-		for _, p := range installments {
-			if p.DueDate.Before(first.DueDate) {
-				first = p
-			}
-			if p.DueDate.After(last.DueDate) {
-				last = p
-			}
-		}
-		firstPaymentDate = s.formatDateLong(first.DueDate)
-		lastPaymentDate = s.formatDateLong(last.DueDate)
-		monthlyPayment = first.Amount
-	}
-
-	maxPaymentDate := ""
-	if contract.MaxPaymentDate != nil {
-		maxPaymentDate = s.formatDateLong(*contract.MaxPaymentDate)
-	}
-
-	return map[string]interface{}{
-		"ClientName":           clientName,
-		"ClientIdentity":       clientIdentity,
-		"ClientAddress":        clientAddress,
-		"ProjectName":          projectName,
-		"ProjectAddress":       projectAddress,
-		"InterestRate":         fmt.Sprintf("%.2f", projectInterestRate),
-		"LotName":              lotName,
-		"LotAddress":           lotAddress,
-		"LotWidth":             fmt.Sprintf("%.2f", lotWidth),
-		"LotLength":            fmt.Sprintf("%.2f", lotLength),
-		"LotAreaM2":            fmt.Sprintf("%.2f", lotArea),
-		"LotAreaUnit":          fmt.Sprintf("%.2f", lotAreaUnit),
-		"MeasurementUnit":      measurementUnit,
-		"Amount":               s.formatCurrency(amount),
-		"AmountWords":          s.formatAmountToWords(amount),
-		"ReserveAmount":        s.formatCurrency(reserveAmount),
-		"ReserveAmountWords":   s.formatAmountToWords(reserveAmount),
-		"DownPayment":          s.formatCurrency(downPayment),
-		"DownPaymentWords":     s.formatAmountToWords(downPayment),
-		"FinancingAmount":      s.formatCurrency(financingAmount),
-		"FinancingAmountWords": s.formatAmountToWords(financingAmount),
-		"PaymentTerm":          contract.PaymentTerm,
-		"Currency":             contract.Currency,
-		"FirstPaymentDate":     firstPaymentDate,
-		"LastPaymentDate":      lastPaymentDate,
-		"MonthlyPayment":       s.formatCurrency(monthlyPayment),
-		"MonthlyPaymentWords":  s.formatAmountToWords(monthlyPayment),
-		"Date":                 s.formatDateLong(time.Now()),
-		"FinancingType":        contract.FinancingType,
-		"MaxPaymentDate":       maxPaymentDate,
-		"RawDownPayment":       downPayment,
-	}
 }

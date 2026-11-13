@@ -28,6 +28,8 @@ type PaymentInstructionRequest struct {
 	AccountType     string  `json:"account_type" example:"checking" enums:"savings,checking"`
 	Notes           *string `json:"notes" example:"Indica el número de lote en la referencia"`
 	Position        *int    `json:"position" example:"0"`
+	Currency        string  `json:"currency" example:"HNL"`
+	IsDefault       bool    `json:"is_default" example:"true"`
 }
 
 // @Summary List project payment instructions
@@ -76,6 +78,8 @@ func (h *PaymentInstructionHandler) Create(c *gin.Context) {
 		AccountNumber:   req.AccountNumber,
 		AccountType:     req.AccountType,
 		Notes:           req.Notes,
+		Currency:        req.Currency,
+		IsDefault:       req.IsDefault,
 	}
 	if req.Position != nil {
 		instruction.Position = *req.Position
@@ -115,6 +119,8 @@ func (h *PaymentInstructionHandler) Update(c *gin.Context) {
 		AccountType:     req.AccountType,
 		Notes:           req.Notes,
 		Position:        -1,
+		Currency:        req.Currency,
+		IsDefault:       req.IsDefault,
 	}
 	if req.Position != nil {
 		instruction.Position = *req.Position
@@ -153,8 +159,11 @@ func mapInstructionError(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Instrucción no encontrada"})
 	case errors.Is(err, services.ErrInstructionInvalidType),
 		errors.Is(err, services.ErrInstructionInvalidData),
-		errors.Is(err, services.ErrInstructionInvalidLength):
+		errors.Is(err, services.ErrInstructionInvalidLength),
+		errors.Is(err, services.ErrInstructionInvalidCurrency):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+	case errors.Is(err, services.ErrInstructionDefaultDelete):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}

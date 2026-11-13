@@ -13,6 +13,8 @@ type ProjectPaymentInstruction struct {
 	AccountType     string    `gorm:"not null;default:savings" json:"account_type"`
 	Notes           *string   `gorm:"type:text" json:"notes"`
 	Position        int       `gorm:"not null;default:0" json:"position"`
+	Currency        string    `gorm:"not null;default:HNL" json:"currency"`
+	IsDefault       bool      `gorm:"not null;default:false" json:"is_default"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
@@ -43,6 +45,8 @@ type ProjectPaymentInstructionResponse struct {
 	AccountType     string    `json:"account_type"`
 	Notes           *string   `json:"notes"`
 	Position        int       `json:"position"`
+	Currency        string    `json:"currency"`
+	IsDefault       bool      `json:"is_default"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
@@ -62,6 +66,8 @@ func (p *ProjectPaymentInstruction) ToResponse() PaymentInstructionResponse {
 		AccountType:     p.AccountType,
 		Notes:           p.Notes,
 		Position:        p.Position,
+		Currency:        p.Currency,
+		IsDefault:       p.IsDefault,
 		CreatedAt:       p.CreatedAt,
 		UpdatedAt:       p.UpdatedAt,
 	}
@@ -74,6 +80,8 @@ type PublicPaymentInstructionResponse struct {
 	BeneficiaryName string  `json:"beneficiary_name"`
 	AccountNumber   string  `json:"account_number"`
 	AccountType     string  `json:"account_type"`
+	Currency        string  `json:"currency"`
+	IsDefault       bool    `json:"is_default"`
 	Notes           *string `json:"notes"`
 }
 
@@ -84,6 +92,8 @@ func (p *ProjectPaymentInstruction) ToPublicResponse() PublicPaymentInstructionR
 		BeneficiaryName: p.BeneficiaryName,
 		AccountNumber:   p.AccountNumber,
 		AccountType:     p.AccountType,
+		Currency:        p.Currency,
+		IsDefault:       p.IsDefault,
 		Notes:           p.Notes,
 	}
 }

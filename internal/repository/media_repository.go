@@ -176,6 +176,8 @@ type ProjectPaymentInstructionRepository interface {
 	Update(ctx context.Context, instruction *models.ProjectPaymentInstruction) error
 	Delete(ctx context.Context, id uint) error
 	NextPosition(ctx context.Context, projectID uint) (int, error)
+	ClearDefault(ctx context.Context, projectID, exceptID uint) error
+	CountByProject(ctx context.Context, projectID uint) (int64, error)
 }
 
 type projectPaymentInstructionRepository struct{ db *gorm.DB }
@@ -211,6 +213,25 @@ func (r *projectPaymentInstructionRepository) Update(ctx context.Context, instru
 
 func (r *projectPaymentInstructionRepository) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&models.ProjectPaymentInstruction{}, id).Error
+}
+
+func (r *projectPaymentInstructionRepository) ClearDefault(ctx context.Context, projectID, exceptID uint) error {
+	query := r.db.WithContext(ctx).
+		Model(&models.ProjectPaymentInstruction{}).
+		Where("project_id = ? AND is_default = ?", projectID, true)
+	if exceptID > 0 {
+		query = query.Where("id <> ?", exceptID)
+	}
+	return query.Update("is_default", false).Error
+}
+
+func (r *projectPaymentInstructionRepository) CountByProject(ctx context.Context, projectID uint) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&models.ProjectPaymentInstruction{}).
+		Where("project_id = ?", projectID).
+		Count(&count).Error
+	return count, err
 }
 
 func (r *projectPaymentInstructionRepository) NextPosition(ctx context.Context, projectID uint) (int, error) {

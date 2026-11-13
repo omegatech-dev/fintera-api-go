@@ -52,6 +52,16 @@ func (m *mockInstructionRepo) NextPosition(ctx context.Context, projectID uint) 
 	return args.Int(0), args.Error(1)
 }
 
+func (m *mockInstructionRepo) ClearDefault(ctx context.Context, projectID, exceptID uint) error {
+	args := m.Called(ctx, projectID, exceptID)
+	return args.Error(0)
+}
+
+func (m *mockInstructionRepo) CountByProject(ctx context.Context, projectID uint) (int64, error) {
+	args := m.Called(ctx, projectID)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 type stubProjectRepo struct {
 	project *models.Project
 	err     error

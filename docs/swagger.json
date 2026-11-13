@@ -741,6 +741,40 @@
                 }
             }
         },
+        "/contracts/{guid}/commission/pay": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Mark the seller commission of an approved/closed contract as paid (Admin)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Contracts"
+                ],
+                "summary": "Pay Contract Commission",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Contract GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.ContractResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/contracts/{guid}/prepayments": {
             "post": {
                 "security": [
@@ -5758,6 +5792,12 @@
                     "description": "Commission",
                     "type": "number"
                 },
+                "commission_paid_at": {
+                    "type": "string"
+                },
+                "commission_paid_by": {
+                    "type": "integer"
+                },
                 "created_at": {
                     "description": "index for list sort and date filters",
                     "type": "string"
@@ -5956,6 +5996,15 @@
                 },
                 "cancellation_notes": {
                     "type": "string"
+                },
+                "commission_amount": {
+                    "type": "number"
+                },
+                "commission_paid_at": {
+                    "type": "string"
+                },
+                "commission_paid_by": {
+                    "type": "integer"
                 },
                 "contract_id": {
                     "type": "integer"

@@ -238,6 +238,10 @@ definitions:
       commission_amount:
         description: Commission
         type: number
+      commission_paid_at:
+        type: string
+      commission_paid_by:
+        type: integer
       created_at:
         description: index for list sort and date filters
         type: string
@@ -369,6 +373,12 @@ definitions:
         type: string
       cancellation_notes:
         type: string
+      commission_amount:
+        type: number
+      commission_paid_at:
+        type: string
+      commission_paid_by:
+        type: integer
       contract_id:
         type: integer
       created_at:
@@ -1436,6 +1446,28 @@ paths:
       security:
       - BearerAuth: []
       summary: Get Contract by GUID
+      tags:
+      - Contracts
+  /contracts/{guid}/commission/pay:
+    patch:
+      description: Mark the seller commission of an approved/closed contract as paid
+        (Admin)
+      parameters:
+      - description: Contract GUID
+        in: path
+        name: guid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ContractResponse'
+      security:
+      - BearerAuth: []
+      summary: Pay Contract Commission
       tags:
       - Contracts
   /contracts/{guid}/prepayments:

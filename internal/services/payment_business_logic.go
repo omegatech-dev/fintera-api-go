@@ -122,6 +122,15 @@ func (s *PaymentService) UndoPayment(ctx context.Context, id uint) error {
 		return fmt.Errorf("failed to load payment: %w", err)
 	}
 
+	// An obligation settled by a capital repayment has no ledger entry of its
+	// own, so undoing it individually would leave the schedule and the ledger
+	// inconsistent. Revert the capital repayment instead.
+	if payment.Status == models.PaymentStatusPaid &&
+		payment.PaymentType != models.PaymentTypeCapitalRepayment &&
+		payment.PaidAmount != nil && *payment.PaidAmount == 0 {
+		return fmt.Errorf("este pago fue liquidado por un abono a capital y no se puede revertir individualmente")
+	}
+
 	// Use FSM to validate and transition
 	fsm := statemachine.NewPaymentFSM(payment)
 	if err := fsm.Undo(ctx); err != nil {

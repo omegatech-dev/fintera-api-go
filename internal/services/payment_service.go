@@ -239,46 +239,15 @@ func (s *PaymentService) Approve(ctx context.Context, id uint, amount, interestA
 // applyToPendingInstallments reduces future obligations from the end of the
 // schedule so a capital repayment shortens the term instead of paying interest
 // ahead of time. Fully covered installments are removed; the last one may be
-// reduced.
+// reduced. Terminal obligations (full balance, down payment, reservation) are
+// marked as paid when covered instead of being deleted.
 func (s *PaymentService) applyToPendingInstallments(ctx context.Context, payment *models.Payment, amount float64) error {
 	if amount <= 0 {
 		return nil
 	}
 
-	pendingPayments, err := s.repo.FindByContract(ctx, payment.ContractID)
-	if err != nil {
-		return fmt.Errorf("failed to load pending payments: %w", err)
-	}
-
-	var targets []*models.Payment
-	for i := range pendingPayments {
-		target := &pendingPayments[i]
-		if target.ID != payment.ID &&
-			(target.Status == models.PaymentStatusPending || target.Status == models.PaymentStatusSubmitted) {
-			targets = append(targets, target)
-		}
-	}
-
-	for i := len(targets) - 1; i >= 0 && amount > 0; i-- {
-		target := targets[i]
-		targetAmount := target.Amount
-
-		if amount >= targetAmount {
-			if err := s.repo.Delete(ctx, target.ID); err != nil {
-				return fmt.Errorf("failed to delete payment #%d: %w", target.ID, err)
-			}
-			amount -= targetAmount
-			continue
-		}
-
-		target.Amount -= amount
-		amount = 0
-		if err := s.repo.Update(ctx, target); err != nil {
-			return fmt.Errorf("failed to adjust payment #%d: %w", target.ID, err)
-		}
-	}
-
-	return nil
+	_, err := applyCapitalToSchedule(ctx, s.repo, payment.ContractID, payment.ID, amount)
+	return err
 }
 
 func (s *PaymentService) Reject(ctx context.Context, id uint, actorID uint, reason string, ip, userAgent string) (*models.Payment, error) { // Updated signature verification
@@ -332,10 +301,48 @@ func (s *PaymentService) UpdateReceiptPath(ctx context.Context, id uint, path st
 	return s.UpdateReceipt(ctx, id, path, "", "")
 }
 
+// ValidateReceiptUpload rejects receipts for payments that no longer accept
+// them: already settled payments and contracts with no outstanding balance.
+// The reservation of a contract that is still pending is allowed because its
+// ledger does not exist yet.
+func (s *PaymentService) ValidateReceiptUpload(ctx context.Context, payment *models.Payment) error {
+	if payment == nil {
+		return fmt.Errorf("pago no encontrado")
+	}
+
+	switch payment.Status {
+	case models.PaymentStatusPaid, models.PaymentStatusReadjustment:
+		return fmt.Errorf("este pago ya no admite comprobante")
+	}
+
+	if payment.Contract.ID == 0 {
+		return nil
+	}
+
+	switch payment.Contract.Status {
+	case models.ContractStatusClosed, models.ContractStatusSigned:
+		return fmt.Errorf("el contrato está liquidado")
+	case models.ContractStatusApproved:
+		balance, err := s.ledgerRepo.CalculateBalance(ctx, payment.ContractID)
+		if err != nil {
+			return fmt.Errorf("no se pudo validar el saldo del contrato")
+		}
+		if balance >= -capitalRepaymentEpsilon {
+			return fmt.Errorf("el contrato no tiene saldo pendiente")
+		}
+	}
+
+	return nil
+}
+
 // UpdateReceipt stores the uploaded receipt plus the optional bank metadata.
 func (s *PaymentService) UpdateReceipt(ctx context.Context, id uint, path, authorizationNumber, payerAccountName string) error {
 	payment, err := s.repo.FindByID(ctx, id)
 	if err != nil {
+		return err
+	}
+
+	if err := s.ValidateReceiptUpload(ctx, payment); err != nil {
 		return err
 	}
 

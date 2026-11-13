@@ -289,7 +289,48 @@ func (r *contractRepository) List(ctx context.Context, query *ContractQuery) ([]
 		}
 	}
 
+	// Attach the next collectable payment in one extra query instead of
+	// preloading every installment for every contract in the page.
+	if len(contracts) > 0 {
+		if err := r.loadNextPayments(ctx, contracts); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	return contracts, total, err
+}
+
+// loadNextPayments fills Contract.NextPayment for each contract using one
+// batched query. Payments with a receipt are skipped because they are already
+// in review, matching models.FindCollectablePayment.
+func (r *contractRepository) loadNextPayments(ctx context.Context, contracts []models.Contract) error {
+	ids := make([]uint, 0, len(contracts))
+	indexByID := make(map[uint]int, len(contracts))
+	for i := range contracts {
+		ids = append(ids, contracts[i].ID)
+		indexByID[contracts[i].ID] = i
+	}
+
+	var payments []models.Payment
+	err := r.db.WithContext(ctx).
+		Where("contract_id IN ?", ids).
+		Where("status IN ?", []string{models.PaymentStatusPending, models.PaymentStatusSubmitted}).
+		Where("(document_path IS NULL OR document_path = '')").
+		Order("due_date ASC, id ASC").
+		Find(&payments).Error
+	if err != nil {
+		return err
+	}
+
+	for i := range payments {
+		index, ok := indexByID[payments[i].ContractID]
+		if !ok || contracts[index].NextPayment != nil {
+			continue
+		}
+		payment := payments[i]
+		contracts[index].NextPayment = &payment
+	}
+	return nil
 }
 
 // ContractStats holds the count of contracts by status plus the money still

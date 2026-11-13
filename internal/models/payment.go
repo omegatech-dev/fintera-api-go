@@ -91,6 +91,39 @@ func (p *Payment) OverdueDays() int {
 	return int(time.Since(p.DueDate).Hours() / 24)
 }
 
+// CollectionLabel returns the short, human label used when the payment is the
+// next amount a seller must collect. It intentionally avoids internal values
+// such as "down_payment" or "full".
+func (p *Payment) CollectionLabel() string {
+	switch p.PaymentType {
+	case PaymentTypeReservation:
+		return "Reserva"
+	case PaymentTypeDownPayment:
+		return "Prima"
+	case PaymentTypeFull:
+		return "Total"
+	case PaymentTypeAdvance, PaymentTypeCapitalRepayment:
+		return "Abono a capital"
+	case PaymentTypeInstallment:
+		if p.Description != nil {
+			description := strings.TrimSpace(*p.Description)
+			fields := strings.Fields(description)
+			if len(fields) >= 2 && strings.EqualFold(fields[0], "Cuota") {
+				return "Cuota " + fields[1]
+			}
+			if description != "" {
+				return description
+			}
+		}
+		return "Cuota"
+	default:
+		if p.Description != nil && strings.TrimSpace(*p.Description) != "" {
+			return strings.TrimSpace(*p.Description)
+		}
+		return "Cuota"
+	}
+}
+
 // PaymentResponse is the JSON response format for payments
 type PaymentResponse struct {
 	ID              uint       `json:"id"`
@@ -126,6 +159,22 @@ type PaymentResponse struct {
 	LotName           string  `json:"lot_name,omitempty"`
 	LotAddress        *string `json:"lot_address,omitempty"`
 	LotDimensions     string  `json:"lot_dimensions,omitempty"`
+}
+
+// NextPaymentResponse is the payment a seller must collect next. It flattens
+// the regular payment payload and adds a human label ("Reserva", "Prima",
+// "Cuota 1", "Total", "Abono a capital").
+type NextPaymentResponse struct {
+	PaymentResponse
+	Label string `json:"label"`
+}
+
+// ToNextPaymentResponse converts a payment into the "next collection" payload.
+func (p *Payment) ToNextPaymentResponse() NextPaymentResponse {
+	return NextPaymentResponse{
+		PaymentResponse: p.ToResponse(),
+		Label:           p.CollectionLabel(),
+	}
 }
 
 // ToResponse converts Payment to PaymentResponse

@@ -656,6 +656,14 @@ func TestContractHandler_IndexStatsLedger(t *testing.T) {
 			GUID:   "contract-guid",
 			Status: models.ContractStatusApproved,
 			Amount: floatPtrForTest(10000),
+			NextPayment: &models.Payment{
+				ID:          33,
+				ContractID:  7,
+				Amount:      4500,
+				PaymentType: models.PaymentTypeInstallment,
+				Status:      models.PaymentStatusPending,
+				Description: stringPtrForHandlerTest("Cuota 2 de 12"),
+			},
 		}}
 		contractRepo.total = 21
 
@@ -680,6 +688,11 @@ func TestContractHandler_IndexStatsLedger(t *testing.T) {
 		assert.Equal(t, int64(2), payload.Pagination.TotalPages)
 		assert.Equal(t, 1, payload.Pagination.Page)
 		assert.Equal(t, 20, payload.Pagination.PerPage)
+		assert.Equal(t, "Cuota 2", payload.Contracts[0].NextPaymentLabel)
+		if assert.NotNil(t, payload.Contracts[0].NextPayment) {
+			assert.Equal(t, uint(33), payload.Contracts[0].NextPayment.ID)
+			assert.Equal(t, "Cuota 2", payload.Contracts[0].NextPayment.Label)
+		}
 	})
 
 	t.Run("stats", func(t *testing.T) {
@@ -730,3 +743,5 @@ func TestContractHandler_IndexStatsLedger(t *testing.T) {
 }
 
 func floatPtrForTest(value float64) *float64 { return &value }
+
+func stringPtrForHandlerTest(value string) *string { return &value }

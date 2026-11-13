@@ -5988,6 +5988,14 @@ const docTemplate = `{
                     "description": "for bank/cash: date by which customer will pay the rest",
                     "type": "string"
                 },
+                "next_payment": {
+                    "description": "Transient, filled by list batching",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/models.Payment"
+                        }
+                    ]
+                },
                 "note": {
                     "type": "string"
                 },
@@ -6209,6 +6217,24 @@ const docTemplate = `{
                 "max_payment_date": {
                     "type": "string"
                 },
+                "next_payment": {
+                    "$ref": "#/definitions/models.NextPaymentResponse"
+                },
+                "next_payment_amount": {
+                    "type": "number"
+                },
+                "next_payment_date": {
+                    "type": "string"
+                },
+                "next_payment_id": {
+                    "type": "integer"
+                },
+                "next_payment_label": {
+                    "type": "string"
+                },
+                "next_payment_type": {
+                    "type": "string"
+                },
                 "note": {
                     "type": "string"
                 },
@@ -6418,6 +6444,106 @@ const docTemplate = `{
                 },
                 "width": {
                     "type": "number"
+                }
+            }
+        },
+        "models.NextPaymentResponse": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "number"
+                },
+                "applicant_identity": {
+                    "type": "string"
+                },
+                "applicant_name": {
+                    "type": "string"
+                },
+                "applicant_phone": {
+                    "type": "string"
+                },
+                "approved_at": {
+                    "type": "string"
+                },
+                "approver": {
+                    "type": "string"
+                },
+                "authorization_number": {
+                    "type": "string"
+                },
+                "contract_id": {
+                    "type": "integer"
+                },
+                "contract_status": {
+                    "description": "Contract details",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "due_date": {
+                    "type": "string"
+                },
+                "has_receipt": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "interest_amount": {
+                    "type": "number"
+                },
+                "is_overpayment": {
+                    "description": "true when paid_amount \u003e amount",
+                    "type": "boolean"
+                },
+                "is_pdf": {
+                    "type": "boolean"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "lot_address": {
+                    "type": "string"
+                },
+                "lot_dimensions": {
+                    "type": "string"
+                },
+                "lot_name": {
+                    "type": "string"
+                },
+                "overdue_days": {
+                    "type": "integer"
+                },
+                "paid_amount": {
+                    "type": "number"
+                },
+                "paid_at": {
+                    "type": "string"
+                },
+                "payer_account_name": {
+                    "type": "string"
+                },
+                "payment_date": {
+                    "type": "string"
+                },
+                "payment_type": {
+                    "type": "string"
+                },
+                "project_address": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "receipt_url": {
+                    "type": "string"
+                },
+                "rejection_reason": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },

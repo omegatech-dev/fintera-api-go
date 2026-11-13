@@ -90,6 +90,108 @@ func TestNormalizeBankCreditStatus(t *testing.T) {
 	}
 }
 
+func TestContractResponse_NextPayment(t *testing.T) {
+	document := "receipts/2026/11/voucher.pdf"
+	earlier := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	later := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	contract := Contract{
+		ID:     7,
+		Status: ContractStatusApproved,
+		Payments: []Payment{
+			{
+				ID:           10,
+				ContractID:   7,
+				Amount:       500,
+				PaymentType:  PaymentTypeReservation,
+				Status:       PaymentStatusPaid,
+				DueDate:      earlier,
+				DocumentPath: &document,
+			},
+			{
+				ID:          11,
+				ContractID:  7,
+				Amount:      1000,
+				PaymentType: PaymentTypeDownPayment,
+				Status:      PaymentStatusPending,
+				DueDate:     later,
+				Description: stringPtrForModelTest("Pago Inicial"),
+			},
+			{
+				ID:          12,
+				ContractID:  7,
+				Amount:      900,
+				PaymentType: PaymentTypeInstallment,
+				Status:      PaymentStatusPending,
+				DueDate:     earlier,
+				Description: stringPtrForModelTest("Cuota 1 de 12"),
+			},
+			{
+				ID:           13,
+				ContractID:   7,
+				Amount:       900,
+				PaymentType:  PaymentTypeInstallment,
+				Status:       PaymentStatusSubmitted,
+				DueDate:      earlier.Add(-time.Hour),
+				Description:  stringPtrForModelTest("Cuota 1 de 12"),
+				DocumentPath: &document,
+			},
+		},
+	}
+
+	resp := contract.ToResponse()
+	if resp.NextPayment == nil {
+		t.Fatal("expected next_payment in response")
+	}
+	if resp.NextPayment.ID != 12 {
+		t.Fatalf("next_payment id = %d, want 12 (earliest without receipt)", resp.NextPayment.ID)
+	}
+	if resp.NextPayment.Label != "Cuota 1" {
+		t.Fatalf("next_payment label = %q, want Cuota 1", resp.NextPayment.Label)
+	}
+	if resp.NextPaymentID == nil || *resp.NextPaymentID != 12 {
+		t.Fatalf("next_payment_id = %v, want 12", resp.NextPaymentID)
+	}
+	if resp.NextPaymentAmount == nil || *resp.NextPaymentAmount != 900 {
+		t.Fatalf("next_payment_amount = %v, want 900", resp.NextPaymentAmount)
+	}
+	if resp.NextPaymentDate == nil || !resp.NextPaymentDate.Equal(earlier) {
+		t.Fatalf("next_payment_date = %v, want %v", resp.NextPaymentDate, earlier)
+	}
+	if resp.NextPaymentLabel != "Cuota 1" || resp.NextPaymentType != PaymentTypeInstallment {
+		t.Fatalf("flat next payment fields = %q/%q", resp.NextPaymentType, resp.NextPaymentLabel)
+	}
+
+	contract.Status = ContractStatusCancelled
+	if got := contract.ToResponse().NextPayment; got != nil {
+		t.Fatalf("cancelled contract next_payment = %+v, want nil", got)
+	}
+}
+
+func TestPaymentCollectionLabel(t *testing.T) {
+	description := "Cuota 3 de 12"
+	cases := []struct {
+		payment Payment
+		want    string
+	}{
+		{payment: Payment{PaymentType: PaymentTypeReservation}, want: "Reserva"},
+		{payment: Payment{PaymentType: PaymentTypeDownPayment}, want: "Prima"},
+		{payment: Payment{PaymentType: PaymentTypeFull}, want: "Total"},
+		{payment: Payment{PaymentType: PaymentTypeCapitalRepayment}, want: "Abono a capital"},
+		{payment: Payment{PaymentType: PaymentTypeInstallment, Description: &description}, want: "Cuota 3"},
+		{payment: Payment{PaymentType: PaymentTypeInstallment}, want: "Cuota"},
+	}
+	for _, testCase := range cases {
+		if got := testCase.payment.CollectionLabel(); got != testCase.want {
+			t.Errorf("CollectionLabel(%q) = %q, want %q", testCase.payment.PaymentType, got, testCase.want)
+		}
+	}
+}
+
+func stringPtrForModelTest(value string) *string {
+	return &value
+}
+
 func TestContractResponse_ReservationPayment(t *testing.T) {
 	paidAt := time.Date(2026, 11, 10, 8, 30, 0, 0, time.UTC)
 	document := "receipts/2026/11/voucher.pdf"

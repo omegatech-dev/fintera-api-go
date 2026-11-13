@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/sjperalta/fintera-api/internal/models"
@@ -99,6 +100,44 @@ func TestContractRepository_GetStats(t *testing.T) {
 	assert.Equal(t, float64(1980000), stats.Overdue)
 	assert.Equal(t, int64(12), stats.OverdueCount)
 	assert.Equal(t, int64(1), stats.ReservationsWithoutContract)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestContractRepository_LoadNextPayments(t *testing.T) {
+	db, mock := setupMockDB(t)
+	repo := NewContractRepository(db).(*contractRepository)
+
+	contracts := []models.Contract{{ID: 7}, {ID: 8}, {ID: 9}}
+	due := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(`SELECT \* FROM "payments" WHERE contract_id IN \(\$1,\$2,\$3\) AND status IN \(\$4,\$5\) AND \(\(document_path IS NULL OR document_path = ''\)\) ORDER BY due_date ASC, id ASC`).
+		WithArgs(uint(7), uint(8), uint(9), models.PaymentStatusPending, models.PaymentStatusSubmitted).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "contract_id", "amount", "due_date", "status", "payment_type", "description"}).
+			AddRow(101, 7, 50000, due, models.PaymentStatusPending, models.PaymentTypeReservation, "Pago de Reserva").
+			AddRow(102, 7, 54166, due.AddDate(0, 1, 0), models.PaymentStatusPending, models.PaymentTypeInstallment, "Cuota 1 de 12").
+			AddRow(103, 8, 90000, due, models.PaymentStatusPending, models.PaymentTypeDownPayment, "Pago Inicial"))
+
+	err := repo.loadNextPayments(context.Background(), contracts)
+
+	require.NoError(t, err)
+	require.NotNil(t, contracts[0].NextPayment)
+	assert.Equal(t, uint(101), contracts[0].NextPayment.ID)
+	require.NotNil(t, contracts[1].NextPayment)
+	assert.Equal(t, uint(103), contracts[1].NextPayment.ID)
+	assert.Nil(t, contracts[2].NextPayment)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestContractRepository_LoadNextPayments_QueryError(t *testing.T) {
+	db, mock := setupMockDB(t)
+	repo := NewContractRepository(db).(*contractRepository)
+
+	mock.ExpectQuery(`SELECT \* FROM "payments"`).
+		WillReturnError(assert.AnError)
+
+	err := repo.loadNextPayments(context.Background(), []models.Contract{{ID: 7}})
+
+	require.ErrorIs(t, err, assert.AnError)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

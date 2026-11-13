@@ -20,15 +20,17 @@ import (
 var reportTemplates embed.FS
 
 type CommissionReportItem struct {
-	ContractID    uint    `json:"contract_id"`
-	ClientName    string  `json:"client_name"`
-	Project       string  `json:"project"`
-	Lot           string  `json:"lot"`
-	FinancingType string  `json:"financing_type"`
-	Amount        float64 `json:"amount"`
-	Date          string  `json:"date"`
-	Seller        string  `json:"seller"`
-	Commission    float64 `json:"commission"`
+	ContractID       uint       `json:"contract_id"`
+	ContractGUID     string     `json:"contract_guid"`
+	CommissionPaidAt *time.Time `json:"commission_paid_at"`
+	ClientName       string     `json:"client_name"`
+	Project          string     `json:"project"`
+	Lot              string     `json:"lot"`
+	FinancingType    string     `json:"financing_type"`
+	Amount           float64    `json:"amount"`
+	Date             string     `json:"date"`
+	Seller           string     `json:"seller"`
+	Commission       float64    `json:"commission"`
 }
 
 type ReportService struct {
@@ -140,15 +142,17 @@ func (s *ReportService) GenerateCommissions(ctx context.Context, startDate, endD
 		}
 
 		items = append(items, CommissionReportItem{
-			ContractID:    c.ID,
-			ClientName:    clientName,
-			Project:       projectName,
-			Lot:           lotNumber,
-			FinancingType: financingType,
-			Amount:        amount,
-			Date:          dateStr,
-			Seller:        sellerName,
-			Commission:    commission,
+			ContractID:       c.ID,
+			ContractGUID:     c.GUID,
+			CommissionPaidAt: c.CommissionPaidAt,
+			ClientName:       clientName,
+			Project:          projectName,
+			Lot:              lotNumber,
+			FinancingType:    financingType,
+			Amount:           amount,
+			Date:             dateStr,
+			Seller:           sellerName,
+			Commission:       commission,
 		})
 	}
 
@@ -166,7 +170,7 @@ func (s *ReportService) GenerateCommissionsCSV(ctx context.Context, startDate, e
 	w := csv.NewWriter(b)
 
 	// Header
-	header := []string{"Contrato ID", "Cliente", "Lote", "Proyecto", "Tipo Financiamiento", "Valor Contrato", "Fecha Venta", "Vendedor", "Comisión Est."}
+	header := []string{"Contrato ID", "Cliente", "Lote", "Proyecto", "Tipo Financiamiento", "Valor Contrato", "Fecha Venta", "Vendedor", "Comisión Est.", "Comisión Pagada"}
 	if err := w.Write(header); err != nil {
 		return nil, err
 	}
@@ -182,6 +186,12 @@ func (s *ReportService) GenerateCommissionsCSV(ctx context.Context, startDate, e
 			item.Date,
 			item.Seller,
 			fmt.Sprintf("%.2f", item.Commission),
+			func() string {
+				if item.CommissionPaidAt == nil {
+					return "No"
+				}
+				return "Sí " + item.CommissionPaidAt.Format("2006-01-02")
+			}(),
 		}
 		if err := w.Write(record); err != nil {
 			return nil, err

@@ -285,6 +285,7 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				admin.POST("/projects/:project_id/lots/:lot_id/contracts/:contract_id/reject", h.Contract.Reject)
 				admin.POST("/projects/:project_id/lots/:lot_id/contracts/:contract_id/cancel", h.Contract.Cancel)
 				admin.POST("/projects/:project_id/lots/:lot_id/contracts/:contract_id/reopen", h.Contract.Reopen)
+				admin.PATCH("/contracts/:guid/commission/pay", h.Contract.PayCommission)
 				admin.POST("/projects/:project_id/lots/:lot_id/contracts/:contract_id/capital_repayment", h.Contract.CapitalRepayment)
 
 				// Payment approval/rejection/undo (admin only)

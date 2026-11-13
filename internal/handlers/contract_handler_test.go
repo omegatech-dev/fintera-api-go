@@ -94,6 +94,10 @@ func (s *contractRepoStub) MarkReservationReminderSent(context.Context, uint) er
 	return s.err
 }
 
+func (s *contractRepoStub) MarkCommissionPaid(context.Context, uint, uint, float64) error {
+	return s.err
+}
+
 func (s *contractRepoStub) GetStats(context.Context) (*repository.ContractStats, error) {
 	return s.stats, s.err
 }

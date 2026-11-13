@@ -85,6 +85,10 @@ func (m *mockDocContractRepo) FindReservationsAwaitingVoucher(context.Context, i
 
 func (m *mockDocContractRepo) MarkReservationReminderSent(context.Context, uint) error { return nil }
 
+func (m *mockDocContractRepo) MarkCommissionPaid(context.Context, uint, uint, float64) error {
+	return nil
+}
+
 func (m *mockDocContractRepo) GetStats(context.Context) (*repository.ContractStats, error) {
 	return &repository.ContractStats{}, nil
 }

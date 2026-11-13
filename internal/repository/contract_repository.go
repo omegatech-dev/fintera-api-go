@@ -25,6 +25,7 @@ type ContractRepository interface {
 	FindPendingReservations(ctx context.Context, olderThan int) ([]models.Contract, error)
 	FindReservationsAwaitingVoucher(ctx context.Context, olderThanHours int) ([]models.Contract, error)
 	MarkReservationReminderSent(ctx context.Context, id uint) error
+	MarkCommissionPaid(ctx context.Context, id uint, paidBy uint, amount float64) error
 	GetStats(ctx context.Context) (*ContractStats, error)
 	HasActiveContracts(ctx context.Context, userID uint) (bool, error)
 }
@@ -382,6 +383,18 @@ func (r *contractRepository) MarkReservationReminderSent(ctx context.Context, id
 		Model(&models.Contract{}).
 		Where("id = ?", id).
 		Update("reservation_reminder_sent_at", time.Now()).Error
+}
+
+func (r *contractRepository) MarkCommissionPaid(ctx context.Context, id uint, paidBy uint, amount float64) error {
+	now := time.Now()
+	return r.db.WithContext(ctx).
+		Model(&models.Contract{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"commission_paid_at": now,
+			"commission_paid_by": paidBy,
+			"commission_amount":  amount,
+		}).Error
 }
 
 func (r *contractRepository) HasActiveContracts(ctx context.Context, userID uint) (bool, error) {

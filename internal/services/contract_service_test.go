@@ -99,6 +99,11 @@ func (m *mockContractRepo) MarkReservationReminderSent(ctx context.Context, id u
 	return args.Error(0)
 }
 
+func (m *mockContractRepo) MarkCommissionPaid(ctx context.Context, id uint, paidBy uint, amount float64) error {
+	args := m.Called(ctx, id, paidBy, amount)
+	return args.Error(0)
+}
+
 func (m *mockContractRepo) GetStats(ctx context.Context) (*repository.ContractStats, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
@@ -1085,4 +1090,69 @@ func TestContractService_ReleaseUnpaidReservations(t *testing.T) {
 	assert.NoError(t, err)
 	contractRepo.AssertExpectations(t)
 	lotRepo.AssertExpectations(t)
+}
+
+func TestContractService_MarkCommissionPaid(t *testing.T) {
+	logger.Setup("test")
+
+	ctx := context.Background()
+	contractRepo := new(mockContractRepo)
+	lotRepo := new(mockLotRepo)
+	userRepo := new(mockUserRepoForContract)
+	paymentRepo := new(mockPaymentRepo)
+	ledgerRepo := new(mockLedgerRepo)
+
+	gdb, mockSQL := setupMockDB(t)
+	mockSQL.ExpectQuery("INSERT INTO \"audit_logs\"").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	auditSvc := NewAuditService(gdb)
+	worker := jobs.NewWorker(1)
+	cfg := &config.Config{ResendAPIKey: "mock-key"}
+	emailSvc := NewEmailService(cfg)
+	service := NewContractService(contractRepo, lotRepo, userRepo, paymentRepo, ledgerRepo, nil, emailSvc, auditSvc, worker)
+
+	amount := 400000.0
+	contract := &models.Contract{
+		ID:               7,
+		Status:           models.ContractStatusApproved,
+		CommissionAmount: 0,
+		Amount:           &amount,
+		FinancingType:    models.FinancingTypeDirect,
+		Lot: models.Lot{
+			Project: models.Project{ID: 3, CommissionRateDirect: 4},
+		},
+	}
+
+	contractRepo.On("FindByIDWithDetails", ctx, uint(7)).Return(contract, nil)
+	contractRepo.On("MarkCommissionPaid", ctx, uint(7), uint(9), 16000.0).Return(nil)
+
+	updated, err := service.MarkCommissionPaid(ctx, 7, 9)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 16000.0, updated.CommissionAmount)
+	assert.NotNil(t, updated.CommissionPaidAt)
+	assert.Equal(t, uint(9), *updated.CommissionPaidBy)
+	contractRepo.AssertExpectations(t)
+}
+
+func TestContractService_MarkCommissionPaid_RejectsAlreadyPaid(t *testing.T) {
+	logger.Setup("test")
+
+	ctx := context.Background()
+	contractRepo := new(mockContractRepo)
+	service := NewContractService(contractRepo, new(mockLotRepo), new(mockUserRepoForContract), new(mockPaymentRepo), new(mockLedgerRepo), nil, nil, nil, jobs.NewWorker(1))
+
+	paidAt := time.Now()
+	contract := &models.Contract{
+		ID:               8,
+		Status:           models.ContractStatusApproved,
+		CommissionAmount: 1000,
+		CommissionPaidAt: &paidAt,
+	}
+	contractRepo.On("FindByIDWithDetails", ctx, uint(8)).Return(contract, nil)
+
+	_, err := service.MarkCommissionPaid(ctx, 8, 9)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "ya fue marcada")
+	contractRepo.AssertExpectations(t)
 }

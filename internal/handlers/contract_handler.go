@@ -664,6 +664,30 @@ func (h *ContractHandler) Approve(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"contract": contract.ToResponse(), "message": "Contrato aprobado"})
 }
 
+// @Summary Pay Contract Commission
+// @Description Mark the seller commission of an approved/closed contract as paid (Admin)
+// @Tags Contracts
+// @Produce json
+// @Param guid path string true "Contract GUID"
+// @Success 200 {object} models.ContractResponse
+// @Security BearerAuth
+// @Router /contracts/{guid}/commission/pay [patch]
+func (h *ContractHandler) PayCommission(c *gin.Context) {
+	contract, err := h.contractService.FindByGUIDWithDetails(c.Request.Context(), c.Param("guid"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Contrato no encontrado"})
+		return
+	}
+
+	updated, err := h.contractService.MarkCommissionPaid(c.Request.Context(), contract.ID, middleware.GetUserID(c))
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"contract": updated.ToResponse(), "message": "Comisión marcada como pagada"})
+}
+
 type RejectContractRequest struct {
 	Reason string `json:"reason"`
 }

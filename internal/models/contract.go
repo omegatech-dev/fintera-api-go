@@ -19,6 +19,8 @@ type Contract struct {
 	Balance         *float64 `gorm:"type:decimal" json:"balance"`
 	// Commission
 	CommissionAmount          float64    `json:"commission_amount" gorm:"type:decimal(15,2);default:0"`
+	CommissionPaidAt          *time.Time `gorm:"index" json:"commission_paid_at"`
+	CommissionPaidBy          *uint      `json:"commission_paid_by"`
 	DownPayment               *float64   `gorm:"type:decimal" json:"down_payment"`
 	ReserveAmount             *float64   `gorm:"type:decimal" json:"reserve_amount"`
 	MaxPaymentDate            *time.Time `gorm:"type:date" json:"max_payment_date"` // for bank/cash: date by which customer will pay the rest
@@ -204,6 +206,9 @@ type ContractResponse struct {
 	CancellationNotes      *string                       `json:"cancellation_notes"`
 	TotalInterestCollected float64                       `json:"total_interest_collected"`
 	TotalPaid              float64                       `json:"total_paid"`
+	CommissionAmount       float64                       `json:"commission_amount"`
+	CommissionPaidAt       *time.Time                    `json:"commission_paid_at"`
+	CommissionPaidBy       *uint                         `json:"commission_paid_by"`
 	ApprovedAt             *time.Time                    `json:"approved_at"`
 	SubmittedAt            *time.Time                    `json:"submitted_at"`
 	RejectedAt             *time.Time                    `json:"rejected_at"`
@@ -298,6 +303,9 @@ func (c *Contract) ToResponse() ContractResponse {
 	}
 	resp.TotalInterestCollected = totalInterest
 	resp.TotalPaid = totalPaid
+	resp.CommissionAmount = c.CommissionAmount
+	resp.CommissionPaidAt = c.CommissionPaidAt
+	resp.CommissionPaidBy = c.CommissionPaidBy
 
 	// Add payment schedule
 	for _, payment := range c.Payments {

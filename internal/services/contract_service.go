@@ -779,6 +779,20 @@ func (s *ContractService) CapitalRepayment(ctx context.Context, id uint, amount 
 	return nil
 }
 
+// SendReminder sends a manual payment/reservation reminder for one contract.
+func (s *ContractService) SendReminder(ctx context.Context, guid string, actorID uint) error {
+	contract, err := s.repo.FindByGUIDWithDetails(ctx, guid)
+	if err != nil {
+		return ErrNotFound
+	}
+	if err := s.emailSvc.SendReservationVoucherReminder(ctx, contract); err != nil {
+		return err
+	}
+	logIgnoredError("audit contract reminder", s.auditSvc.Log(ctx, actorID, "REMINDER", "Contract", contract.ID,
+		"Recordatorio de pago enviado al cliente", "", ""))
+	return nil
+}
+
 // SendReservationVoucherReminders emails customers whose reservation is about
 // to expire without an uploaded voucher. It only contacts each reservation once.
 func (s *ContractService) SendReservationVoucherReminders(ctx context.Context) error {

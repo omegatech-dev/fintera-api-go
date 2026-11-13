@@ -103,6 +103,12 @@ definitions:
       beneficiary_name:
         example: Fintera Inversiones Inmobiliarias S.A.
         type: string
+      currency:
+        example: HNL
+        type: string
+      is_default:
+        example: true
+        type: boolean
       notes:
         example: Indica el número de lote en la referencia
         type: string
@@ -920,6 +926,8 @@ definitions:
         type: integer
       rejected:
         type: integer
+      reservations_without_contract:
+        type: integer
       total:
         type: integer
     type: object
@@ -927,8 +935,18 @@ definitions:
     properties:
       collected_this_month:
         type: number
+      overdue_clients:
+        type: integer
+      overdue_count:
+        type: integer
+      paid_count:
+        type: integer
+      pending_count:
+        type: integer
       pending_this_month:
         type: number
+      total_count:
+        type: integer
       total_overdue:
         type: number
     type: object
@@ -1516,6 +1534,35 @@ paths:
       security:
       - BearerAuth: []
       summary: Request Prepayment
+      tags:
+      - Contracts
+  /contracts/{guid}/reminder:
+    post:
+      description: Send a manual reservation/payment reminder email for a contract.
+      parameters:
+      - description: Contract GUID
+        in: path
+        name: guid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Send Contract Reminder
       tags:
       - Contracts
   /contracts/stats:
@@ -4434,6 +4481,22 @@ paths:
               type: string
             type: object
       summary: Send Recovery Code
+      tags:
+      - Users
+  /users/stats:
+    get:
+      description: Count active users grouped by role.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: User statistics
       tags:
       - Users
   /users/update_password_with_code:

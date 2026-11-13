@@ -185,6 +185,10 @@ func (m *mockUserRepoForContract) FindAdmins(ctx context.Context) ([]models.User
 	return args.Get(0).([]models.User), args.Error(1)
 }
 
+func (m *mockUserRepoForContract) CountByRole(ctx context.Context) (map[string]int64, error) {
+	return map[string]int64{}, nil
+}
+
 func (m *mockUserRepoForContract) FindAll(ctx context.Context) ([]models.User, error) {
 	args := m.Called(ctx)
 	return args.Get(0).([]models.User), args.Error(1)

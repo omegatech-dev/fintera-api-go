@@ -30,13 +30,16 @@ func (s *AuditService) Log(ctx context.Context, userID uint, action, entity stri
 }
 
 // List retrieves audit logs with filters (entity, search_term)
-func (s *AuditService) List(ctx context.Context, limit, offset int, entity, searchTerm string) ([]models.AuditLog, int64, error) {
+func (s *AuditService) List(ctx context.Context, limit, offset int, entity, entityID, searchTerm string) ([]models.AuditLog, int64, error) {
 	var logs []models.AuditLog
 	var total int64
 
 	db := s.db.Model(&models.AuditLog{})
 	if entity != "" {
 		db = db.Where("audit_logs.entity = ?", entity)
+	}
+	if entityID != "" {
+		db = db.Where("audit_logs.entity_id = ?", entityID)
 	}
 	if searchTerm != "" {
 		pattern := "%" + searchTerm + "%"

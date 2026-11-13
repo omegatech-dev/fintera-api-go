@@ -45,12 +45,16 @@ func (h *ProjectHandler) Index(c *gin.Context) {
 	// @Param page query int false "Page number" default(1)
 	// @Param per_page query int false "Items per page" default(20)
 	// @Param search_term query string false "Search term"
+	// @Param is_published query string false "Filter by visibility (1 or 0)"
 	// @Success 200 {object} map[string]interface{}
 	// @Security BearerAuth
 	// @Router /projects [get]
 	query := ParseListQuery(c)
 	if guid := c.Query("guid"); guid != "" {
 		query.Filters["guid"] = guid
+	}
+	if published := c.Query("is_published"); published != "" {
+		query.Filters["is_published"] = published
 	}
 
 	projects, total, err := h.projectService.List(c.Request.Context(), query)
@@ -839,9 +843,10 @@ func (h *AuditHandler) Index(c *gin.Context) {
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "50"))
 	offset := (page - 1) * perPage
 	entity := c.Query("model")
+	entityID := c.Query("entity_id")
 	searchTerm := strings.TrimSpace(c.Query("search_term"))
 
-	logs, total, err := h.auditService.List(c.Request.Context(), perPage, offset, entity, searchTerm)
+	logs, total, err := h.auditService.List(c.Request.Context(), perPage, offset, entity, entityID, searchTerm)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

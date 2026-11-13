@@ -257,6 +257,10 @@ func (s *userRepoStub) SoftDelete(context.Context, uint) error { return s.err }
 
 func (s *userRepoStub) Restore(context.Context, uint) error { return s.err }
 
+func (s *userRepoStub) CountByRole(context.Context) (map[string]int64, error) {
+	return map[string]int64{}, s.err
+}
+
 func (s *userRepoStub) List(context.Context, *repository.ListQuery) ([]models.User, int64, error) {
 	return nil, 0, s.err
 }

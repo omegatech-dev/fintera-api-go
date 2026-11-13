@@ -28,6 +28,24 @@ func NewContractHandler(contractService *services.ContractService, storage *stor
 	return &ContractHandler{contractService: contractService, storage: storage}
 }
 
+// @Summary Send Contract Reminder
+// @Description Send a manual reservation/payment reminder email for a contract.
+// @Tags Contracts
+// @Produce json
+// @Param guid path string true "Contract GUID"
+// @Success 200 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Security BearerAuth
+// @Router /contracts/{guid}/reminder [post]
+func (h *ContractHandler) SendReminder(c *gin.Context) {
+	guid := c.Param("guid")
+	if err := h.contractService.SendReminder(c.Request.Context(), guid, middleware.GetUserID(c)); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Contrato no encontrado"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Recordatorio enviado"})
+}
+
 // @Summary List Contracts
 // @Description Get a paginated list of contracts for the current user (or all for admin)
 // @Tags Contracts

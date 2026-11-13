@@ -39,12 +39,16 @@ func (AnalyticsCache) TableName() string {
 // AnalyticsOverview represents high-level statistics and trend data
 type AnalyticsOverview struct {
 	TotalRevenue              float64             `json:"total_revenue"`
+	PreviousRevenue           float64             `json:"previous_revenue"`
 	RevenueChangePercentage   float64             `json:"revenue_change_percentage"`
 	ActiveContracts           int                 `json:"active_contracts"`
+	PreviousContracts         int                 `json:"previous_contracts"`
 	ContractsChangePercentage float64             `json:"contracts_change_percentage"`
 	AveragePayment            float64             `json:"average_payment"`
+	PreviousAveragePayment    float64             `json:"previous_average_payment"`
 	PaymentChangePercentage   float64             `json:"payment_change_percentage"`
 	OccupancyRate             float64             `json:"occupancy_rate"`
+	PreviousOccupancyRate     float64             `json:"previous_occupancy_rate"`
 	OccupancyChangePercentage float64             `json:"occupancy_change_percentage"`
 	CurrencySymbol            string              `json:"currency_symbol"`
 	RevenueTrend              []RevenueTrendPoint `json:"revenue_trend"`

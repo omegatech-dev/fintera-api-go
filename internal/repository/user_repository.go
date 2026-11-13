@@ -25,6 +25,7 @@ type UserRepository interface {
 	List(ctx context.Context, query *ListQuery) ([]models.User, int64, error)
 	FindAdmins(ctx context.Context) ([]models.User, error)
 	FindAll(ctx context.Context) ([]models.User, error)
+	CountByRole(ctx context.Context) (map[string]int64, error)
 }
 
 type userRepository struct {
@@ -34,6 +35,27 @@ type userRepository struct {
 // NewUserRepository creates a new user repository
 func NewUserRepository(db *gorm.DB) UserRepository {
 	return &userRepository{db: db}
+}
+
+func (r *userRepository) CountByRole(ctx context.Context) (map[string]int64, error) {
+	type row struct {
+		Role  string
+		Count int64
+	}
+	var rows []row
+	if err := r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Select("role, count(*) as count").
+		Where("discarded_at IS NULL").
+		Group("role").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int64, len(rows))
+	for _, item := range rows {
+		counts[item.Role] = item.Count
+	}
+	return counts, nil
 }
 
 func (r *userRepository) FindByID(ctx context.Context, id uint) (*models.User, error) {

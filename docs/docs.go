@@ -852,6 +852,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/contracts/{guid}/reminder": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Send a manual reservation/payment reminder email for a contract.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Contracts"
+                ],
+                "summary": "Send Contract Reminder",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Contract GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/dashboard/seller": {
             "get": {
                 "security": [
@@ -4638,6 +4684,32 @@ const docTemplate = `{
                 }
             }
         },
+        "/users/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Count active users grouped by role.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "User statistics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/users/update_password_with_code": {
             "post": {
                 "description": "Reset password using recovery code",
@@ -5589,6 +5661,14 @@ const docTemplate = `{
                 "beneficiary_name": {
                     "type": "string",
                     "example": "Fintera Inversiones Inmobiliarias S.A."
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "HNL"
+                },
+                "is_default": {
+                    "type": "boolean",
+                    "example": true
                 },
                 "notes": {
                     "type": "string",
@@ -6831,6 +6911,9 @@ const docTemplate = `{
                 "rejected": {
                     "type": "integer"
                 },
+                "reservations_without_contract": {
+                    "type": "integer"
+                },
                 "total": {
                     "type": "integer"
                 }
@@ -6842,8 +6925,23 @@ const docTemplate = `{
                 "collected_this_month": {
                     "type": "number"
                 },
+                "overdue_clients": {
+                    "type": "integer"
+                },
+                "overdue_count": {
+                    "type": "integer"
+                },
+                "paid_count": {
+                    "type": "integer"
+                },
+                "pending_count": {
+                    "type": "integer"
+                },
                 "pending_this_month": {
                     "type": "number"
+                },
+                "total_count": {
+                    "type": "integer"
                 },
                 "total_overdue": {
                     "type": "number"

@@ -47,6 +47,31 @@ func NewUserHandler(
 	}
 }
 
+// @Summary User statistics
+// @Description Count active users grouped by role.
+// @Tags Users
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Security BearerAuth
+// @Router /users/stats [get]
+func (h *UserHandler) Stats(c *gin.Context) {
+	counts, err := h.userService.Stats(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	var total int64
+	for _, count := range counts {
+		total += count
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"total":  total,
+		"admin":  counts["admin"],
+		"seller": counts["seller"],
+		"user":   counts["user"],
+	})
+}
+
 // @Summary List Users
 // @Description Get a paginated list of users
 // @Tags Users

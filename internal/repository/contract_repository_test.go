@@ -70,6 +70,10 @@ func TestContractRepository_GetStats(t *testing.T) {
 			AddRow(models.ContractStatusRejected, 2).
 			AddRow(models.ContractStatusCancelled, 1))
 
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "lots" WHERE status = \$1 AND NOT EXISTS`).
+		WithArgs(models.LotStatusReserved).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
 	stats, err := repo.GetStats(context.Background())
 
 	require.NoError(t, err)
@@ -77,6 +81,7 @@ func TestContractRepository_GetStats(t *testing.T) {
 	assert.Equal(t, int64(3), stats.Pending)
 	assert.Equal(t, int64(5), stats.Approved)
 	assert.Equal(t, int64(2), stats.Rejected)
+	assert.Equal(t, int64(1), stats.ReservationsWithoutContract)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

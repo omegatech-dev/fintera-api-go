@@ -44,6 +44,11 @@ func (s *UserService) List(ctx context.Context, query *repository.ListQuery) ([]
 	return s.repo.List(ctx, query)
 }
 
+// Stats returns active user counts by role.
+func (s *UserService) Stats(ctx context.Context) (map[string]int64, error) {
+	return s.repo.CountByRole(ctx)
+}
+
 func (s *UserService) Create(ctx context.Context, user *models.User, password string, actorID uint) error {
 	user.Email = strings.ToLower(user.Email)
 

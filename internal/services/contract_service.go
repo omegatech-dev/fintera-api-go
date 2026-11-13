@@ -93,7 +93,6 @@ func (s *ContractService) CreateWithAssignment(ctx context.Context, contract *mo
 
 	switch {
 	case attributedSeller != nil:
-		origin = models.AssignmentOriginReferral
 		contract.SellerID = &attributedSeller.ID
 		contract.ReferralGUID = &referralGUID
 		contract.AssignmentOrigin = models.AssignmentOriginReferral

@@ -32,6 +32,35 @@ func setupMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock) {
 	return gdb, mock
 }
 
+func TestUserRepository_CountActiveClientsByCreator(t *testing.T) {
+	db, mock := setupMockDB(t)
+	repo := NewUserRepository(db)
+
+	mock.ExpectQuery(`SELECT created_by, count\(\*\) as count FROM "users" WHERE discarded_at IS NULL AND role = \$1 AND status = \$2 AND created_by IN \(\$3,\$4\) GROUP BY "created_by"`).
+		WithArgs("user", "active", uint(10), uint(11)).
+		WillReturnRows(sqlmock.NewRows([]string{"created_by", "count"}).
+			AddRow(10, 3).
+			AddRow(11, 0))
+
+	counts, err := repo.CountActiveClientsByCreator(context.Background(), []uint{10, 11})
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(3), counts[10])
+	assert.Equal(t, int64(0), counts[11])
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUserRepository_CountActiveClientsByCreator_Empty(t *testing.T) {
+	db, mock := setupMockDB(t)
+	repo := NewUserRepository(db)
+
+	counts, err := repo.CountActiveClientsByCreator(context.Background(), nil)
+
+	assert.NoError(t, err)
+	assert.Empty(t, counts)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestUserRepository_List_Sorting(t *testing.T) {
 	db, mock := setupMockDB(t)
 	repo := NewUserRepository(db)

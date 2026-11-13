@@ -207,18 +207,15 @@ Worker characteristics (`internal/jobs/worker.go`):
 
 ## Reports and exports
 
-`ReportService` uses embedded Go templates:
-
-- Email templates: `internal/services/templates/email/*.html`
-- Report templates: `internal/services/templates/reports/*.html`
+`ReportService` renders report PDFs natively with `gofpdf`, so no external
+PDF binary is required. Email templates live in
+`internal/services/templates/email/*.html`.
 
 CSV reports: commissions, total revenue, overdue payments.
 PDF reports: user balance, contract promise, rescission, user information
-(reuses balance PDF), customer record. PDFs are rendered with
-`go-wkhtmltopdf`, so the `wkhtmltopdf` binary must be installed (the Docker
-image includes it).
+(reuses balance PDF), customer record.
 
-Analytics exports (`ExportService`) support CSV, XLSX, and PDF.
+Analytics exports (`ExportService`) support CSV, XLSX, and PDF (gofpdf).
 
 ## Notifications and email
 

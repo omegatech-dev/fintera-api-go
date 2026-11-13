@@ -177,6 +177,103 @@ func (s *ProjectService) Update(ctx context.Context, project *models.Project, ac
 	return s.auditSvc.Log(ctx, actorID, "UPDATE", "Project", project.ID, fmt.Sprintf("Proyecto actualizado: %s", project.Name), "", "")
 }
 
+// ImportCSV creates or updates projects from parsed CSV records. Duplicate
+// rows are matched by GUID first and then by a case-insensitive code.
+// SkipDuplicates takes precedence over UpdateExisting.
+func (s *ProjectService) ImportCSV(ctx context.Context, records []ProjectCSVRecord, options ProjectCSVOptions, actorID uint) (ProjectImportResult, error) {
+	result := ProjectImportResult{Errors: []ProjectImportRowError{}}
+
+	existing, err := s.repo.FindAll(ctx)
+	if err != nil {
+		return result, err
+	}
+
+	byGUID := make(map[string]*models.Project, len(existing))
+	byCode := make(map[string]*models.Project, len(existing))
+	for index := range existing {
+		project := &existing[index]
+		if project.GUID != "" {
+			byGUID[strings.ToLower(project.GUID)] = project
+		}
+		if project.Code != nil && strings.TrimSpace(*project.Code) != "" {
+			byCode[strings.ToLower(strings.TrimSpace(*project.Code))] = project
+		}
+	}
+
+	for _, record := range records {
+		project, err := record.BuildProject()
+		if err != nil {
+			result.Errors = append(result.Errors, ProjectImportRowError{Row: record.Row, Message: err.Error()})
+			continue
+		}
+
+		match := findImportedProject(project, byGUID, byCode)
+
+		if match != nil && options.SkipDuplicates {
+			result.Skipped++
+			continue
+		}
+
+		if match != nil && options.UpdateExisting {
+			merged, err := record.MergeInto(match)
+			if err != nil {
+				result.Errors = append(result.Errors, ProjectImportRowError{Row: record.Row, Message: err.Error()})
+				continue
+			}
+			oldCode := projectCodeKey(match)
+			if err := s.Update(ctx, merged, actorID); err != nil {
+				result.Errors = append(result.Errors, ProjectImportRowError{Row: record.Row, Message: err.Error()})
+				continue
+			}
+			if oldCode != "" && oldCode != projectCodeKey(merged) {
+				delete(byCode, oldCode)
+			}
+			result.Updated++
+			indexImportedProject(merged, byGUID, byCode)
+			continue
+		}
+
+		if err := s.Create(ctx, project, actorID); err != nil {
+			result.Errors = append(result.Errors, ProjectImportRowError{Row: record.Row, Message: err.Error()})
+			continue
+		}
+		result.Imported++
+		indexImportedProject(project, byGUID, byCode)
+	}
+
+	return result, nil
+}
+
+func projectCodeKey(project *models.Project) string {
+	if project == nil || project.Code == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(*project.Code))
+}
+
+func findImportedProject(project *models.Project, byGUID, byCode map[string]*models.Project) *models.Project {
+	if project.GUID != "" {
+		if match, ok := byGUID[strings.ToLower(project.GUID)]; ok {
+			return match
+		}
+	}
+	if code := projectCodeKey(project); code != "" {
+		if match, ok := byCode[code]; ok {
+			return match
+		}
+	}
+	return nil
+}
+
+func indexImportedProject(project *models.Project, byGUID, byCode map[string]*models.Project) {
+	if project.GUID != "" {
+		byGUID[strings.ToLower(project.GUID)] = project
+	}
+	if code := projectCodeKey(project); code != "" {
+		byCode[code] = project
+	}
+}
+
 func (s *ProjectService) Delete(ctx context.Context, id uint, actorID uint) error {
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return err

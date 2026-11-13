@@ -11,7 +11,6 @@
 | `air` | Hot reload (`make dev`) | optional |
 | `swag` | Regenerate Swagger | when routes/annotations change |
 | `golangci-lint` | Lint | recommended |
-| `wkhtmltopdf` | PDF report generation | for PDF endpoints |
 | Docker | Container builds | optional |
 
 The Makefile installs Go tools into `$(go env GOPATH)/bin` and adds that
@@ -167,7 +166,8 @@ Commit the regenerated `docs/docs.go`, `docs/swagger.json`, and
   run `make GO=/usr/local/go/bin/go <target>`.
 - **Migration fails** — check PostgreSQL is running and the user can create
   tables; `make drop-db-seed-migrate-force` helps with stale connections.
-- **PDF generation fails** — install `wkhtmltopdf`; it is not bundled locally.
+- **PDF generation fails** — report PDFs are rendered natively with `gofpdf`;
+  treat failures as application bugs, not missing system packages.
 - **Email silently skipped** — `ENABLE_EMAIL_NOTIFICATIONS=false` or
   `RESEND_API_KEY` / `FROM_EMAIL` missing.
 - **Port already in use** — change `PORT` in `.env`.

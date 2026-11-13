@@ -21,9 +21,9 @@ type Project struct {
 	InterestRate         float64   `gorm:"type:decimal(5,2);not null" json:"interest_rate"`
 	GUID                 string    `gorm:"column:guid;not null" json:"guid"`
 	CommissionRate       float64   `gorm:"type:decimal(5,2);default:0" json:"commission_rate"`
-	CommissionRateDirect float64   `gorm:"type:decimal(5,2);default:4" json:"commission_rate_direct"`
-	CommissionRateBank   float64   `gorm:"type:decimal(5,2);default:6" json:"commission_rate_bank"`
-	CommissionRateCash   float64   `gorm:"type:decimal(5,2);default:7" json:"commission_rate_cash"`
+	CommissionRateDirect float64   `gorm:"type:decimal(5,2);default:0" json:"commission_rate_direct"`
+	CommissionRateBank   float64   `gorm:"type:decimal(5,2);default:0" json:"commission_rate_bank"`
+	CommissionRateCash   float64   `gorm:"type:decimal(5,2);default:0" json:"commission_rate_cash"`
 	MeasurementUnit      string    `gorm:"default:m2" json:"measurement_unit"`
 	DeliveryDate         *string   `gorm:"type:date" json:"delivery_date"`
 	IsPublished          bool      `gorm:"column:is_published;default:true" json:"is_published"`

@@ -33,6 +33,10 @@ func (s *stubInstructionRepo) Delete(context.Context, uint) error { return nil }
 func (s *stubInstructionRepo) NextPosition(context.Context, uint) (int, error) {
 	return 0, nil
 }
+func (s *stubInstructionRepo) ClearDefault(context.Context, uint, uint) error { return nil }
+func (s *stubInstructionRepo) CountByProject(context.Context, uint) (int64, error) {
+	return 0, nil
+}
 
 func publicTestProjects() []models.Project {
 	city := "Tegucigalpa"

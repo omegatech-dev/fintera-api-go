@@ -25,6 +25,7 @@ type ContractRepository interface {
 	FindPendingReservations(ctx context.Context, olderThan int) ([]models.Contract, error)
 	FindReservationsAwaitingVoucher(ctx context.Context, olderThanHours int) ([]models.Contract, error)
 	MarkReservationReminderSent(ctx context.Context, id uint) error
+	MarkCommissionPaid(ctx context.Context, id uint, paidBy uint, amount float64) error
 	GetStats(ctx context.Context) (*ContractStats, error)
 	HasActiveContracts(ctx context.Context, userID uint) (bool, error)
 }
@@ -291,12 +292,19 @@ func (r *contractRepository) List(ctx context.Context, query *ContractQuery) ([]
 	return contracts, total, err
 }
 
-// ContractStats holds the count of contracts by status
+// ContractStats holds the count of contracts by status plus the money still
+// outstanding on active contracts.
 type ContractStats struct {
-	Total    int64 `json:"total"`
-	Pending  int64 `json:"pending"`
-	Approved int64 `json:"approved"`
-	Rejected int64 `json:"rejected"`
+	Total                       int64   `json:"total"`
+	Pending                     int64   `json:"pending"`
+	Approved                    int64   `json:"approved"`
+	Rejected                    int64   `json:"rejected"`
+	Cancelled                   int64   `json:"cancelled"`
+	Active                      int64   `json:"active"`
+	PendingBalance              float64 `json:"pending_balance"`
+	Overdue                     float64 `json:"overdue"`
+	OverdueCount                int64   `json:"overdue_count"`
+	ReservationsWithoutContract int64   `json:"reservations_without_contract"`
 }
 
 func (r *contractRepository) GetStats(ctx context.Context) (*ContractStats, error) {
@@ -328,12 +336,62 @@ func (r *contractRepository) GetStats(ctx context.Context) (*ContractStats, erro
 			stats.Approved = count
 		case models.ContractStatusRejected:
 			stats.Rejected = count
+		case models.ContractStatusCancelled:
+			stats.Cancelled = count
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	stats.Total = total
+
+	// Active contracts (approved and not closed/cancelled). This mirrors the
+	// contracts.active flag maintained by the state machine.
+	if err := r.db.WithContext(ctx).
+		Model(&models.Contract{}).
+		Where("active = ?", true).
+		Count(&stats.Active).Error; err != nil {
+		return nil, err
+	}
+
+	// Outstanding balance of active contracts: pending and submitted
+	// installments that have not been collected yet.
+	if err := r.db.WithContext(ctx).
+		Model(&models.Payment{}).
+		Joins("JOIN contracts ON contracts.id = payments.contract_id").
+		Where("contracts.active = ?", true).
+		Where("payments.status IN ?", []string{models.PaymentStatusPending, models.PaymentStatusSubmitted}).
+		Select("COALESCE(SUM(payments.amount), 0)").
+		Scan(&stats.PendingBalance).Error; err != nil {
+		return nil, err
+	}
+
+	// Overdue money and installments for active contracts.
+	var overdue struct {
+		Total float64
+		Count int64
+	}
+	if err := r.db.WithContext(ctx).
+		Model(&models.Payment{}).
+		Joins("JOIN contracts ON contracts.id = payments.contract_id").
+		Where("contracts.active = ?", true).
+		Where("payments.status = ?", models.PaymentStatusPending).
+		Where("payments.due_date < CURRENT_DATE").
+		Select("COALESCE(SUM(payments.amount), 0) as total, COUNT(*) as count").
+		Scan(&overdue).Error; err != nil {
+		return nil, err
+	}
+	stats.Overdue = overdue.Total
+	stats.OverdueCount = overdue.Count
+
+	// Lots marked as reserved that never produced a contract.
+	if err := r.db.WithContext(ctx).
+		Model(&models.Lot{}).
+		Where("status = ?", models.LotStatusReserved).
+		Where("NOT EXISTS (SELECT 1 FROM contracts WHERE contracts.lot_id = lots.id)").
+		Count(&stats.ReservationsWithoutContract).Error; err != nil {
+		return nil, err
+	}
 
 	return stats, nil
 }
@@ -384,6 +442,18 @@ func (r *contractRepository) MarkReservationReminderSent(ctx context.Context, id
 		Update("reservation_reminder_sent_at", time.Now()).Error
 }
 
+func (r *contractRepository) MarkCommissionPaid(ctx context.Context, id uint, paidBy uint, amount float64) error {
+	now := time.Now()
+	return r.db.WithContext(ctx).
+		Model(&models.Contract{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"commission_paid_at": now,
+			"commission_paid_by": paidBy,
+			"commission_amount":  amount,
+		}).Error
+}
+
 func (r *contractRepository) HasActiveContracts(ctx context.Context, userID uint) (bool, error) {
 	var count int64
 	err := r.db.WithContext(ctx).
@@ -399,6 +469,11 @@ type PaymentStats struct {
 	PendingThisMonth   float64 `json:"pending_this_month"`
 	CollectedThisMonth float64 `json:"collected_this_month"`
 	TotalOverdue       float64 `json:"total_overdue"`
+	TotalCount         int64   `json:"total_count"`
+	PendingCount       int64   `json:"pending_count"`
+	OverdueCount       int64   `json:"overdue_count"`
+	PaidCount          int64   `json:"paid_count"`
+	OverdueClients     int64   `json:"overdue_clients"`
 }
 
 // PaymentRepository defines the interface for payment data access
@@ -723,6 +798,39 @@ func (r *paymentRepository) GetMonthlyStats(ctx context.Context) (*PaymentStats,
 	stats.CollectedThisMonth = collectedThisMonth
 	stats.TotalOverdue = totalOverdue
 
+	// 4. Counts by status for tabs and dashboards
+	if err := r.db.WithContext(ctx).
+		Model(&models.Payment{}).
+		Count(&stats.TotalCount).Error; err != nil {
+		return nil, err
+	}
+	if err := r.db.WithContext(ctx).
+		Model(&models.Payment{}).
+		Where("status = ?", models.PaymentStatusSubmitted).
+		Count(&stats.PendingCount).Error; err != nil {
+		return nil, err
+	}
+	if err := r.db.WithContext(ctx).
+		Model(&models.Payment{}).
+		Where("status = ? AND due_date < CURRENT_DATE", models.PaymentStatusPending).
+		Count(&stats.OverdueCount).Error; err != nil {
+		return nil, err
+	}
+	if err := r.db.WithContext(ctx).
+		Model(&models.Payment{}).
+		Where("status = ?", models.PaymentStatusPaid).
+		Count(&stats.PaidCount).Error; err != nil {
+		return nil, err
+	}
+	if err := r.db.WithContext(ctx).
+		Model(&models.Payment{}).
+		Joins("JOIN contracts ON contracts.id = payments.contract_id").
+		Where("payments.status = ? AND payments.due_date < CURRENT_DATE", models.PaymentStatusPending).
+		Distinct("contracts.applicant_user_id").
+		Count(&stats.OverdueClients).Error; err != nil {
+		return nil, err
+	}
+
 	return stats, nil
 }
 
@@ -894,6 +1002,10 @@ func (r *projectRepository) List(ctx context.Context, query *ListQuery) ([]model
 
 	if val, ok := query.Filters["guid"]; ok && val != "" {
 		db = db.Where("guid = ?", val)
+	}
+
+	if val, ok := query.Filters["is_published"]; ok && val != "" {
+		db = db.Where("is_published = ?", val == "1" || val == "true")
 	}
 
 	db.Count(&total)

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sjperalta/fintera-api/internal/middleware"
 	"github.com/sjperalta/fintera-api/internal/models"
 	"github.com/sjperalta/fintera-api/internal/services"
 	"github.com/sjperalta/fintera-api/internal/storage"
@@ -301,7 +302,7 @@ func (h *PaymentHandler) UploadReceipt(c *gin.Context) {
 		return
 	}
 
-	if err := h.paymentService.UpdateReceipt(c.Request.Context(), uint(id), path, authorizationNumber, payerAccountName); err != nil {
+	if err := h.paymentService.UpdateReceipt(c.Request.Context(), uint(id), path, authorizationNumber, payerAccountName, middleware.GetUserID(c)); err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return
 	}
@@ -354,7 +355,7 @@ func (h *PaymentHandler) UploadPublicReservationReceipt(c *gin.Context) {
 		return
 	}
 
-	if err := h.paymentService.UpdateReceipt(c.Request.Context(), uint(id), path, authorizationNumber, payerAccountName); err != nil {
+	if err := h.paymentService.UpdateReceipt(c.Request.Context(), uint(id), path, authorizationNumber, payerAccountName, 0); err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return
 	}

@@ -24,7 +24,7 @@ The `Dockerfile` is a two-stage build:
 
 1. `golang:1.27.3-alpine` builds `./cmd/api` into `/app/main`.
 2. `alpine` runtime installs CA certificates, timezone data, `make`, `curl`,
-   `postgresql-client`, PDF libraries, `wkhtmltopdf`, and `golang-migrate`.
+   `postgresql-client`, and `golang-migrate`.
 
 Container start command:
 
@@ -36,7 +36,6 @@ Implications:
 
 - Migrations run on every container start.
 - Seeds run on every container start and must remain idempotent.
-- `wkhtmltopdf` is available for PDF reports.
 - The container listens on `8080` by default; override `PORT` if needed.
 - The runtime stage has **no Go toolchain**. The Makefile detects this and
   falls back to `/usr/local/bin`, where the Dockerfile preinstalls

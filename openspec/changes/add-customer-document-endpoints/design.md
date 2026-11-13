@@ -62,11 +62,8 @@ handlers, so browsers download instead of rendering inline.
   `handlers.go` carefully.
 - **PDF cost.** Generating PDFs is CPU-bound; the endpoints are per-request only
   and authenticated, so no new caching is introduced.
-- **wkhtmltopdf availability.** `ReportService` returns an actionable error when
-  the binary is missing, but `go-wkhtmltopdf` reads `WKHTMLTOPDF_PATH` as the
-  *directory* containing `wkhtmltopdf`, not the binary path. Set it to
-  `FinteraAPI/bin/wkhtmltox` (or install via the OS package manager) in
-  environments that generate PDFs.
+- **PDF rendering.** Report PDFs are rendered natively with
+  `gofpdf`; no external PDF binary is required.
 
 ## Observability
 

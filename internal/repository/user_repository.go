@@ -25,6 +25,8 @@ type UserRepository interface {
 	List(ctx context.Context, query *ListQuery) ([]models.User, int64, error)
 	FindAdmins(ctx context.Context) ([]models.User, error)
 	FindAll(ctx context.Context) ([]models.User, error)
+	CountByRole(ctx context.Context) (map[string]int64, error)
+	CountActiveClientsByCreator(ctx context.Context, creatorIDs []uint) (map[uint]int64, error)
 }
 
 type userRepository struct {
@@ -34,6 +36,61 @@ type userRepository struct {
 // NewUserRepository creates a new user repository
 func NewUserRepository(db *gorm.DB) UserRepository {
 	return &userRepository{db: db}
+}
+
+func (r *userRepository) CountByRole(ctx context.Context) (map[string]int64, error) {
+	type row struct {
+		Role  string
+		Count int64
+	}
+	var rows []row
+	if err := r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Select("role, count(*) as count").
+		Where("discarded_at IS NULL").
+		Group("role").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int64, len(rows))
+	for _, item := range rows {
+		counts[item.Role] = item.Count
+	}
+	return counts, nil
+}
+
+// CountActiveClientsByCreator returns, for each creator, how many active users
+// with the client role they created. Creators without clients are omitted (the
+// caller defaults them to zero).
+func (r *userRepository) CountActiveClientsByCreator(ctx context.Context, creatorIDs []uint) (map[uint]int64, error) {
+	counts := make(map[uint]int64, len(creatorIDs))
+	if len(creatorIDs) == 0 {
+		return counts, nil
+	}
+
+	type row struct {
+		CreatedBy uint
+		Count     int64
+	}
+	var rows []row
+	if err := r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Select("created_by, count(*) as count").
+		Where("discarded_at IS NULL").
+		Where("role = ?", models.RoleUser).
+		Where("status = ?", models.StatusActive).
+		Where("created_by IN ?", creatorIDs).
+		Group("created_by").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	for _, item := range rows {
+		if item.CreatedBy != 0 {
+			counts[item.CreatedBy] = item.Count
+		}
+	}
+	return counts, nil
 }
 
 func (r *userRepository) FindByID(ctx context.Context, id uint) (*models.User, error) {

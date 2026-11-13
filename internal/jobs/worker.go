@@ -24,6 +24,8 @@ type Worker struct {
 	maxConcurrent int
 	stats         WorkerStats
 	statsMu       sync.RWMutex
+	mu            sync.RWMutex
+	closed        bool
 }
 
 // WorkerStats holds statistics about the worker
@@ -63,9 +65,16 @@ func NewWorker(numWorkers int) *Worker {
 
 // Enqueue adds a job to be processed by the worker pool
 func (w *Worker) Enqueue(job Job) {
+	w.mu.RLock()
+	if w.closed {
+		w.mu.RUnlock()
+		return
+	}
 	select {
 	case w.queue <- job:
+		w.mu.RUnlock()
 	default:
+		w.mu.RUnlock()
 		logger.Warn("[Worker] Queue full, running job synchronously")
 		if err := w.execute(job); err != nil {
 			logger.Error(fmt.Sprintf("[Worker] Job error: %v", err))
@@ -75,14 +84,19 @@ func (w *Worker) Enqueue(job Job) {
 
 // EnqueueAsync runs a job in a new goroutine (fire-and-forget), bounded by semaphore
 func (w *Worker) EnqueueAsync(job Job) {
+	w.mu.Lock()
+	if w.closed {
+		w.mu.Unlock()
+		return
+	}
+	w.wg.Add(1)
+	w.mu.Unlock()
+
 	go func() {
+		defer w.wg.Done()
 		// Acquire semaphore to limit concurrency
 		w.asyncSem <- struct{}{}
 		defer func() { <-w.asyncSem }()
-
-		// Track in waitgroup
-		w.wg.Add(1)
-		defer w.wg.Done()
 
 		w.trackJobStart()
 		defer w.trackJobEnd()
@@ -207,8 +221,15 @@ func (w *Worker) ScheduleAt(at time.Time, job Job) {
 
 // Shutdown gracefully stops all workers
 func (w *Worker) Shutdown() {
+	w.mu.Lock()
+	if w.closed {
+		w.mu.Unlock()
+		return
+	}
+	w.closed = true
 	w.cancel()
 	close(w.queue)
+	w.mu.Unlock()
 	w.wg.Wait()
 }
 

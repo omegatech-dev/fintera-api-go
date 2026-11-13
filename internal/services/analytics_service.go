@@ -163,12 +163,16 @@ func (s *AnalyticsService) computeOverview(ctx context.Context, filters models.A
 
 	return &models.AnalyticsOverview{
 		TotalRevenue:              totalRevenue,
+		PreviousRevenue:           prevRevenue,
 		RevenueChangePercentage:   revenueChange,
 		ActiveContracts:           activeContracts,
+		PreviousContracts:         prevContracts,
 		ContractsChangePercentage: contractsChange,
 		AveragePayment:            avgPayment,
+		PreviousAveragePayment:    prevAvgPayment,
 		PaymentChangePercentage:   paymentChange,
 		OccupancyRate:             occupancyRate,
+		PreviousOccupancyRate:     prevOccupancy,
 		OccupancyChangePercentage: occupancyChange,
 		CurrencySymbol:            currencySymbol,
 		RevenueTrend:              revenueTrend,

@@ -671,7 +671,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get contract count statistics (Total, Pending, Approved, Rejected)",
+                "description": "Get contract statistics: status counts plus active outstanding and overdue amounts.",
                 "consumes": [
                     "application/json"
                 ],
@@ -744,6 +744,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/contracts/{guid}/commission/pay": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Mark the seller commission of an approved/closed contract as paid (Admin)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Contracts"
+                ],
+                "summary": "Pay Contract Commission",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Contract GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.ContractResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/contracts/{guid}/prepayments": {
             "post": {
                 "security": [
@@ -808,6 +842,52 @@ const docTemplate = `{
                     },
                     "422": {
                         "description": "Unprocessable Entity",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/contracts/{guid}/reminder": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Send a manual reservation/payment reminder email for a contract.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Contracts"
+                ],
+                "summary": "Send Contract Reminder",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Contract GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1780,9 +1860,9 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Bulk import projects",
+                "description": "Bulk import projects from a CSV file (multipart/form-data field ` + "`" + `file` + "`" + `). Duplicates are matched by code or GUID. ` + "`" + `skip_duplicates` + "`" + ` wins over ` + "`" + `update_existing` + "`" + `.",
                 "consumes": [
-                    "application/json"
+                    "multipart/form-data"
                 ],
                 "produces": [
                     "application/json"
@@ -1793,23 +1873,70 @@ const docTemplate = `{
                 "summary": "Import Projects",
                 "parameters": [
                     {
-                        "description": "Projects Data",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handlers.ImportProjectRequest"
-                        }
+                        "type": "file",
+                        "description": "CSV file",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Update existing projects instead of creating them",
+                        "name": "update_existing",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Skip projects whose code or GUID already exists",
+                        "name": "skip_duplicates",
+                        "in": "formData"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
+                            "$ref": "#/definitions/services.ProjectImportResult"
+                        }
+                    },
+                    "207": {
+                        "description": "Import finished with row errors",
+                        "schema": {
+                            "$ref": "#/definitions/services.ProjectImportResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
                             "type": "object",
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/import/template": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Download the canonical CSV template accepted by the import endpoint",
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Download project import template",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
                         }
                     }
                 }
@@ -4383,7 +4510,7 @@ const docTemplate = `{
         },
         "/settings": {
             "get": {
-                "description": "Public customer settings: support contact and reservation hold.",
+                "description": "Public customer settings: support contact, reservation hold, legal data and terms content.",
                 "produces": [
                     "application/json"
                 ],
@@ -4407,7 +4534,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update support contact and reservation hold duration (Admin).",
+                "description": "Update support contact, reservation hold, legal data and terms content (Admin).",
                 "consumes": [
                     "application/json"
                 ],
@@ -4456,7 +4583,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get a paginated list of users",
+                "description": "Get a paginated list of users. Each user includes clients_count: the number of active clients (role=user) created by that user.",
                 "consumes": [
                     "application/json"
                 ],
@@ -4604,6 +4731,32 @@ const docTemplate = `{
                 }
             }
         },
+        "/users/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Count active users grouped by role.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "User statistics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/users/update_password_with_code": {
             "post": {
                 "description": "Reset password using recovery code",
@@ -4685,7 +4838,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get a user by ID",
+                "description": "Get a user by ID, including clients_count for the active clients they created.",
                 "consumes": [
                     "application/json"
                 ],
@@ -5505,17 +5658,6 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.ImportProjectRequest": {
-            "type": "object",
-            "properties": {
-                "projects": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/models.Project"
-                    }
-                }
-            }
-        },
         "handlers.LoginRequest": {
             "type": "object",
             "required": [
@@ -5555,6 +5697,14 @@ const docTemplate = `{
                 "beneficiary_name": {
                     "type": "string",
                     "example": "Fintera Inversiones Inmobiliarias S.A."
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "HNL"
+                },
+                "is_default": {
+                    "type": "boolean",
+                    "example": true
                 },
                 "notes": {
                     "type": "string",
@@ -5699,6 +5849,15 @@ const docTemplate = `{
         "handlers.generalSettingsUpdateRequest": {
             "type": "object",
             "properties": {
+                "legal_address": {
+                    "type": "string"
+                },
+                "legal_name": {
+                    "type": "string"
+                },
+                "legal_tax_id": {
+                    "type": "string"
+                },
                 "reservation_hold_hours": {
                     "type": "integer"
                 },
@@ -5706,6 +5865,18 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "support_whatsapp": {
+                    "type": "string"
+                },
+                "terms_content_en": {
+                    "type": "string"
+                },
+                "terms_content_es": {
+                    "type": "string"
+                },
+                "terms_effective_date": {
+                    "type": "string"
+                },
+                "website": {
                     "type": "string"
                 }
             }
@@ -5760,6 +5931,12 @@ const docTemplate = `{
                 "commission_amount": {
                     "description": "Commission",
                     "type": "number"
+                },
+                "commission_paid_at": {
+                    "type": "string"
+                },
+                "commission_paid_by": {
+                    "type": "integer"
                 },
                 "created_at": {
                     "description": "index for list sort and date filters",
@@ -5959,6 +6136,15 @@ const docTemplate = `{
                 },
                 "cancellation_notes": {
                     "type": "string"
+                },
+                "commission_amount": {
+                    "type": "number"
+                },
+                "commission_paid_at": {
+                    "type": "string"
+                },
+                "commission_paid_by": {
+                    "type": "integer"
                 },
                 "contract_id": {
                     "type": "integer"
@@ -6773,13 +6959,31 @@ const docTemplate = `{
         "repository.ContractStats": {
             "type": "object",
             "properties": {
+                "active": {
+                    "type": "integer"
+                },
                 "approved": {
+                    "type": "integer"
+                },
+                "cancelled": {
+                    "type": "integer"
+                },
+                "overdue": {
+                    "type": "number"
+                },
+                "overdue_count": {
                     "type": "integer"
                 },
                 "pending": {
                     "type": "integer"
                 },
+                "pending_balance": {
+                    "type": "number"
+                },
                 "rejected": {
+                    "type": "integer"
+                },
+                "reservations_without_contract": {
                     "type": "integer"
                 },
                 "total": {
@@ -6793,8 +6997,23 @@ const docTemplate = `{
                 "collected_this_month": {
                     "type": "number"
                 },
+                "overdue_clients": {
+                    "type": "integer"
+                },
+                "overdue_count": {
+                    "type": "integer"
+                },
+                "paid_count": {
+                    "type": "integer"
+                },
+                "pending_count": {
+                    "type": "integer"
+                },
                 "pending_this_month": {
                     "type": "number"
+                },
+                "total_count": {
+                    "type": "integer"
                 },
                 "total_overdue": {
                     "type": "number"
@@ -6829,6 +7048,37 @@ const docTemplate = `{
                 },
                 "user": {
                     "$ref": "#/definitions/models.UserResponse"
+                }
+            }
+        },
+        "services.ProjectImportResult": {
+            "type": "object",
+            "properties": {
+                "errors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/services.ProjectImportRowError"
+                    }
+                },
+                "imported": {
+                    "type": "integer"
+                },
+                "skipped": {
+                    "type": "integer"
+                },
+                "updated": {
+                    "type": "integer"
+                }
+            }
+        },
+        "services.ProjectImportRowError": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "row": {
+                    "type": "integer"
                 }
             }
         },

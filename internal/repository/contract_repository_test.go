@@ -70,6 +70,22 @@ func TestContractRepository_GetStats(t *testing.T) {
 			AddRow(models.ContractStatusRejected, 2).
 			AddRow(models.ContractStatusCancelled, 1))
 
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "contracts" WHERE active = \$1`).
+		WithArgs(true).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(11))
+
+	mock.ExpectQuery(`SELECT COALESCE\(SUM\(payments.amount\), 0\) FROM "payments" JOIN contracts ON contracts.id = payments.contract_id WHERE contracts.active = \$1 AND payments.status IN \(\$2,\$3\)`).
+		WithArgs(true, models.PaymentStatusPending, models.PaymentStatusSubmitted).
+		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(2100000))
+
+	mock.ExpectQuery(`SELECT COALESCE\(SUM\(payments.amount\), 0\) as total, COUNT\(\*\) as count FROM "payments" JOIN contracts ON contracts.id = payments.contract_id WHERE contracts.active = \$1 AND payments.status = \$2 AND payments.due_date < CURRENT_DATE`).
+		WithArgs(true, models.PaymentStatusPending).
+		WillReturnRows(sqlmock.NewRows([]string{"total", "count"}).AddRow(1980000, 12))
+
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "lots" WHERE status = \$1 AND NOT EXISTS`).
+		WithArgs(models.LotStatusReserved).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
 	stats, err := repo.GetStats(context.Background())
 
 	require.NoError(t, err)
@@ -77,6 +93,12 @@ func TestContractRepository_GetStats(t *testing.T) {
 	assert.Equal(t, int64(3), stats.Pending)
 	assert.Equal(t, int64(5), stats.Approved)
 	assert.Equal(t, int64(2), stats.Rejected)
+	assert.Equal(t, int64(1), stats.Cancelled)
+	assert.Equal(t, int64(11), stats.Active)
+	assert.Equal(t, float64(2100000), stats.PendingBalance)
+	assert.Equal(t, float64(1980000), stats.Overdue)
+	assert.Equal(t, int64(12), stats.OverdueCount)
+	assert.Equal(t, int64(1), stats.ReservationsWithoutContract)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

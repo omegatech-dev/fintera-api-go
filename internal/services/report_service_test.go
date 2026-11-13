@@ -4,14 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
-	"html/template"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/sjperalta/fintera-api/internal/models"
 	"github.com/sjperalta/fintera-api/internal/repository"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Mock PaymentRepository
@@ -59,7 +58,7 @@ func (m *mockPaymentRepository) GetMonthlyStats(ctx context.Context) (*repositor
 
 func TestGenerateRevenueCSV(t *testing.T) {
 	mockRepo := &mockPaymentRepository{}
-	service := NewReportService(mockRepo, nil, nil) // We only use paymentRepo for this method
+	service := NewReportService(mockRepo, nil, nil, nil) // We only use paymentRepo for this method
 
 	// Setup mock data
 	now := time.Now()
@@ -206,7 +205,7 @@ func (m *mockContractRepository) FindPendingReservations(ctx context.Context, ol
 
 func TestGenerateCustomerRecordPDF(t *testing.T) {
 	mockRepo := &mockContractRepository{}
-	service := NewReportService(nil, mockRepo, nil)
+	service := NewReportService(nil, mockRepo, nil, nil)
 
 	// Setup mock data
 	mockRepo.mockFindByIDWithDetails = func(ctx context.Context, id uint) (*models.Contract, error) {
@@ -261,22 +260,18 @@ func TestGenerateCustomerRecordPDF(t *testing.T) {
 
 	// Execute
 	buf, err := service.GenerateCustomerRecordPDF(context.Background(), 101)
-	// Verify or Skip
-	if err != nil && strings.Contains(err.Error(), "wkhtmltopdf") {
-		t.Skip("wkhtmltopdf not found, skipping PDF generation test")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, buf)
 
-	// Verify
-	assert.NoError(t, err)
-	assert.NotNil(t, buf)
-	if buf != nil {
-		assert.Greater(t, buf.Len(), 0, "PDF buffer should not be empty")
-	}
+	content := buf.Bytes()
+	assert.True(t, bytes.HasPrefix(content, []byte("%PDF-")))
+	assert.Greater(t, len(content), 1024)
+	assert.GreaterOrEqual(t, reportPDFPageCount(content), 1)
 }
 
 func TestGenerateRescissionContractPDF(t *testing.T) {
 	mockRepo := &mockContractRepository{}
-	service := NewReportService(nil, mockRepo, nil)
+	service := NewReportService(nil, mockRepo, nil, nil)
 
 	// Setup mock data
 	mockRepo.mockFindByIDWithDetails = func(ctx context.Context, id uint) (*models.Contract, error) {
@@ -308,22 +303,18 @@ func TestGenerateRescissionContractPDF(t *testing.T) {
 
 	// Execute with sample refund and penalty
 	buf, err := service.GenerateRescissionContractPDF(context.Background(), 101, 5000.0, 1000.0)
-	// Verify or Skip
-	if err != nil && strings.Contains(err.Error(), "wkhtmltopdf") {
-		t.Skip("wkhtmltopdf not found, skipping PDF generation test")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, buf)
 
-	// Verify
-	assert.NoError(t, err)
-	assert.NotNil(t, buf)
-	if buf != nil {
-		assert.Greater(t, buf.Len(), 0, "PDF buffer should not be empty")
-	}
+	content := buf.Bytes()
+	assert.True(t, bytes.HasPrefix(content, []byte("%PDF-")))
+	assert.Greater(t, len(content), 1024)
+	assert.GreaterOrEqual(t, reportPDFPageCount(content), 1)
 }
 
 func TestGenerateCommissions(t *testing.T) {
 	mockRepo := &mockContractRepository{}
-	service := NewReportService(nil, mockRepo, nil)
+	service := NewReportService(nil, mockRepo, nil, nil)
 
 	// Setup mock data
 	mockRepo.mockList = func(ctx context.Context, query *repository.ContractQuery) ([]models.Contract, int64, error) {
@@ -438,7 +429,7 @@ func balanceTestContract() *models.Contract {
 
 	return &models.Contract{
 		ID:            15,
-		GUID:          "f7cf8e4d-5939-47bb-b7be-2fa0a15bd622",
+		GUID:          "a1b2c3d4-5939-47bb-b7be-2fa0a15bd622",
 		Status:        models.ContractStatusApproved,
 		FinancingType: models.FinancingTypeDirect,
 		PaymentTerm:   84,
@@ -511,7 +502,7 @@ func balanceTestContract() *models.Contract {
 }
 
 func TestPrepareBalancePDFData(t *testing.T) {
-	service := NewReportService(nil, nil, nil)
+	service := NewReportService(nil, nil, nil, nil)
 	now := time.Date(2026, 11, 11, 15, 30, 0, 0, time.UTC)
 
 	data := service.prepareBalancePDFData(
@@ -531,7 +522,7 @@ func TestPrepareBalancePDFData(t *testing.T) {
 	assert.True(t, data.Totals.HasOverdue)
 
 	contract := data.Contracts[0]
-	assert.Equal(t, "F7CF8E4D", contract.Reference)
+	assert.Equal(t, "#15", contract.Reference)
 	assert.Equal(t, "Aprobado", contract.Status)
 	assert.Equal(t, "Financiamiento directo", contract.FinancingType)
 	assert.Equal(t, "84 meses", contract.PaymentTerm)
@@ -549,40 +540,6 @@ func TestPrepareBalancePDFData(t *testing.T) {
 	assert.Equal(t, "-L 100.00", contract.Ledger[1].Amount)
 }
 
-func TestUserBalanceTemplateRendersStatementContent(t *testing.T) {
-	service := NewReportService(nil, nil, nil)
-	now := time.Date(2026, 11, 11, 15, 30, 0, 0, time.UTC)
-	data := service.prepareBalancePDFData(
-		balanceTestUser(),
-		[]*models.Contract{balanceTestContract()},
-		now,
-	)
-
-	tmpl, err := template.ParseFS(reportTemplates, "templates/reports/user_balance.html")
-	assert.NoError(t, err)
-
-	var buf bytes.Buffer
-	assert.NoError(t, tmpl.Execute(&buf, data))
-	html := buf.String()
-
-	for _, expected := range []string{
-		"INVERSIONES FAMA",
-		"Estado de Cuenta",
-		"Milton Perez",
-		"0801-1990-12345",
-		"Ciudad Jaguar",
-		"Lote 12",
-		"ABC-123",
-		"L 1,125,000.00",
-		"L 1,120,000.00",
-		"Plan de pagos",
-		"Otros movimientos",
-		"Interés por mora",
-	} {
-		assert.Contains(t, html, expected)
-	}
-}
-
 func TestGenerateUserBalancePDF(t *testing.T) {
 	userRepo := &mockBalanceUserRepository{user: balanceTestUser()}
 	contractRepo := &mockContractRepository{
@@ -593,16 +550,14 @@ func TestGenerateUserBalancePDF(t *testing.T) {
 			return balanceTestContract(), nil
 		},
 	}
-	service := NewReportService(nil, contractRepo, userRepo)
+	service := NewReportService(nil, contractRepo, userRepo, nil)
 
 	buf, err := service.GenerateUserBalancePDF(context.Background(), 36)
-	if err != nil && strings.Contains(err.Error(), "wkhtmltopdf") {
-		t.Skip("wkhtmltopdf not found, skipping PDF generation test")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, buf)
 
-	assert.NoError(t, err)
-	assert.NotNil(t, buf)
-	if buf != nil {
-		assert.Greater(t, buf.Len(), 0, "PDF buffer should not be empty")
-	}
+	content := buf.Bytes()
+	assert.True(t, bytes.HasPrefix(content, []byte("%PDF-")), "output should be a PDF")
+	assert.Greater(t, len(content), 1024, "PDF should not be tiny")
+	assert.GreaterOrEqual(t, reportPDFPageCount(content), 1, "PDF should contain at least one page")
 }

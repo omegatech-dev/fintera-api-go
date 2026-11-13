@@ -62,6 +62,33 @@ func TestValidateInstruction(t *testing.T) {
 		}
 	})
 
+	t.Run("defaults and normalizes the currency", func(t *testing.T) {
+		instruction := valid()
+		instruction.Currency = " usd "
+		if err := validateInstruction(instruction); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if instruction.Currency != "USD" {
+			t.Errorf("currency = %q", instruction.Currency)
+		}
+
+		instruction = valid()
+		if err := validateInstruction(instruction); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if instruction.Currency != "HNL" {
+			t.Errorf("default currency = %q", instruction.Currency)
+		}
+	})
+
+	t.Run("rejects an invalid currency", func(t *testing.T) {
+		instruction := valid()
+		instruction.Currency = "LEMPIRA"
+		if err := validateInstruction(instruction); !errors.Is(err, ErrInstructionInvalidCurrency) {
+			t.Fatalf("error = %v, want ErrInstructionInvalidCurrency", err)
+		}
+	})
+
 	t.Run("rejects an unsupported account type", func(t *testing.T) {
 		instruction := valid()
 		instruction.AccountType = "credit"

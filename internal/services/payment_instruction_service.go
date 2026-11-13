@@ -12,9 +12,11 @@ import (
 
 // Payment instruction validation errors.
 var (
-	ErrInstructionInvalidType   = errors.New("el tipo de cuenta debe ser savings o checking")
-	ErrInstructionInvalidData   = errors.New("banco, beneficiario y número de cuenta son requeridos")
-	ErrInstructionInvalidLength = errors.New("los campos de la instrucción superan la longitud máxima permitida")
+	ErrInstructionInvalidType     = errors.New("el tipo de cuenta debe ser ahorro o cheque")
+	ErrInstructionInvalidData     = errors.New("banco, beneficiario y número de cuenta son requeridos")
+	ErrInstructionInvalidLength   = errors.New("los campos de la instrucción superan la longitud máxima permitida")
+	ErrInstructionInvalidCurrency = errors.New("la moneda debe ser un código ISO de 3 letras")
+	ErrInstructionDefaultDelete   = errors.New("no se puede eliminar la cuenta predeterminada; elige otra predeterminada primero")
 )
 
 // Field limits shared by the API and the admin form.
@@ -65,6 +67,16 @@ func (s *ProjectPaymentInstructionService) Create(ctx context.Context, projectID
 		}
 		instruction.Position = next
 	}
+	count, err := s.instructions.CountByProject(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if instruction.IsDefault || count == 0 {
+		if err := s.instructions.ClearDefault(ctx, projectID, 0); err != nil {
+			return err
+		}
+		instruction.IsDefault = true
+	}
 	instruction.ProjectID = projectID
 	if err := s.instructions.Create(ctx, instruction); err != nil {
 		return err
@@ -98,6 +110,17 @@ func (s *ProjectPaymentInstructionService) Update(ctx context.Context, projectID
 	if instruction.Position >= 0 {
 		current.Position = instruction.Position
 	}
+	if instruction.Currency != "" {
+		current.Currency = instruction.Currency
+	}
+	if instruction.IsDefault && !current.IsDefault {
+		if err := s.instructions.ClearDefault(ctx, projectID, current.ID); err != nil {
+			return nil, err
+		}
+	}
+	if instruction.IsDefault {
+		current.IsDefault = true
+	}
 	if err := validateInstruction(current); err != nil {
 		return nil, err
 	}
@@ -115,6 +138,15 @@ func (s *ProjectPaymentInstructionService) Delete(ctx context.Context, projectID
 	if err != nil || current.ProjectID != projectID {
 		return ErrNotFound
 	}
+	if current.IsDefault {
+		count, err := s.instructions.CountByProject(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		if count > 1 {
+			return ErrInstructionDefaultDelete
+		}
+	}
 	if err := s.instructions.Delete(ctx, id); err != nil {
 		return err
 	}
@@ -127,6 +159,13 @@ func validateInstruction(instruction *models.ProjectPaymentInstruction) error {
 	instruction.BankName = strings.TrimSpace(instruction.BankName)
 	instruction.BeneficiaryName = strings.TrimSpace(instruction.BeneficiaryName)
 	instruction.AccountNumber = strings.TrimSpace(instruction.AccountNumber)
+	instruction.Currency = strings.ToUpper(strings.TrimSpace(instruction.Currency))
+	if instruction.Currency == "" {
+		instruction.Currency = "HNL"
+	}
+	if len([]rune(instruction.Currency)) != 3 {
+		return ErrInstructionInvalidCurrency
+	}
 	if instruction.Notes != nil {
 		notes := strings.TrimSpace(*instruction.Notes)
 		instruction.Notes = &notes

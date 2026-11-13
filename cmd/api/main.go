@@ -285,6 +285,8 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				admin.POST("/projects/:project_id/lots/:lot_id/contracts/:contract_id/reject", h.Contract.Reject)
 				admin.POST("/projects/:project_id/lots/:lot_id/contracts/:contract_id/cancel", h.Contract.Cancel)
 				admin.POST("/projects/:project_id/lots/:lot_id/contracts/:contract_id/reopen", h.Contract.Reopen)
+				admin.PATCH("/contracts/:guid/commission/pay", h.Contract.PayCommission)
+				admin.POST("/contracts/:guid/reminder", h.Contract.SendReminder)
 				admin.POST("/projects/:project_id/lots/:lot_id/contracts/:contract_id/capital_repayment", h.Contract.CapitalRepayment)
 
 				// Payment approval/rejection/undo (admin only)
@@ -302,6 +304,7 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				admin.POST("/projects/:project_id/publish", h.Project.Publish)
 				admin.POST("/projects/:project_id/unpublish", h.Project.Unpublish)
 				admin.POST("/projects/import", h.Project.Import)
+				admin.GET("/projects/import/template", h.Project.ImportTemplate)
 
 				// Lot management (admin only)
 				admin.POST("/projects/:project_id/lots", h.Lot.Create)
@@ -364,6 +367,7 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 			{
 				// User viewing (seller/admin can list all users) and creation
 				sellerAdmin.GET("/users", h.User.Index)
+				sellerAdmin.GET("/users/stats", h.User.Stats)
 				sellerAdmin.POST("/users", h.User.Create)
 
 				// Contract viewing (seller can view all contracts)

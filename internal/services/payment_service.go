@@ -298,7 +298,7 @@ func (s *PaymentService) Reject(ctx context.Context, id uint, actorID uint, reas
 }
 
 func (s *PaymentService) UpdateReceiptPath(ctx context.Context, id uint, path string) error {
-	return s.UpdateReceipt(ctx, id, path, "", "")
+	return s.UpdateReceipt(ctx, id, path, "", "", 0)
 }
 
 // ValidateReceiptUpload rejects receipts for payments that no longer accept
@@ -336,7 +336,7 @@ func (s *PaymentService) ValidateReceiptUpload(ctx context.Context, payment *mod
 }
 
 // UpdateReceipt stores the uploaded receipt plus the optional bank metadata.
-func (s *PaymentService) UpdateReceipt(ctx context.Context, id uint, path, authorizationNumber, payerAccountName string) error {
+func (s *PaymentService) UpdateReceipt(ctx context.Context, id uint, path, authorizationNumber, payerAccountName string, actorID uint) error {
 	payment, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return err
@@ -371,6 +371,11 @@ func (s *PaymentService) UpdateReceipt(ctx context.Context, id uint, path, autho
 			contract.SubmittedAt = &now
 			logIgnoredError("advance submitted contract", s.contractRepo.Update(ctx, contract))
 		}
+	}
+
+	if actorID > 0 {
+		logIgnoredError("write upload receipt audit log", s.auditSvc.Log(ctx, actorID, "UPLOAD_RECEIPT", "Payment", payment.ID,
+			"Comprobante de pago cargado, pendiente de revisión", "", ""))
 	}
 
 	return nil

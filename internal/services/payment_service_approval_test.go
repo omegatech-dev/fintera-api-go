@@ -152,7 +152,7 @@ func TestPaymentService_UpdateReceiptClearsRejectionReason(t *testing.T) {
 			*p.DocumentPath == "receipts/2026/11/new.pdf"
 	})).Return(nil)
 
-	err := service.UpdateReceipt(ctx, 5, "receipts/2026/11/new.pdf", "", "")
+	err := service.UpdateReceipt(ctx, 5, "receipts/2026/11/new.pdf", "", "", 0)
 
 	assert.NoError(t, err)
 	paymentRepo.AssertExpectations(t)

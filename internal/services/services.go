@@ -58,7 +58,7 @@ func NewServices(repos *repository.Repositories, worker *jobs.Worker, storage *s
 		Contract:     contractSvc,
 		Payment:      NewPaymentService(repos.Payment, repos.Contract, repos.Lot, repos.Ledger, contractSvc, notificationSvc, emailSvc, auditSvc, storage, worker),
 		Notification: notificationSvc,
-		Report:       NewReportService(repos.Payment, repos.Contract, repos.User),
+		Report:       NewReportService(repos.Payment, repos.Contract, repos.User, repos.Instructions),
 		Audit:        auditSvc, // Assign AuditService
 		CreditScore:  NewCreditScoreService(repos.User, repos.Contract, repos.Payment),
 		Email:        emailSvc,

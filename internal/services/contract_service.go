@@ -581,6 +581,45 @@ func (s *ContractService) Close(ctx context.Context, id uint) (*models.Contract,
 	return contract, nil
 }
 
+// MarkCommissionPaid records that the seller commission for an approved or
+// closed contract has been paid out. The amount itself stays frozen.
+func (s *ContractService) MarkCommissionPaid(ctx context.Context, id uint, actorID uint) (*models.Contract, error) {
+	contract, err := s.repo.FindByIDWithDetails(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if contract.Status != models.ContractStatusApproved && contract.Status != models.ContractStatusClosed {
+		return nil, fmt.Errorf("solo se puede pagar la comisión de contratos aprobados o cerrados")
+	}
+	// Older contracts may not have the commission persisted; freeze the
+	// calculated amount at payout time so the report and the payout agree.
+	commission := contract.CommissionAmount
+	if commission <= 0 {
+		commission = contract.CalculateCommission()
+	}
+	if commission <= 0 {
+		return nil, fmt.Errorf("el contrato no tiene comisión calculada")
+	}
+	if contract.CommissionPaidAt != nil {
+		return nil, fmt.Errorf("la comisión ya fue marcada como pagada")
+	}
+
+	if err := s.repo.MarkCommissionPaid(ctx, contract.ID, actorID, commission); err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	contract.CommissionAmount = commission
+	contract.CommissionPaidAt = &now
+	contract.CommissionPaidBy = &actorID
+
+	logIgnoredError("write commission paid audit log", s.auditSvc.Log(ctx, actorID, "COMMISSION_PAID", "Contract", contract.ID,
+		fmt.Sprintf("Comisión pagada: %.2f", contract.CommissionAmount), "", ""))
+
+	return contract, nil
+}
+
 // CreatePrepaymentRequest records a customer request to pay part (or all) of
 // the outstanding balance ahead of schedule. The payment stays submitted until
 // staff validates the uploaded receipt; approving it applies the amount as a
@@ -737,6 +776,20 @@ func (s *ContractService) CapitalRepayment(ctx context.Context, id uint, amount 
 	logIgnoredError("write capital repayment audit log", s.auditSvc.Log(ctx, actorID, "CAPITAL_REPAYMENT", "Contract", contract.ID,
 		fmt.Sprintf("Abono a capital de L%.2f aplicado al contrato #%d", amount, contract.ID), ip, userAgent))
 
+	return nil
+}
+
+// SendReminder sends a manual payment/reservation reminder for one contract.
+func (s *ContractService) SendReminder(ctx context.Context, guid string, actorID uint) error {
+	contract, err := s.repo.FindByGUIDWithDetails(ctx, guid)
+	if err != nil {
+		return ErrNotFound
+	}
+	if err := s.emailSvc.SendReservationVoucherReminder(ctx, contract); err != nil {
+		return err
+	}
+	logIgnoredError("audit contract reminder", s.auditSvc.Log(ctx, actorID, "REMINDER", "Contract", contract.ID,
+		"Recordatorio de pago enviado al cliente", "", ""))
 	return nil
 }
 

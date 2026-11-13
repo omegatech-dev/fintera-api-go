@@ -94,6 +94,10 @@ func (s *contractRepoStub) MarkReservationReminderSent(context.Context, uint) er
 	return s.err
 }
 
+func (s *contractRepoStub) MarkCommissionPaid(context.Context, uint, uint, float64) error {
+	return s.err
+}
+
 func (s *contractRepoStub) GetStats(context.Context) (*repository.ContractStats, error) {
 	return s.stats, s.err
 }
@@ -252,6 +256,14 @@ func (s *userRepoStub) Delete(context.Context, uint) error { return s.err }
 func (s *userRepoStub) SoftDelete(context.Context, uint) error { return s.err }
 
 func (s *userRepoStub) Restore(context.Context, uint) error { return s.err }
+
+func (s *userRepoStub) CountByRole(context.Context) (map[string]int64, error) {
+	return map[string]int64{}, s.err
+}
+
+func (s *userRepoStub) CountActiveClientsByCreator(context.Context, []uint) (map[uint]int64, error) {
+	return map[uint]int64{}, s.err
+}
 
 func (s *userRepoStub) List(context.Context, *repository.ListQuery) ([]models.User, int64, error) {
 	return nil, 0, s.err

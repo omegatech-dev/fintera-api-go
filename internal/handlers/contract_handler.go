@@ -28,6 +28,24 @@ func NewContractHandler(contractService *services.ContractService, storage *stor
 	return &ContractHandler{contractService: contractService, storage: storage}
 }
 
+// @Summary Send Contract Reminder
+// @Description Send a manual reservation/payment reminder email for a contract.
+// @Tags Contracts
+// @Produce json
+// @Param guid path string true "Contract GUID"
+// @Success 200 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Security BearerAuth
+// @Router /contracts/{guid}/reminder [post]
+func (h *ContractHandler) SendReminder(c *gin.Context) {
+	guid := c.Param("guid")
+	if err := h.contractService.SendReminder(c.Request.Context(), guid, middleware.GetUserID(c)); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Contrato no encontrado"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Recordatorio enviado"})
+}
+
 // @Summary List Contracts
 // @Description Get a paginated list of contracts for the current user (or all for admin)
 // @Tags Contracts
@@ -78,7 +96,7 @@ func (h *ContractHandler) Index(c *gin.Context) {
 }
 
 // @Summary Get Contract Stats
-// @Description Get contract count statistics (Total, Pending, Approved, Rejected)
+// @Description Get contract statistics: status counts plus active outstanding and overdue amounts.
 // @Tags Contracts
 // @Accept json
 // @Produce json
@@ -662,6 +680,30 @@ func (h *ContractHandler) Approve(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"contract": contract.ToResponse(), "message": "Contrato aprobado"})
+}
+
+// @Summary Pay Contract Commission
+// @Description Mark the seller commission of an approved/closed contract as paid (Admin)
+// @Tags Contracts
+// @Produce json
+// @Param guid path string true "Contract GUID"
+// @Success 200 {object} models.ContractResponse
+// @Security BearerAuth
+// @Router /contracts/{guid}/commission/pay [patch]
+func (h *ContractHandler) PayCommission(c *gin.Context) {
+	contract, err := h.contractService.FindByGUIDWithDetails(c.Request.Context(), c.Param("guid"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Contrato no encontrado"})
+		return
+	}
+
+	updated, err := h.contractService.MarkCommissionPaid(c.Request.Context(), contract.ID, middleware.GetUserID(c))
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"contract": updated.ToResponse(), "message": "Comisión marcada como pagada"})
 }
 
 type RejectContractRequest struct {

@@ -258,7 +258,7 @@ func (h *ProjectHandler) Import(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No se pudo leer el archivo CSV"})
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	records, err := services.ParseProjectCSV(file)
 	if err != nil {

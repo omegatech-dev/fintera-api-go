@@ -12,7 +12,7 @@ import (
 
 // Payment instruction validation errors.
 var (
-	ErrInstructionInvalidType     = errors.New("el tipo de cuenta debe ser savings o checking")
+	ErrInstructionInvalidType     = errors.New("el tipo de cuenta debe ser ahorro o cheque")
 	ErrInstructionInvalidData     = errors.New("banco, beneficiario y número de cuenta son requeridos")
 	ErrInstructionInvalidLength   = errors.New("los campos de la instrucción superan la longitud máxima permitida")
 	ErrInstructionInvalidCurrency = errors.New("la moneda debe ser un código ISO de 3 letras")

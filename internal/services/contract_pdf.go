@@ -682,7 +682,7 @@ func (s *ReportService) projectBankAccount(ctx context.Context, contract *models
 func bankAccountTypeLabel(accountType string) string {
 	switch strings.ToLower(strings.TrimSpace(accountType)) {
 	case models.PaymentAccountTypeSavings, "ahorros":
-		return "Ahorros"
+		return "Ahorro"
 	case models.PaymentAccountTypeChecking, "cheque":
 		return "Cheque"
 	default:

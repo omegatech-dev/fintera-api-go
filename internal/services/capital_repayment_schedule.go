@@ -71,6 +71,10 @@ func applyCapitalToSchedule(ctx context.Context, repo repository.PaymentReposito
 
 					now := time.Now()
 					zero := 0.0
+					// The obligation is fully covered, so its remaining amount
+					// drops to zero. Keeping the original amount here would add
+					// the capital repayment twice to the schedule total.
+					target.Amount = 0
 					target.PaidAmount = &zero
 					target.PaymentDate = &now
 					target.ApprovedAt = &now

@@ -88,6 +88,7 @@ func TestPaymentService_applyToPendingInstallments(t *testing.T) {
 		repo.On("Update", ctx, mock.MatchedBy(func(payment *models.Payment) bool {
 			return payment.ID == 2 &&
 				payment.Status == models.PaymentStatusPaid &&
+				payment.Amount == 0 &&
 				payment.PaidAmount != nil && *payment.PaidAmount == 0 &&
 				payment.PaymentDate != nil && payment.ApprovedAt != nil
 		})).Return(nil)
@@ -152,10 +153,14 @@ func TestPaymentService_applyToPendingInstallments(t *testing.T) {
 
 		repo.On("FindByContract", ctx, uint(7)).Return(pending, nil)
 		repo.On("Update", ctx, mock.MatchedBy(func(payment *models.Payment) bool {
-			return payment.ID == 3 && payment.Status == models.PaymentStatusPaid
+			return payment.ID == 3 &&
+				payment.Status == models.PaymentStatusPaid &&
+				payment.Amount == 0
 		})).Return(nil).Once()
 		repo.On("Update", ctx, mock.MatchedBy(func(payment *models.Payment) bool {
-			return payment.ID == 2 && payment.Status == models.PaymentStatusPaid
+			return payment.ID == 2 &&
+				payment.Status == models.PaymentStatusPaid &&
+				payment.Amount == 0
 		})).Return(nil).Once()
 
 		err := service.applyToPendingInstallments(ctx, current, 100000)

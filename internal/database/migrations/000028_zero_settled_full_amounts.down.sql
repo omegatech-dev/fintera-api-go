@@ -1,0 +1,2 @@
+-- Data repair only: the zeroed amounts were duplicates of the capital
+-- repayment credit, so there is no safe previous value to restore.

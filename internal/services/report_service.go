@@ -14,17 +14,25 @@ import (
 )
 
 type CommissionReportItem struct {
-	ContractID       uint       `json:"contract_id"`
-	ContractGUID     string     `json:"contract_guid"`
-	CommissionPaidAt *time.Time `json:"commission_paid_at"`
-	ClientName       string     `json:"client_name"`
-	Project          string     `json:"project"`
-	Lot              string     `json:"lot"`
-	FinancingType    string     `json:"financing_type"`
-	Amount           float64    `json:"amount"`
-	Date             string     `json:"date"`
-	Seller           string     `json:"seller"`
-	Commission       float64    `json:"commission"`
+	ContractID       uint                 `json:"contract_id"`
+	ContractGUID     string               `json:"contract_guid"`
+	HistoricalSaleID *uint                `json:"historical_sale_id,omitempty"`
+	IsHistorical     bool                 `json:"is_historical,omitempty"`
+	CommissionPaidAt *time.Time           `json:"commission_paid_at"`
+	CommissionStatus string               `json:"commission_status,omitempty"`
+	Origin           string               `json:"origin"`
+	ClientName       string               `json:"client_name"`
+	Project          string               `json:"project"`
+	Lot              string               `json:"lot"`
+	FinancingType    string               `json:"financing_type"`
+	Amount           float64              `json:"amount"`
+	Date             string               `json:"date"`
+	Seller           string               `json:"seller"`
+	SellerID         *uint                `json:"seller_id,omitempty"`
+	Commission       float64              `json:"commission"`
+	Score            *int                 `json:"score"`
+	ScoreLevel       *string              `json:"score_level"`
+	ScoreMetrics     *models.ScoreMetrics `json:"score_metrics,omitempty"`
 }
 
 type ReportService struct {
@@ -32,6 +40,8 @@ type ReportService struct {
 	contractRepo    repository.ContractRepository
 	userRepo        repository.UserRepository
 	instructionRepo repository.ProjectPaymentInstructionRepository
+	historicalRepo  repository.HistoricalSaleRepository
+	scoreSvc        *ScoreService
 }
 
 func NewReportService(
@@ -48,24 +58,41 @@ func NewReportService(
 	}
 }
 
+// SetHistoricalSaleRepository adds historical commissions to the commission
+// report. It is optional so the PDF-only tests can build a service without it.
+func (s *ReportService) SetHistoricalSaleRepository(repo repository.HistoricalSaleRepository) {
+	s.historicalRepo = repo
+}
+
+// SetScoreService adds the seller score/level and breakdown to the commission
+// report rows.
+func (s *ReportService) SetScoreService(scoreSvc *ScoreService) {
+	s.scoreSvc = scoreSvc
+}
+
 // GenerateCommissions returns a list of commission data. When userID > 0 and filterByCreator
 // is true (e.g. for sellers), only contracts created by that user are returned.
+// Reservation commissions use their accrual date (approval date) and historical
+// sales use their sale date, so both land in the period the UI selected.
 func (s *ReportService) GenerateCommissions(ctx context.Context, startDate, endDate string, userID uint, filterByCreator bool) ([]CommissionReportItem, error) {
 	listQuery := repository.NewListQuery()
 	listQuery.PerPage = 0 // Fetch ALL contracts, no pagination limit
 
 	if startDate != "" && endDate != "" {
-		listQuery.Filters["approved_from"] = startDate
-		listQuery.Filters["approved_to"] = endDate
+		// Commission reports follow the accrual date, which is the approval
+		// date for reservations. Legacy rows fall back to approved_at.
+		listQuery.Filters["commission_from"] = startDate
+		listQuery.Filters["commission_to"] = endDate
 	}
 
 	// Include both Approved and Closed contracts
 	listQuery.Filters["status_in"] = fmt.Sprintf("%s,%s", models.ContractStatusApproved, models.ContractStatusClosed)
 
 	query := &repository.ContractQuery{
-		ListQuery: listQuery,
-		UserID:    userID,
-		IsAdmin:   !filterByCreator,
+		ListQuery:      listQuery,
+		UserID:         userID,
+		IsAdmin:        !filterByCreator,
+		FilterBySeller: filterByCreator,
 		// Status field in struct is ignored if status_in filter is present, but clear it to be safe/explicit
 		Status: "",
 	}
@@ -75,21 +102,7 @@ func (s *ReportService) GenerateCommissions(ctx context.Context, startDate, endD
 		return nil, err
 	}
 
-	var filteredContracts []models.Contract
-	if startDate != "" && endDate != "" {
-		start, _ := time.Parse("2006-01-02", startDate)
-		end, _ := time.Parse("2006-01-02", endDate)
-		end = end.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
-
-		for _, c := range contracts {
-			// Check ApprovedAt date
-			if c.ApprovedAt != nil && (c.ApprovedAt.After(start) || c.ApprovedAt.Equal(start)) && (c.ApprovedAt.Before(end) || c.ApprovedAt.Equal(end)) {
-				filteredContracts = append(filteredContracts, c)
-			}
-		}
-	} else {
-		filteredContracts = contracts
-	}
+	start, end, hasPeriod := parseReportPeriod(startDate, endDate)
 
 	var items []CommissionReportItem
 
@@ -99,7 +112,12 @@ func (s *ReportService) GenerateCommissions(ctx context.Context, startDate, endD
 		models.FinancingTypeCash:   "Contado",
 	}
 
-	for _, c := range filteredContracts {
+	for _, c := range contracts {
+		commissionDate := c.CommissionDate()
+		if hasPeriod && (commissionDate == nil || !withinReportPeriod(*commissionDate, start, end)) {
+			continue
+		}
+
 		clientName := "N/A"
 		if c.ApplicantUser.ID != 0 {
 			clientName = c.ApplicantUser.FullName
@@ -120,12 +138,14 @@ func (s *ReportService) GenerateCommissions(ctx context.Context, startDate, endD
 		}
 
 		dateStr := ""
-		if c.ApprovedAt != nil {
-			dateStr = c.ApprovedAt.Format("2006-01-02")
+		if commissionDate != nil {
+			dateStr = commissionDate.Format("2006-01-02")
 		}
 
 		sellerName := "Unknown"
-		if c.Creator != nil {
+		if c.Seller != nil && c.Seller.FullName != "" {
+			sellerName = c.Seller.FullName
+		} else if c.Creator != nil {
 			sellerName = c.Creator.FullName
 		}
 		commission := c.CommissionAmount
@@ -138,10 +158,23 @@ func (s *ReportService) GenerateCommissions(ctx context.Context, startDate, endD
 			financingType = val
 		}
 
+		origin := c.CommissionOrigin
+		if origin == "" {
+			origin = models.CommissionOriginDirect
+		}
+
+		sellerID := c.SellerID
+		if sellerID == nil && c.Creator != nil && c.Creator.IsSeller() {
+			creatorID := c.Creator.ID
+			sellerID = &creatorID
+		}
+
 		items = append(items, CommissionReportItem{
 			ContractID:       c.ID,
 			ContractGUID:     c.GUID,
 			CommissionPaidAt: c.CommissionPaidAt,
+			CommissionStatus: commissionStatusForContract(c),
+			Origin:           origin,
 			ClientName:       clientName,
 			Project:          projectName,
 			Lot:              lotNumber,
@@ -149,11 +182,165 @@ func (s *ReportService) GenerateCommissions(ctx context.Context, startDate, endD
 			Amount:           amount,
 			Date:             dateStr,
 			Seller:           sellerName,
+			SellerID:         sellerID,
 			Commission:       commission,
 		})
 	}
 
+	if s.historicalRepo != nil {
+		var creatorID *uint
+		if filterByCreator {
+			id := userID
+			creatorID = &id
+		}
+		var since, until *time.Time
+		if hasPeriod {
+			since, until = &start, &end
+		}
+		sales, err := s.historicalRepo.ListForReport(ctx, creatorID, since, until)
+		if err != nil {
+			return nil, err
+		}
+		for i := range sales {
+			sale := &sales[i]
+			sellerID := sale.CreatedBy
+			sellerName := "Unknown"
+			if sale.Creator != nil && sale.Creator.FullName != "" {
+				sellerName = sale.Creator.FullName
+			}
+			item := CommissionReportItem{
+				HistoricalSaleID: &sale.ID,
+				IsHistorical:     true,
+				CommissionStatus: sale.CommissionStatus,
+				Origin:           models.CommissionOriginHistorical,
+				ClientName:       sale.ClientName,
+				Project:          firstNonEmpty(sale.ProjectName, "N/A"),
+				Lot:              firstNonEmpty(pointerValue(sale.LotLabel), "N/A"),
+				FinancingType:    translateHistoricalPaymentMode(pointerValue(sale.PaymentMode)),
+				Amount:           sale.SalePrice,
+				Date:             sale.SaleDate.Format(models.HistoricalSaleDateLayout),
+				Seller:           sellerName,
+				SellerID:         &sellerID,
+				Commission:       sale.CommissionAmount,
+			}
+			// Historical sales have no payout timestamp; when the commission is
+			// already paid, use the sale date so the UI counts it as paid.
+			if sale.CommissionStatus == "paid" && !sale.SaleDate.IsZero() {
+				paidAt := sale.SaleDate
+				item.CommissionPaidAt = &paidAt
+			}
+			items = append(items, item)
+		}
+	}
+
+	s.enrichCommissionScores(ctx, items)
 	return items, nil
+}
+
+func (s *ReportService) enrichCommissionScores(ctx context.Context, items []CommissionReportItem) {
+	if len(items) == 0 {
+		return
+	}
+	ids := make([]uint, 0, len(items))
+	seen := make(map[uint]bool, len(items))
+	for _, item := range items {
+		if item.SellerID == nil || seen[*item.SellerID] {
+			continue
+		}
+		seen[*item.SellerID] = true
+		ids = append(ids, *item.SellerID)
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	usersByID := make(map[uint]models.User, len(ids))
+	if s.userRepo != nil {
+		if users, err := s.userRepo.FindByIDs(ctx, ids); err == nil {
+			for _, user := range users {
+				usersByID[user.ID] = user
+			}
+		}
+	}
+	metrics := make(map[uint]models.ScoreMetrics, len(ids))
+	if s.scoreSvc != nil {
+		if computed, err := s.scoreSvc.MetricsForUsers(ctx, ids); err == nil {
+			metrics = computed
+		}
+	}
+
+	for i := range items {
+		if items[i].SellerID == nil {
+			continue
+		}
+		id := *items[i].SellerID
+		user, ok := usersByID[id]
+		if !ok || !user.IsSeller() {
+			continue
+		}
+		score := user.Score
+		level := user.ScoreLevel
+		if level == "" {
+			level = models.ScoreLevelFor(score)
+		}
+		items[i].Score = &score
+		items[i].ScoreLevel = &level
+		if value, ok := metrics[id]; ok {
+			metric := value
+			items[i].ScoreMetrics = &metric
+		}
+	}
+}
+
+func parseReportPeriod(startDate, endDate string) (time.Time, time.Time, bool) {
+	if startDate == "" || endDate == "" {
+		return time.Time{}, time.Time{}, false
+	}
+	start, err := time.ParseInLocation(models.HistoricalSaleDateLayout, startDate, time.UTC)
+	if err != nil {
+		return time.Time{}, time.Time{}, false
+	}
+	end, err := time.ParseInLocation(models.HistoricalSaleDateLayout, endDate, time.UTC)
+	if err != nil {
+		return time.Time{}, time.Time{}, false
+	}
+	return start, end, true
+}
+
+func withinReportPeriod(value time.Time, start, end time.Time) bool {
+	date := dateOnly(value)
+	return !date.Before(start) && !date.After(end)
+}
+
+func commissionStatusForContract(contract models.Contract) string {
+	if contract.CommissionPaidAt != nil {
+		return "paid"
+	}
+	return "pending"
+}
+
+func translateCommissionOrigin(origin string) string {
+	switch origin {
+	case models.CommissionOriginReferral:
+		return "Enlace"
+	case models.CommissionOriginHistorical:
+		return "Histórico"
+	default:
+		return "Directo"
+	}
+}
+
+func translateHistoricalPaymentMode(mode string) string {
+	switch mode {
+	case models.HistoricalPaymentModeCash:
+		return "Contado"
+	case models.HistoricalPaymentModeBank, "financed":
+		return "Bancario"
+	case models.HistoricalPaymentModeDirect:
+		return "Directo"
+	default:
+		return firstNonEmpty(mode, "—")
+	}
 }
 
 // GenerateCommissionsCSV generates a CSV report of sales and commissions
@@ -167,7 +354,7 @@ func (s *ReportService) GenerateCommissionsCSV(ctx context.Context, startDate, e
 	w := csv.NewWriter(b)
 
 	// Header
-	header := []string{"Contrato ID", "Cliente", "Lote", "Proyecto", "Tipo Financiamiento", "Valor Contrato", "Fecha Venta", "Vendedor", "Comisión Est.", "Comisión Pagada"}
+	header := []string{"Contrato ID", "Cliente", "Lote", "Proyecto", "Tipo Financiamiento", "Valor Contrato", "Fecha Venta", "Vendedor", "Origen", "Comisión Est.", "Comisión Pagada"}
 	if err := w.Write(header); err != nil {
 		return nil, err
 	}
@@ -182,6 +369,7 @@ func (s *ReportService) GenerateCommissionsCSV(ctx context.Context, startDate, e
 			fmt.Sprintf("%.2f", item.Amount),
 			item.Date,
 			item.Seller,
+			translateCommissionOrigin(item.Origin),
 			fmt.Sprintf("%.2f", item.Commission),
 			func() string {
 				if item.CommissionPaidAt == nil {

@@ -21,6 +21,8 @@ type Contract struct {
 	CommissionAmount          float64    `json:"commission_amount" gorm:"type:decimal(15,2);default:0"`
 	CommissionPaidAt          *time.Time `gorm:"index" json:"commission_paid_at"`
 	CommissionPaidBy          *uint      `json:"commission_paid_by"`
+	CommissionOrigin          string     `gorm:"column:commission_origin;size:20;not null;default:direct" json:"commission_origin"`
+	CommissionAccrualDate     *time.Time `gorm:"column:commission_accrual_date;type:date" json:"commission_accrual_date"`
 	DownPayment               *float64   `gorm:"type:decimal" json:"down_payment"`
 	ReserveAmount             *float64   `gorm:"type:decimal" json:"reserve_amount"`
 	MaxPaymentDate            *time.Time `gorm:"type:date" json:"max_payment_date"` // for bank/cash: date by which customer will pay the rest
@@ -38,13 +40,22 @@ type Contract struct {
 	DocumentPaths             *string    `gorm:"type:text" json:"document_paths"` // JSON string of document paths
 	ClosedAt                  *time.Time `json:"closed_at"`
 	ReservationReminderSentAt *time.Time `gorm:"column:reservation_reminder_sent_at" json:"-"`
-	CreatedAt                 time.Time  `gorm:"index" json:"created_at"` // index for list sort and date filters
-	UpdatedAt                 time.Time  `json:"updated_at"`
+	// Seller assignment (current state; the assignments table keeps the history)
+	SellerID         *uint      `gorm:"column:seller_id;index" json:"seller_id"`
+	AssignmentOrigin string     `gorm:"column:assignment_origin;size:20;not null;default:none" json:"assignment_origin"`
+	AssignmentStatus string     `gorm:"column:assignment_status;size:20;not null;default:none" json:"assignment_status"`
+	AssignedAt       *time.Time `gorm:"column:assigned_at" json:"assigned_at"`
+	AcceptDeadlineAt *time.Time `gorm:"column:accept_deadline_at" json:"accept_deadline_at"`
+	RespondedAt      *time.Time `gorm:"column:responded_at" json:"responded_at"`
+	ReferralGUID     *string    `gorm:"column:referral_guid;type:text" json:"referral_guid"`
+	CreatedAt        time.Time  `gorm:"index" json:"created_at"` // index for list sort and date filters
+	UpdatedAt        time.Time  `json:"updated_at"`
 
 	// Associations
 	Lot           Lot                   `gorm:"foreignKey:LotID" json:"lot,omitempty"`
 	Creator       *User                 `gorm:"foreignKey:CreatorID" json:"creator,omitempty"`
 	ApplicantUser User                  `gorm:"foreignKey:ApplicantUserID" json:"applicant_user,omitempty"`
+	Seller        *User                 `gorm:"foreignKey:SellerID" json:"seller_user,omitempty"`
 	Payments      []Payment             `gorm:"foreignKey:ContractID" json:"payments,omitempty"`
 	LedgerEntries []ContractLedgerEntry `gorm:"foreignKey:ContractID" json:"ledger_entries,omitempty"`
 }
@@ -147,24 +158,35 @@ func (c *Contract) CalculateBalance() float64 {
 	return total
 }
 
-// CalculateCommission calculates the commission based on the project's rates and financing type
+// CalculateCommission calculates the commission with the project rate for the
+// financing type. It is the fallback used for contracts approved before the
+// seller exception/default resolution existed; new approvals freeze the amount
+// through CommissionService, which resolves seller exception -> project rate ->
+// global default.
 func (c *Contract) CalculateCommission() float64 {
-	// Need amount and project info to calculate
 	if c.Amount == nil || c.Lot.Project.ID == 0 {
 		return 0
 	}
+	return c.CalculateCommissionWithRate(c.Lot.Project.CommissionRateForFinancing(c.FinancingType))
+}
 
-	rate := c.Lot.Project.CommissionRateDirect // Default
-	switch c.FinancingType {
-	case FinancingTypeDirect:
-		rate = c.Lot.Project.CommissionRateDirect
-	case FinancingTypeBank:
-		rate = c.Lot.Project.CommissionRateBank
-	case FinancingTypeCash:
-		rate = c.Lot.Project.CommissionRateCash
+// CalculateCommissionWithRate returns the commission amount for an already
+// resolved percentage. A nil amount means the contract has no price yet.
+func (c *Contract) CalculateCommissionWithRate(rate float64) float64 {
+	if c.Amount == nil {
+		return 0
 	}
-
 	return *c.Amount * (rate / 100)
+}
+
+// CommissionDate returns the date the commission accrues. Reservations use the
+// approval date (historical records use their sale date, which is not a
+// contract).
+func (c *Contract) CommissionDate() *time.Time {
+	if c.CommissionAccrualDate != nil {
+		return c.CommissionAccrualDate
+	}
+	return c.ApprovedAt
 }
 
 // ContractResponse is the JSON response format for contracts
@@ -210,6 +232,16 @@ type ContractResponse struct {
 	CommissionAmount       float64                       `json:"commission_amount"`
 	CommissionPaidAt       *time.Time                    `json:"commission_paid_at"`
 	CommissionPaidBy       *uint                         `json:"commission_paid_by"`
+	CommissionOrigin       string                        `json:"commission_origin"`
+	CommissionAccrualDate  *time.Time                    `json:"commission_accrual_date"`
+	Seller                 string                        `json:"seller"`
+	SellerID               *uint                         `json:"seller_id"`
+	AssignmentOrigin       string                        `json:"assignment_origin"`
+	AssignmentStatus       string                        `json:"assignment_status"`
+	AssignedAt             *time.Time                    `json:"assigned_at"`
+	AcceptDeadlineAt       *time.Time                    `json:"accept_deadline_at"`
+	RespondedAt            *time.Time                    `json:"responded_at"`
+	ReferralGUID           *string                       `json:"referral_guid"`
 	ApprovedAt             *time.Time                    `json:"approved_at"`
 	SubmittedAt            *time.Time                    `json:"submitted_at"`
 	RejectedAt             *time.Time                    `json:"rejected_at"`
@@ -226,6 +258,25 @@ type ContractResponse struct {
 	NextPaymentLabel       string                        `json:"next_payment_label,omitempty"`
 	ReservationPayment     *PaymentResponse              `json:"reservation_payment,omitempty"`
 	LedgerEntries          []ContractLedgerEntryResponse `json:"ledger_entries"`
+}
+
+// RedactForCustomer removes commission and assignment data that a customer
+// must never see (score, commission, origin, assignment timing).
+func (c ContractResponse) RedactForCustomer() ContractResponse {
+	c.CommissionAmount = 0
+	c.CommissionPaidAt = nil
+	c.CommissionPaidBy = nil
+	c.CommissionOrigin = ""
+	c.CommissionAccrualDate = nil
+	c.Seller = ""
+	c.SellerID = nil
+	c.AssignmentOrigin = ""
+	c.AssignmentStatus = ""
+	c.AssignedAt = nil
+	c.AcceptDeadlineAt = nil
+	c.RespondedAt = nil
+	c.ReferralGUID = nil
+	return c
 }
 
 // ToResponse converts Contract to ContractResponse
@@ -313,6 +364,27 @@ func (c *Contract) ToResponse() ContractResponse {
 	resp.CommissionAmount = c.CommissionAmount
 	resp.CommissionPaidAt = c.CommissionPaidAt
 	resp.CommissionPaidBy = c.CommissionPaidBy
+	resp.CommissionOrigin = c.CommissionOrigin
+	if resp.CommissionOrigin == "" {
+		resp.CommissionOrigin = "direct"
+	}
+	resp.CommissionAccrualDate = c.CommissionAccrualDate
+	resp.SellerID = c.SellerID
+	resp.AssignmentOrigin = c.AssignmentOrigin
+	if resp.AssignmentOrigin == "" {
+		resp.AssignmentOrigin = AssignmentOriginNone
+	}
+	resp.AssignmentStatus = c.AssignmentStatus
+	if resp.AssignmentStatus == "" {
+		resp.AssignmentStatus = AssignmentStatusNone
+	}
+	resp.AssignedAt = c.AssignedAt
+	resp.AcceptDeadlineAt = c.AcceptDeadlineAt
+	resp.RespondedAt = c.RespondedAt
+	resp.ReferralGUID = c.ReferralGUID
+	if c.Seller != nil {
+		resp.Seller = c.Seller.FullName
+	}
 
 	// Add payment schedule
 	for _, payment := range c.Payments {

@@ -26,18 +26,21 @@ func (Notification) TableName() string {
 
 // Notification type constants
 const (
-	NotificationTypeContractApproved  = "contract_approved"
-	NotificationTypeContractRejected  = "contract_rejected"
-	NotificationTypeContractCancelled = "contract_cancelled"
-	NotificationTypeContractClosed    = "contract_closed"
-	NotificationTypePaymentSubmitted  = "payment_submitted"
-	NotificationTypePaymentApproved   = "payment_approved"
-	NotificationTypePaymentRejected   = "payment_rejected"
-	NotificationTypePaymentOverdue    = "payment_overdue"
-	NotificationTypeSystem            = "system"
-	NotificationTypeLotReserved       = "lot_reserved"
-	NotificationTypeNewUser           = "create_new_user"
-	NotificationTypeSystemError       = "system_error"
+	NotificationTypeContractApproved   = "contract_approved"
+	NotificationTypeContractRejected   = "contract_rejected"
+	NotificationTypeContractCancelled  = "contract_cancelled"
+	NotificationTypeContractClosed     = "contract_closed"
+	NotificationTypePaymentSubmitted   = "payment_submitted"
+	NotificationTypePaymentApproved    = "payment_approved"
+	NotificationTypePaymentRejected    = "payment_rejected"
+	NotificationTypePaymentOverdue     = "payment_overdue"
+	NotificationTypeSystem             = "system"
+	NotificationTypeLotReserved        = "lot_reserved"
+	NotificationTypeNewUser            = "create_new_user"
+	NotificationTypeSystemError        = "system_error"
+	NotificationTypeAssignmentCreated  = "assignment_created"
+	NotificationTypeAssignmentAccepted = "assignment_accepted"
+	NotificationTypeAssignmentExpired  = "assignment_expired"
 )
 
 // IsRead returns true if notification has been read

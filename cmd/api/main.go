@@ -193,6 +193,10 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 	// reported as /receipts/<document path> by the payment response DTO.
 	router.Static("/receipts", cfg.StoragePath+"/receipts")
 
+	// Public seller referral links: resolve, record the visit and redirect with
+	// the signed 30-day attribution. 60 requests per minute per IP.
+	router.GET("/r/:guid", middleware.RateLimit(60, time.Minute), h.Referral.Redirect)
+
 	// API v1 routes
 	v1 := router.Group("/api/v1")
 	{
@@ -246,6 +250,10 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				h.Contract.CreateGuest,
 			)
 
+			// Record a referral visit without redirecting (60 req/min via the
+			// group rate limit).
+			public.POST("/referrals/:guid/visit", h.Referral.Visit)
+
 			// The wizard uploads the reservation voucher before the guest has
 			// a session; only pending reservation payments are accepted.
 			public.POST("/payments/:payment_id/upload_receipt",
@@ -278,6 +286,7 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				admin.DELETE("/users/:user_id", h.User.Delete)
 				admin.PUT("/users/:user_id/toggle_status", h.User.ToggleStatus)
 				admin.POST("/users/:user_id/restore", h.User.Restore)
+				admin.PATCH("/users/:user_id/score", h.Score.Override)
 
 				// Contract approval/rejection/cancellation/delete (admin only)
 				admin.DELETE("/projects/:project_id/lots/:lot_id/contracts/:contract_id", h.Contract.Delete)
@@ -342,6 +351,17 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				admin.PATCH("/projects/:project_id/payment-instructions/:instruction_id", h.Instructions.Update)
 				admin.DELETE("/projects/:project_id/payment-instructions/:instruction_id", h.Instructions.Delete)
 
+				// Commission rules and per-seller exceptions (admin only; the
+				// read-only rules endpoint is also available to sellers below).
+				admin.PUT("/commissions/rules", h.Commission.UpdateRules)
+				admin.GET("/commissions/exceptions", h.Commission.ListExceptions)
+				admin.POST("/commissions/exceptions", h.Commission.UpsertException)
+				admin.DELETE("/commissions/exceptions/:id", h.Commission.DeleteException)
+
+				// Historical-sale validation (admin only). Validation never
+				// creates a reservation.
+				admin.POST("/historical_sales/:id/validate", h.HistoricalSale.Validate)
+				admin.POST("/historical_sales/:id/reject", h.HistoricalSale.Reject)
 			}
 
 			// User data access (Admin, Seller, or Owner)
@@ -369,6 +389,30 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				sellerAdmin.GET("/users", h.User.Index)
 				sellerAdmin.GET("/users/stats", h.User.Stats)
 				sellerAdmin.POST("/users", h.User.Create)
+
+				// Active sellers for reservation assignment.
+				sellerAdmin.GET("/sellers", h.Seller.Index)
+
+				// Seller assignment inbox.
+				sellerAdmin.GET("/assignments/pending", h.Assignment.Pending)
+				sellerAdmin.POST("/assignments/:id/accept", h.Assignment.Accept)
+				sellerAdmin.POST("/assignments/:id/reject", h.Assignment.Reject)
+
+				// Seller referral metrics.
+				sellerAdmin.GET("/vendedor/referrals", h.Referral.Metrics)
+				sellerAdmin.GET("/vendedor/referrals/reservations", h.Referral.Reservations)
+
+				// Commission rules are readable by sellers (the historical-sale
+				// form shows the default rate); writes are admin-only.
+				sellerAdmin.GET("/commissions/rules", h.Commission.ShowRules)
+
+				// Historical sales: sellers manage their own records, admins can
+				// list every record. Validation is admin-only (above).
+				sellerAdmin.GET("/historical_sales", h.HistoricalSale.Index)
+				sellerAdmin.POST("/historical_sales", h.HistoricalSale.Create)
+				sellerAdmin.PUT("/historical_sales/:id", h.HistoricalSale.Update)
+				sellerAdmin.POST("/historical_sales/import", h.HistoricalSale.Import)
+				sellerAdmin.GET("/historical_sales/import/template", h.HistoricalSale.ImportTemplate)
 
 				// Contract viewing (seller can view all contracts)
 				sellerAdmin.GET("/contracts", h.Contract.Index)
@@ -501,6 +545,19 @@ func scheduleJobs(worker *jobs.Worker, svcs *services.Services) {
 			return err
 		}
 		return svcs.Payment.SendDailyUpcomingPaymentReminderEmails(ctx)
+	})
+
+	// Expire overdue pending assignments and reassign the reservation every 5
+	// minutes. Runs once on startup to catch downtime.
+	worker.ScheduleEveryImmediate(5*time.Minute, func(ctx context.Context) error {
+		logger.Info("[Job] Expiring overdue seller assignments...")
+		return svcs.Assignment.ExpireOverdue(ctx)
+	})
+
+	// Nightly seller score recomputation from the 90-day assignment window.
+	worker.ScheduleEveryImmediate(24*time.Hour, func(ctx context.Context) error {
+		logger.Info("[Job] Recomputing seller scores...")
+		return svcs.Score.RecomputeAll(ctx)
 	})
 
 	logger.Info("Scheduled recurring jobs")

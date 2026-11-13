@@ -186,6 +186,164 @@
                 "responses": {}
             }
         },
+        "/assignments/pending": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Pending reservations assigned to the authenticated seller. Admins can list all or filter by seller_id.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assignments"
+                ],
+                "summary": "List pending assignments",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Seller ID (admin only)",
+                        "name": "seller_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/assignments/{id}/accept": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Accept a pending reservation assignment. Idempotent for an already accepted assignment.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assignments"
+                ],
+                "summary": "Accept assignment",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Assignment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/assignments/{id}/reject": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reject a pending reservation assignment; the reservation is offered to the next seller. Idempotent for an already expired assignment.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assignments"
+                ],
+                "summary": "Reject assignment",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Assignment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/audits": {
             "get": {
                 "security": [
@@ -594,6 +752,199 @@
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/commissions/exceptions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Per-seller commission-rate exceptions. Admin only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Commissions"
+                ],
+                "summary": "List commission exceptions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create or replace the commission rate for one seller. Admin only.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Commissions"
+                ],
+                "summary": "Upsert commission exception",
+                "parameters": [
+                    {
+                        "description": "seller_id and rate",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/commissions/exceptions/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a seller rate exception and return the seller to the project/global rate. Admin only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Commissions"
+                ],
+                "summary": "Delete commission exception",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Exception ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/commissions/rules": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Global default rate, unassigned rate, payment rule and acceptance window.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Commissions"
+                ],
+                "summary": "Commission rules",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the global default and unassigned rates. Admin only.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Commissions"
+                ],
+                "summary": "Update commission rules",
+                "parameters": [
+                    {
+                        "description": "Rules",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/services.CommissionRulesInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1023,6 +1374,390 @@
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/historical_sales": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Historical sales visible to the caller. Sellers see their own; admins see all.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HistoricalSales"
+                ],
+                "summary": "List historical sales",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Items per page",
+                        "name": "per_page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Validation status: pending, validated, rejected, all",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Creator ID (admin only)",
+                        "name": "seller_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Client name, identity, phone or project",
+                        "name": "search_term",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Record a migrated sale. It never creates a reservation or blocks a lot.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HistoricalSales"
+                ],
+                "summary": "Create historical sale",
+                "parameters": [
+                    {
+                        "description": "Historical sale",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/services.HistoricalSaleInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/historical_sales/import": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Import a CSV with toggles and an optional column mapping. Invalid rows are reported and valid rows are imported.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HistoricalSales"
+                ],
+                "summary": "Import historical sales",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "CSV file",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Mark rows as historical (default true)",
+                        "name": "mark_historical",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Skip rows whose identity and sale date already exist (default true)",
+                        "name": "skip_duplicates",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Create the commission using the sale date (default true)",
+                        "name": "commission_with_sale_date",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "JSON object mapping field names to column indexes/headers",
+                        "name": "mapping",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.HistoricalImportResult"
+                        }
+                    },
+                    "207": {
+                        "description": "Import finished with row errors",
+                        "schema": {
+                            "$ref": "#/definitions/services.HistoricalImportResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/historical_sales/import/template": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Download the CSV template accepted by the import endpoint.",
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "HistoricalSales"
+                ],
+                "summary": "Download historical sales template",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/historical_sales/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update a historical sale. Sellers can only edit their own pending records.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HistoricalSales"
+                ],
+                "summary": "Update historical sale",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Historical sale ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Historical sale",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/services.HistoricalSaleInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/historical_sales/{id}/reject": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reject a historical sale without creating a reservation. Admin only.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HistoricalSales"
+                ],
+                "summary": "Reject historical sale",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Historical sale ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Optional reason",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/historical_sales/{id}/validate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Validate a historical sale without creating a reservation. Admin only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HistoricalSales"
+                ],
+                "summary": "Validate historical sale",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Historical sale ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -4167,6 +4902,50 @@
                 }
             }
         },
+        "/public/referrals/{guid}/visit": {
+            "post": {
+                "description": "Record a visit for an active seller referral GUID without redirecting. The portal uses this when it already knows the GUID.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Referrals"
+                ],
+                "summary": "Record a referral visit",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Referral GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Visit recorded"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/public/reservations/{guid}/resend-access": {
             "post": {
                 "description": "Regenerate the temporary password and resend the customer account setup email for a reservation (no auth).",
@@ -4207,6 +4986,50 @@
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/r/{guid}": {
+            "get": {
+                "description": "Resolve an active seller referral GUID, record the visit and redirect to the portal with a 30-day attribution.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Referrals"
+                ],
+                "summary": "Resolve referral link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Referral GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Redirect to the customer portal"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -4500,6 +5323,49 @@
                         "description": "rescission.pdf",
                         "schema": {
                             "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/sellers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Active sellers with sales count and acceptance score. Available to admins and sellers.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sellers"
+                ],
+                "summary": "List active sellers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search by name, email, phone or identity",
+                        "name": "search",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -5429,6 +6295,71 @@
                 }
             }
         },
+        "/users/{user_id}/score": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Admin override of a seller acceptance score. The change is audited and the nightly recompute skips active overrides.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Override seller score",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Seller ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Score override",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.overrideScoreRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/users/{user_id}/summary": {
             "get": {
                 "security": [
@@ -5543,6 +6474,105 @@
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/vendedor/referrals": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Visits, attributed reservations, conversion and generated commission for the authenticated seller.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Referrals"
+                ],
+                "summary": "Seller referral metrics",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 30,
+                        "description": "Period in days",
+                        "name": "days",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Seller ID (admin only)",
+                        "name": "seller_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.ReferralMetrics"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/vendedor/referrals/reservations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reservations attributed to the authenticated seller.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Referrals"
+                ],
+                "summary": "Seller referral reservations",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Maximum rows",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Seller ID (admin only)",
+                        "name": "seller_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -5878,6 +6908,20 @@
                 }
             }
         },
+        "handlers.overrideScoreRequest": {
+            "type": "object",
+            "properties": {
+                "clear": {
+                    "type": "boolean"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "score": {
+                    "type": "integer"
+                }
+            }
+        },
         "models.BrandingResponse": {
             "type": "object",
             "properties": {
@@ -5898,6 +6942,9 @@
         "models.Contract": {
             "type": "object",
             "properties": {
+                "accept_deadline_at": {
+                    "type": "string"
+                },
                 "active": {
                     "type": "boolean"
                 },
@@ -5913,6 +6960,15 @@
                 "approved_at": {
                     "type": "string"
                 },
+                "assigned_at": {
+                    "type": "string"
+                },
+                "assignment_origin": {
+                    "type": "string"
+                },
+                "assignment_status": {
+                    "type": "string"
+                },
                 "balance": {
                     "type": "number"
                 },
@@ -5925,9 +6981,15 @@
                 "closed_at": {
                     "type": "string"
                 },
+                "commission_accrual_date": {
+                    "type": "string"
+                },
                 "commission_amount": {
                     "description": "Commission",
                     "type": "number"
+                },
+                "commission_origin": {
+                    "type": "string"
                 },
                 "commission_paid_at": {
                     "type": "string"
@@ -6005,6 +7067,9 @@
                         "$ref": "#/definitions/models.Payment"
                     }
                 },
+                "referral_guid": {
+                    "type": "string"
+                },
                 "rejected_at": {
                     "type": "string"
                 },
@@ -6013,6 +7078,16 @@
                 },
                 "reserve_amount": {
                     "type": "number"
+                },
+                "responded_at": {
+                    "type": "string"
+                },
+                "seller_id": {
+                    "description": "Seller assignment (current state; the assignments table keeps the history)",
+                    "type": "integer"
+                },
+                "seller_user": {
+                    "$ref": "#/definitions/models.User"
                 },
                 "status": {
                     "type": "string"
@@ -6109,6 +7184,9 @@
         "models.ContractResponse": {
             "type": "object",
             "properties": {
+                "accept_deadline_at": {
+                    "type": "string"
+                },
                 "amount": {
                     "type": "number"
                 },
@@ -6130,6 +7208,15 @@
                 "approved_at": {
                     "type": "string"
                 },
+                "assigned_at": {
+                    "type": "string"
+                },
+                "assignment_origin": {
+                    "type": "string"
+                },
+                "assignment_status": {
+                    "type": "string"
+                },
                 "balance": {
                     "type": "number"
                 },
@@ -6142,8 +7229,14 @@
                 "cancellation_notes": {
                     "type": "string"
                 },
+                "commission_accrual_date": {
+                    "type": "string"
+                },
                 "commission_amount": {
                     "type": "number"
+                },
+                "commission_origin": {
+                    "type": "string"
                 },
                 "commission_paid_at": {
                     "type": "string"
@@ -6256,6 +7349,9 @@
                 "project_name": {
                     "type": "string"
                 },
+                "referral_guid": {
+                    "type": "string"
+                },
                 "rejected_at": {
                     "type": "string"
                 },
@@ -6267,6 +7363,15 @@
                 },
                 "reserve_amount": {
                     "type": "number"
+                },
+                "responded_at": {
+                    "type": "string"
+                },
+                "seller": {
+                    "type": "string"
+                },
+                "seller_id": {
+                    "type": "integer"
                 },
                 "status": {
                     "type": "string"
@@ -6941,11 +8046,43 @@
                 }
             }
         },
+        "models.ReferralMetrics": {
+            "type": "object",
+            "properties": {
+                "attributed_reservations": {
+                    "type": "integer"
+                },
+                "commission_rate": {
+                    "type": "number"
+                },
+                "conversion_rate": {
+                    "type": "number"
+                },
+                "generated_commission": {
+                    "type": "number"
+                },
+                "period_days": {
+                    "type": "integer"
+                },
+                "referral_guid": {
+                    "type": "string"
+                },
+                "seller_name": {
+                    "type": "string"
+                },
+                "visits": {
+                    "type": "integer"
+                }
+            }
+        },
         "models.User": {
             "type": "object",
             "properties": {
                 "address": {
                     "type": "string"
+                },
+                "commission_rate_override": {
+                    "type": "number"
                 },
                 "confirmed_at": {
                     "type": "string"
@@ -7009,10 +8146,32 @@
                 "profile_picture_thumb": {
                     "type": "string"
                 },
+                "referral_guid": {
+                    "description": "Seller profile",
+                    "type": "string"
+                },
                 "role": {
                     "type": "string"
                 },
                 "rtn": {
+                    "type": "string"
+                },
+                "score": {
+                    "type": "integer"
+                },
+                "score_level": {
+                    "type": "string"
+                },
+                "score_override": {
+                    "type": "integer"
+                },
+                "score_override_at": {
+                    "type": "string"
+                },
+                "score_override_by": {
+                    "type": "integer"
+                },
+                "score_override_reason": {
                     "type": "string"
                 },
                 "status": {
@@ -7028,6 +8187,9 @@
             "properties": {
                 "address": {
                     "type": "string"
+                },
+                "commission_rate_override": {
+                    "type": "number"
                 },
                 "confirmed_at": {
                     "type": "string"
@@ -7065,10 +8227,31 @@
                 "profile_picture_thumb": {
                     "type": "string"
                 },
+                "referral_guid": {
+                    "type": "string"
+                },
                 "role": {
                     "type": "string"
                 },
                 "rtn": {
+                    "type": "string"
+                },
+                "score": {
+                    "type": "integer"
+                },
+                "score_level": {
+                    "type": "string"
+                },
+                "score_override": {
+                    "type": "integer"
+                },
+                "score_override_at": {
+                    "type": "string"
+                },
+                "score_override_by": {
+                    "type": "integer"
+                },
+                "score_override_reason": {
                     "type": "string"
                 },
                 "status": {
@@ -7143,6 +8326,23 @@
                 }
             }
         },
+        "services.CommissionRulesInput": {
+            "type": "object",
+            "properties": {
+                "acceptance_window_hours": {
+                    "type": "integer"
+                },
+                "default_rate": {
+                    "type": "number"
+                },
+                "payment_rule": {
+                    "type": "string"
+                },
+                "unassigned_rate": {
+                    "type": "number"
+                }
+            }
+        },
         "services.DashboardChart": {
             "type": "object",
             "properties": {
@@ -7157,6 +8357,131 @@
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "services.HistoricalImportResult": {
+            "type": "object",
+            "properties": {
+                "errors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/services.HistoricalImportRowError"
+                    }
+                },
+                "imported": {
+                    "type": "integer"
+                },
+                "skipped": {
+                    "type": "integer"
+                },
+                "skipped_rows": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/services.HistoricalImportSkip"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "valid": {
+                    "type": "integer"
+                }
+            }
+        },
+        "services.HistoricalImportRowError": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                },
+                "row": {
+                    "type": "integer"
+                }
+            }
+        },
+        "services.HistoricalImportSkip": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "row": {
+                    "type": "integer"
+                }
+            }
+        },
+        "services.HistoricalSaleInput": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "number"
+                },
+                "area_m2": {
+                    "type": "number"
+                },
+                "client_email": {
+                    "type": "string"
+                },
+                "client_identity": {
+                    "type": "string"
+                },
+                "client_name": {
+                    "type": "string"
+                },
+                "client_phone": {
+                    "type": "string"
+                },
+                "commission_amount": {
+                    "type": "number"
+                },
+                "commission_status": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "evidence_file": {
+                    "type": "string"
+                },
+                "full_name": {
+                    "type": "string"
+                },
+                "identity": {
+                    "type": "string"
+                },
+                "installments_paid": {
+                    "type": "integer"
+                },
+                "is_historical": {
+                    "type": "boolean"
+                },
+                "lot_label": {
+                    "type": "string"
+                },
+                "payment_mode": {
+                    "type": "string"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "rate": {
+                    "type": "number"
+                },
+                "sale_date": {
+                    "type": "string"
+                },
+                "sale_price": {
+                    "type": "number"
+                },
+                "sale_status": {
+                    "type": "string"
                 }
             }
         },

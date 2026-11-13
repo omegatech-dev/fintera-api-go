@@ -230,3 +230,33 @@ func TestContractResponse_ReservationPayment(t *testing.T) {
 		t.Fatalf("payment_schedule len = %d, want 1", len(resp.PaymentSchedule))
 	}
 }
+
+func TestContractResponseRedactForCustomer(t *testing.T) {
+	sellerID := uint(7)
+	now := time.Now()
+	guid := "8f14e45f-ceea-4a67-9c0f-1f2d3e4a5b6c"
+	resp := ContractResponse{
+		CommissionAmount:      1000,
+		CommissionOrigin:      CommissionOriginDirect,
+		CommissionPaidAt:      &now,
+		CommissionPaidBy:      &sellerID,
+		CommissionAccrualDate: &now,
+		Seller:                "Cristofer",
+		SellerID:              &sellerID,
+		AssignmentOrigin:      AssignmentOriginManual,
+		AssignmentStatus:      AssignmentStatusAccepted,
+		AssignedAt:            &now,
+		AcceptDeadlineAt:      &now,
+		RespondedAt:           &now,
+		ReferralGUID:          &guid,
+	}
+
+	redacted := resp.RedactForCustomer()
+	if redacted.CommissionAmount != 0 || redacted.CommissionOrigin != "" || redacted.Seller != "" ||
+		redacted.SellerID != nil || redacted.AssignmentOrigin != "" || redacted.AssignmentStatus != "" ||
+		redacted.AssignedAt != nil || redacted.AcceptDeadlineAt != nil || redacted.RespondedAt != nil ||
+		redacted.ReferralGUID != nil || redacted.CommissionPaidAt != nil || redacted.CommissionPaidBy != nil ||
+		redacted.CommissionAccrualDate != nil {
+		t.Fatalf("customer payload not fully redacted: %+v", redacted)
+	}
+}

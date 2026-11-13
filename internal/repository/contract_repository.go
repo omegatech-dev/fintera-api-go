@@ -38,6 +38,10 @@ type ContractQuery struct {
 	Status    string
 	LotID     uint
 	ProjectID uint
+	// FilterBySeller includes contracts where the user is the assigned seller,
+	// not only where the user created the contract. Sellers use it for their
+	// commission report.
+	FilterBySeller bool
 }
 
 type contractRepository struct {
@@ -67,6 +71,7 @@ func (r *contractRepository) FindByIDWithDetails(ctx context.Context, id uint) (
 		Joins("Lot.Project").
 		Joins("ApplicantUser").
 		Joins("Creator").
+		Preload("Seller").
 		Preload("Payments", func(db *gorm.DB) *gorm.DB {
 			return db.Order("due_date ASC")
 		}).
@@ -87,6 +92,7 @@ func (r *contractRepository) FindByGUIDWithDetails(ctx context.Context, guid str
 		Joins("Lot.Project").
 		Joins("ApplicantUser").
 		Joins("Creator").
+		Preload("Seller").
 		Preload("Payments", func(db *gorm.DB) *gorm.DB {
 			return db.Order("due_date ASC")
 		}).
@@ -115,6 +121,7 @@ func (r *contractRepository) FindByUser(ctx context.Context, userID uint) ([]mod
 	err := r.db.WithContext(ctx).
 		Where("applicant_user_id = ?", userID).
 		Preload("Lot.Project").
+		Preload("Seller").
 		Preload("Payments").
 		Find(&contracts).Error
 	return contracts, err
@@ -138,9 +145,14 @@ func (r *contractRepository) List(ctx context.Context, query *ContractQuery) ([]
 
 	db := r.db.WithContext(ctx).Model(&models.Contract{})
 
-	// Filter by creator if not admin
+	// Filter by creator if not admin. Seller-scoped reports also include the
+	// contracts where the user is the assigned seller.
 	if !query.IsAdmin && query.UserID > 0 {
-		db = db.Where("creator_id = ?", query.UserID)
+		if query.FilterBySeller {
+			db = db.Where("(contracts.creator_id = ? OR (contracts.seller_id = ? AND contracts.assignment_status = ?))", query.UserID, query.UserID, models.AssignmentStatusAccepted)
+		} else {
+			db = db.Where("creator_id = ?", query.UserID)
+		}
 	}
 
 	// Apply status filter (single or multiple via status_in)
@@ -177,6 +189,16 @@ func (r *contractRepository) List(ctx context.Context, query *ContractQuery) ([]
 				val += " 23:59:59"
 			}
 			db = db.Where("contracts.approved_at <= ?", val)
+		}
+		// Commission reports use the accrual date. Older contracts without an
+		// accrual date fall back to the approval timestamp.
+		if val, ok := query.Filters["commission_from"]; ok && val != "" {
+			db = db.Where("(contracts.commission_accrual_date >= ? OR (contracts.commission_accrual_date IS NULL AND contracts.approved_at >= ?))", val, val)
+		}
+		if val, ok := query.Filters["commission_to"]; ok && val != "" {
+			// commission_accrual_date is DATE: comparing it with the ISO date
+			// includes the full day without a timestamp cast.
+			db = db.Where("(contracts.commission_accrual_date <= ? OR (contracts.commission_accrual_date IS NULL AND contracts.approved_at < (?::date + INTERVAL '1 day')))", val, val)
 		}
 		// Apply created_at date filters (General date filter)
 		if val, ok := query.Filters["start_date"]; ok && val != "" {
@@ -248,6 +270,7 @@ func (r *contractRepository) List(ctx context.Context, query *ContractQuery) ([]
 		Preload("Lot.Project").
 		Preload("ApplicantUser").
 		Preload("Creator").
+		Preload("Seller").
 		Find(&contracts).Error
 
 	if err != nil {

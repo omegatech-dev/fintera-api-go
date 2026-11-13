@@ -217,6 +217,15 @@ definitions:
       website:
         type: string
     type: object
+  handlers.overrideScoreRequest:
+    properties:
+      clear:
+        type: boolean
+      reason:
+        type: string
+      score:
+        type: integer
+    type: object
   models.BrandingResponse:
     properties:
       app_name:
@@ -230,6 +239,8 @@ definitions:
     type: object
   models.Contract:
     properties:
+      accept_deadline_at:
+        type: string
       active:
         type: boolean
       amount:
@@ -240,6 +251,12 @@ definitions:
         type: integer
       approved_at:
         type: string
+      assigned_at:
+        type: string
+      assignment_origin:
+        type: string
+      assignment_status:
+        type: string
       balance:
         type: number
       bank_credit_status:
@@ -248,9 +265,13 @@ definitions:
         type: string
       closed_at:
         type: string
+      commission_accrual_date:
+        type: string
       commission_amount:
         description: Commission
         type: number
+      commission_origin:
+        type: string
       commission_paid_at:
         type: string
       commission_paid_by:
@@ -300,12 +321,22 @@ definitions:
         items:
           $ref: '#/definitions/models.Payment'
         type: array
+      referral_guid:
+        type: string
       rejected_at:
         type: string
       rejection_reason:
         type: string
       reserve_amount:
         type: number
+      responded_at:
+        type: string
+      seller_id:
+        description: Seller assignment (current state; the assignments table keeps
+          the history)
+        type: integer
+      seller_user:
+        $ref: '#/definitions/models.User'
       status:
         type: string
       submitted_at:
@@ -368,6 +399,8 @@ definitions:
     type: object
   models.ContractResponse:
     properties:
+      accept_deadline_at:
+        type: string
       amount:
         type: number
       applicant_credit_score:
@@ -382,6 +415,12 @@ definitions:
         type: integer
       approved_at:
         type: string
+      assigned_at:
+        type: string
+      assignment_origin:
+        type: string
+      assignment_status:
+        type: string
       balance:
         type: number
       bank_credit_status:
@@ -390,8 +429,12 @@ definitions:
         type: string
       cancellation_notes:
         type: string
+      commission_accrual_date:
+        type: string
       commission_amount:
         type: number
+      commission_origin:
+        type: string
       commission_paid_at:
         type: string
       commission_paid_by:
@@ -466,6 +509,8 @@ definitions:
         type: integer
       project_name:
         type: string
+      referral_guid:
+        type: string
       rejected_at:
         type: string
       rejection_reason:
@@ -474,6 +519,12 @@ definitions:
         $ref: '#/definitions/models.PaymentResponse'
       reserve_amount:
         type: number
+      responded_at:
+        type: string
+      seller:
+        type: string
+      seller_id:
+        type: integer
       status:
         type: string
       submitted_at:
@@ -918,10 +969,31 @@ definitions:
       sold_lots:
         type: integer
     type: object
+  models.ReferralMetrics:
+    properties:
+      attributed_reservations:
+        type: integer
+      commission_rate:
+        type: number
+      conversion_rate:
+        type: number
+      generated_commission:
+        type: number
+      period_days:
+        type: integer
+      referral_guid:
+        type: string
+      seller_name:
+        type: string
+      visits:
+        type: integer
+    type: object
   models.User:
     properties:
       address:
         type: string
+      commission_rate_override:
+        type: number
       confirmed_at:
         type: string
       contracts:
@@ -962,9 +1034,24 @@ definitions:
         type: string
       profile_picture_thumb:
         type: string
+      referral_guid:
+        description: Seller profile
+        type: string
       role:
         type: string
       rtn:
+        type: string
+      score:
+        type: integer
+      score_level:
+        type: string
+      score_override:
+        type: integer
+      score_override_at:
+        type: string
+      score_override_by:
+        type: integer
+      score_override_reason:
         type: string
       status:
         type: string
@@ -975,6 +1062,8 @@ definitions:
     properties:
       address:
         type: string
+      commission_rate_override:
+        type: number
       confirmed_at:
         type: string
       created_at:
@@ -999,9 +1088,23 @@ definitions:
         type: string
       profile_picture_thumb:
         type: string
+      referral_guid:
+        type: string
       role:
         type: string
       rtn:
+        type: string
+      score:
+        type: integer
+      score_level:
+        type: string
+      score_override:
+        type: integer
+      score_override_at:
+        type: string
+      score_override_by:
+        type: integer
+      score_override_reason:
         type: string
       status:
         type: string
@@ -1050,6 +1153,17 @@ definitions:
       total_overdue:
         type: number
     type: object
+  services.CommissionRulesInput:
+    properties:
+      acceptance_window_hours:
+        type: integer
+      default_rate:
+        type: number
+      payment_rule:
+        type: string
+      unassigned_rate:
+        type: number
+    type: object
   services.DashboardChart:
     properties:
       data:
@@ -1060,6 +1174,88 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  services.HistoricalImportResult:
+    properties:
+      errors:
+        items:
+          $ref: '#/definitions/services.HistoricalImportRowError'
+        type: array
+      imported:
+        type: integer
+      skipped:
+        type: integer
+      skipped_rows:
+        items:
+          $ref: '#/definitions/services.HistoricalImportSkip'
+        type: array
+      total:
+        type: integer
+      valid:
+        type: integer
+    type: object
+  services.HistoricalImportRowError:
+    properties:
+      reason:
+        type: string
+      row:
+        type: integer
+    type: object
+  services.HistoricalImportSkip:
+    properties:
+      name:
+        type: string
+      reason:
+        type: string
+      row:
+        type: integer
+    type: object
+  services.HistoricalSaleInput:
+    properties:
+      amount:
+        type: number
+      area_m2:
+        type: number
+      client_email:
+        type: string
+      client_identity:
+        type: string
+      client_name:
+        type: string
+      client_phone:
+        type: string
+      commission_amount:
+        type: number
+      commission_status:
+        type: string
+      email:
+        type: string
+      evidence_file:
+        type: string
+      full_name:
+        type: string
+      identity:
+        type: string
+      installments_paid:
+        type: integer
+      is_historical:
+        type: boolean
+      lot_label:
+        type: string
+      payment_mode:
+        type: string
+      phone:
+        type: string
+      project_name:
+        type: string
+      rate:
+        type: number
+      sale_date:
+        type: string
+      sale_price:
+        type: number
+      sale_status:
+        type: string
     type: object
   services.LoginResult:
     properties:
@@ -1245,6 +1441,110 @@ paths:
       summary: Get Seller Performance
       tags:
       - Analytics
+  /assignments/{id}/accept:
+    post:
+      description: Accept a pending reservation assignment. Idempotent for an already
+        accepted assignment.
+      parameters:
+      - description: Assignment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Accept assignment
+      tags:
+      - Assignments
+  /assignments/{id}/reject:
+    post:
+      description: Reject a pending reservation assignment; the reservation is offered
+        to the next seller. Idempotent for an already expired assignment.
+      parameters:
+      - description: Assignment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reject assignment
+      tags:
+      - Assignments
+  /assignments/pending:
+    get:
+      description: Pending reservations assigned to the authenticated seller. Admins
+        can list all or filter by seller_id.
+      parameters:
+      - description: Seller ID (admin only)
+        in: query
+        name: seller_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List pending assignments
+      tags:
+      - Assignments
   /audits:
     get:
       consumes:
@@ -1515,6 +1815,130 @@ paths:
       summary: Upload Branding Logo
       tags:
       - Branding
+  /commissions/exceptions:
+    get:
+      description: Per-seller commission-rate exceptions. Admin only.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List commission exceptions
+      tags:
+      - Commissions
+    post:
+      consumes:
+      - application/json
+      description: Create or replace the commission rate for one seller. Admin only.
+      parameters:
+      - description: seller_id and rate
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Upsert commission exception
+      tags:
+      - Commissions
+  /commissions/exceptions/{id}:
+    delete:
+      description: Delete a seller rate exception and return the seller to the project/global
+        rate. Admin only.
+      parameters:
+      - description: Exception ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete commission exception
+      tags:
+      - Commissions
+  /commissions/rules:
+    get:
+      description: Global default rate, unassigned rate, payment rule and acceptance
+        window.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Commission rules
+      tags:
+      - Commissions
+    put:
+      consumes:
+      - application/json
+      description: Update the global default and unassigned rates. Admin only.
+      parameters:
+      - description: Rules
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/services.CommissionRulesInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update commission rules
+      tags:
+      - Commissions
   /contracts:
     get:
       consumes:
@@ -1790,6 +2214,259 @@ paths:
       summary: Health Check
       tags:
       - Health
+  /historical_sales:
+    get:
+      description: Historical sales visible to the caller. Sellers see their own;
+        admins see all.
+      parameters:
+      - default: 1
+        description: Page
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: per_page
+        type: integer
+      - description: 'Validation status: pending, validated, rejected, all'
+        in: query
+        name: status
+        type: string
+      - description: Creator ID (admin only)
+        in: query
+        name: seller_id
+        type: integer
+      - description: Client name, identity, phone or project
+        in: query
+        name: search_term
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List historical sales
+      tags:
+      - HistoricalSales
+    post:
+      consumes:
+      - application/json
+      description: Record a migrated sale. It never creates a reservation or blocks
+        a lot.
+      parameters:
+      - description: Historical sale
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/services.HistoricalSaleInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create historical sale
+      tags:
+      - HistoricalSales
+  /historical_sales/{id}:
+    put:
+      consumes:
+      - application/json
+      description: Update a historical sale. Sellers can only edit their own pending
+        records.
+      parameters:
+      - description: Historical sale ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Historical sale
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/services.HistoricalSaleInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update historical sale
+      tags:
+      - HistoricalSales
+  /historical_sales/{id}/reject:
+    post:
+      consumes:
+      - application/json
+      description: Reject a historical sale without creating a reservation. Admin
+        only.
+      parameters:
+      - description: Historical sale ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Optional reason
+        in: body
+        name: request
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reject historical sale
+      tags:
+      - HistoricalSales
+  /historical_sales/{id}/validate:
+    post:
+      description: Validate a historical sale without creating a reservation. Admin
+        only.
+      parameters:
+      - description: Historical sale ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Validate historical sale
+      tags:
+      - HistoricalSales
+  /historical_sales/import:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Import a CSV with toggles and an optional column mapping. Invalid
+        rows are reported and valid rows are imported.
+      parameters:
+      - description: CSV file
+        in: formData
+        name: file
+        required: true
+        type: file
+      - description: Mark rows as historical (default true)
+        in: formData
+        name: mark_historical
+        type: boolean
+      - description: Skip rows whose identity and sale date already exist (default
+          true)
+        in: formData
+        name: skip_duplicates
+        type: boolean
+      - description: Create the commission using the sale date (default true)
+        in: formData
+        name: commission_with_sale_date
+        type: boolean
+      - description: JSON object mapping field names to column indexes/headers
+        in: formData
+        name: mapping
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.HistoricalImportResult'
+        "207":
+          description: Import finished with row errors
+          schema:
+            $ref: '#/definitions/services.HistoricalImportResult'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Import historical sales
+      tags:
+      - HistoricalSales
+  /historical_sales/import/template:
+    get:
+      description: Download the CSV template accepted by the import endpoint.
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      security:
+      - BearerAuth: []
+      summary: Download historical sales template
+      tags:
+      - HistoricalSales
   /jobs/status:
     get:
       description: Get statistics about background jobs (active, completed, failed,
@@ -3819,6 +4496,36 @@ paths:
       summary: Public project photos
       tags:
       - Public Catalog
+  /public/referrals/{guid}/visit:
+    post:
+      description: Record a visit for an active seller referral GUID without redirecting.
+        The portal uses this when it already knows the GUID.
+      parameters:
+      - description: Referral GUID
+        in: path
+        name: guid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Visit recorded
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Record a referral visit
+      tags:
+      - Referrals
   /public/reservations/{guid}/resend-access:
     post:
       description: Regenerate the temporary password and resend the customer account
@@ -3853,6 +4560,36 @@ paths:
       summary: Resend guest account setup email
       tags:
       - Public Catalog
+  /r/{guid}:
+    get:
+      description: Resolve an active seller referral GUID, record the visit and redirect
+        to the portal with a 30-day attribution.
+      parameters:
+      - description: Referral GUID
+        in: path
+        name: guid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "302":
+          description: Redirect to the customer portal
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Resolve referral link
+      tags:
+      - Referrals
   /reports/commissions:
     get:
       consumes:
@@ -4030,6 +4767,34 @@ paths:
       summary: Contract Rescission PDF
       tags:
       - Reports
+  /sellers:
+    get:
+      description: Active sellers with sales count and acceptance score. Available
+        to admins and sellers.
+      parameters:
+      - description: Search by name, email, phone or identity
+        in: query
+        name: search
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List active sellers
+      tags:
+      - Sellers
   /settings:
     get:
       description: 'Public customer settings: support contact, reservation hold, legal
@@ -4538,6 +5303,49 @@ paths:
       summary: Restore User
       tags:
       - Users
+  /users/{user_id}/score:
+    patch:
+      consumes:
+      - application/json
+      description: Admin override of a seller acceptance score. The change is audited
+        and the nightly recompute skips active overrides.
+      parameters:
+      - description: Seller ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      - description: Score override
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.overrideScoreRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Override seller score
+      tags:
+      - Users
   /users/{user_id}/summary:
     get:
       consumes:
@@ -4704,6 +5512,70 @@ paths:
       summary: Verify Recovery Code
       tags:
       - Users
+  /vendedor/referrals:
+    get:
+      description: Visits, attributed reservations, conversion and generated commission
+        for the authenticated seller.
+      parameters:
+      - default: 30
+        description: Period in days
+        in: query
+        name: days
+        type: integer
+      - description: Seller ID (admin only)
+        in: query
+        name: seller_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ReferralMetrics'
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Seller referral metrics
+      tags:
+      - Referrals
+  /vendedor/referrals/reservations:
+    get:
+      description: Reservations attributed to the authenticated seller.
+      parameters:
+      - default: 50
+        description: Maximum rows
+        in: query
+        name: limit
+        type: integer
+      - description: Seller ID (admin only)
+        in: query
+        name: seller_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Seller referral reservations
+      tags:
+      - Referrals
 schemes:
 - http
 securityDefinitions:

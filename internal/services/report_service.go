@@ -1083,7 +1083,3 @@ func (s *ReportService) getSpanishMonthFull(m time.Month) string {
 func (s *ReportService) formatDateShort(t time.Time) string {
 	return t.Format("02/01/2006")
 }
-
-func (s *ReportService) formatAmountToWords(amount float64) string {
-	return fmt.Sprintf("%.2f", amount)
-}

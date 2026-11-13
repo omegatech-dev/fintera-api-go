@@ -385,7 +385,7 @@ func (s *ContractService) Approve(ctx context.Context, id uint) (*models.Contrac
 			"Contrato aprobado",
 			"Tu solicitud de contrato ha sido aprobada",
 			models.NotificationTypeContractApproved); err != nil {
-			return err
+			logIgnoredError("notify approved contract", err)
 		}
 		return s.emailSvc.SendContractApproved(ctx, contractForEmail, highlightAmount, firstPaymentDate)
 	})
@@ -398,8 +398,12 @@ func (s *ContractService) Approve(ctx context.Context, id uint) (*models.Contrac
 	if contract.CreatorID != nil {
 		userID = *contract.CreatorID
 	}
+	contractAmount := 0.0
+	if contract.Amount != nil {
+		contractAmount = *contract.Amount
+	}
 	logIgnoredError("write contract approve audit log", s.auditSvc.Log(ctx, userID, "APPROVE", "Contract", contract.ID,
-		fmt.Sprintf("Contrato aprobado. Lote: %s, Precio: %.2f", contract.Lot.Name, *contract.Amount), "", ""))
+		fmt.Sprintf("Contrato aprobado. Lote: %s, Precio: %.2f", contract.Lot.Name, contractAmount), "", ""))
 
 	return contract, nil
 }

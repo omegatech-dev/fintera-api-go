@@ -679,6 +679,11 @@ func (h *ContractHandler) Approve(c *gin.Context) {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return
 	}
+	// Reload so the response includes the generated payment schedule and the
+	// next installment instead of the pre-approval snapshot.
+	if refreshed, refreshErr := h.contractService.FindByIDWithDetails(c.Request.Context(), contract.ID); refreshErr == nil {
+		contract = refreshed
+	}
 	c.JSON(http.StatusOK, gin.H{"contract": contract.ToResponse(), "message": "Contrato aprobado"})
 }
 

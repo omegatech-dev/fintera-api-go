@@ -34,6 +34,7 @@ type Contract struct {
 	Note                      *string    `gorm:"type:text" json:"note"`
 	RejectionReason           *string    `gorm:"type:text" json:"rejection_reason"`
 	TotalPaid                 float64    `gorm:"-" json:"total_paid"`             // Transient field for list view
+	NextPayment               *Payment   `gorm:"-" json:"next_payment,omitempty"` // Transient, filled by list batching
 	DocumentPaths             *string    `gorm:"type:text" json:"document_paths"` // JSON string of document paths
 	ClosedAt                  *time.Time `json:"closed_at"`
 	ReservationReminderSentAt *time.Time `gorm:"column:reservation_reminder_sent_at" json:"-"`
@@ -217,6 +218,12 @@ type ContractResponse struct {
 	UpdatedAt              time.Time                     `json:"updated_at"`
 	Note                   *string                       `json:"note"`
 	PaymentSchedule        []PaymentResponse             `json:"payment_schedule"`
+	NextPayment            *NextPaymentResponse          `json:"next_payment,omitempty"`
+	NextPaymentID          *uint                         `json:"next_payment_id,omitempty"`
+	NextPaymentDate        *time.Time                    `json:"next_payment_date,omitempty"`
+	NextPaymentAmount      *float64                      `json:"next_payment_amount,omitempty"`
+	NextPaymentType        string                        `json:"next_payment_type,omitempty"`
+	NextPaymentLabel       string                        `json:"next_payment_label,omitempty"`
 	ReservationPayment     *PaymentResponse              `json:"reservation_payment,omitempty"`
 	LedgerEntries          []ContractLedgerEntryResponse `json:"ledger_entries"`
 }
@@ -317,6 +324,25 @@ func (c *Contract) ToResponse() ContractResponse {
 		}
 	}
 
+	// Expose the next installment a seller can collect. The list endpoint
+	// batches this into c.NextPayment to avoid preloading every payment.
+	nextPayment := c.NextPayment
+	if nextPayment == nil {
+		nextPayment = FindCollectablePayment(c.Payments)
+	}
+	if nextPayment != nil && c.collectsPayments() {
+		nextPaymentResp := nextPayment.ToNextPaymentResponse()
+		resp.NextPayment = &nextPaymentResp
+		id := nextPayment.ID
+		amount := nextPayment.Amount
+		dueDate := nextPayment.DueDate
+		resp.NextPaymentID = &id
+		resp.NextPaymentDate = &dueDate
+		resp.NextPaymentAmount = &amount
+		resp.NextPaymentType = nextPayment.PaymentType
+		resp.NextPaymentLabel = nextPaymentResp.Label
+	}
+
 	// The hold remains meaningful until the reservation is approved, rejected
 	// or cancelled. Jobs remain the source of truth for releasing lots.
 	if (c.Status == ContractStatusPending || c.Status == ContractStatusSubmitted) && !c.CreatedAt.IsZero() {
@@ -330,6 +356,39 @@ func (c *Contract) ToResponse() ContractResponse {
 	}
 
 	return resp
+}
+
+// collectsPayments reports whether the contract lifecycle still expects
+// collections. Cancelled, rejected and closed contracts keep their history but
+// must not advertise a "next payment" to sellers.
+func (c *Contract) collectsPayments() bool {
+	switch c.Status {
+	case ContractStatusPending, ContractStatusSubmitted, ContractStatusApproved, ContractStatusSigned:
+		return true
+	default:
+		return false
+	}
+}
+
+// FindCollectablePayment returns the earliest payment a seller can still
+// collect: pending or submitted, without a receipt, sorted by due date. It
+// matches the rule used by the seller collection dialog.
+func FindCollectablePayment(payments []Payment) *Payment {
+	var next *Payment
+	for i := range payments {
+		payment := &payments[i]
+		if payment.Status != PaymentStatusPending && payment.Status != PaymentStatusSubmitted {
+			continue
+		}
+		if payment.DocumentPath != nil && strings.TrimSpace(*payment.DocumentPath) != "" {
+			continue
+		}
+		if next == nil || payment.DueDate.Before(next.DueDate) ||
+			(payment.DueDate.Equal(next.DueDate) && payment.ID < next.ID) {
+			next = payment
+		}
+	}
+	return next
 }
 
 // maskIdentity masks an identity string for privacy

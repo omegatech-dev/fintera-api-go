@@ -815,6 +815,31 @@ func TestContractService_Approve_RejectsInvalidState(t *testing.T) {
 	contractRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
 }
 
+func TestContractService_Approve_PropagatesLedgerError(t *testing.T) {
+	ctx := context.Background()
+	service, contractRepo, _, _, paymentRepo, ledgerRepo, _ := newContractServiceForActions(t)
+
+	amount := 10000.0
+	contract := &models.Contract{
+		ID:              1,
+		LotID:           1,
+		Status:          models.ContractStatusPending,
+		Amount:          &amount,
+		PaymentTerm:     2,
+		ApplicantUserID: 2,
+	}
+	contractRepo.On("FindByIDWithDetails", ctx, uint(1)).Return(contract, nil)
+	contractRepo.On("Update", ctx, mock.AnythingOfType("*models.Contract")).Return(nil)
+	ledgerRepo.On("Create", ctx, mock.MatchedBy(func(entry *models.ContractLedgerEntry) bool {
+		return entry.EntryType == models.EntryTypeInitial && entry.Amount == -amount
+	})).Return(errors.New("ledger unavailable"))
+
+	_, err := service.Approve(ctx, 1)
+
+	assert.ErrorContains(t, err, "failed to create initial ledger entry")
+	paymentRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
 func TestContractService_Close_RejectsOutstandingBalance(t *testing.T) {
 	ctx := context.Background()
 	service, contractRepo, _, _, _, ledgerRepo, _ := newContractServiceForActions(t)

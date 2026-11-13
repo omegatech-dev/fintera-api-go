@@ -30,12 +30,10 @@ func NewLedgerRepository(db *gorm.DB) LedgerRepository {
 }
 
 // Create creates a new ledger entry
-// Create creates a new ledger entry
 func (r *ledgerRepository) Create(ctx context.Context, entry *models.ContractLedgerEntry) error {
 	return r.db.WithContext(ctx).Create(entry).Error
 }
 
-// FindByContractID retrieves all ledger entries for a contract
 // FindByContractID retrieves all ledger entries for a contract
 func (r *ledgerRepository) FindByContractID(ctx context.Context, contractID uint) ([]models.ContractLedgerEntry, error) {
 	var entries []models.ContractLedgerEntry
@@ -47,7 +45,6 @@ func (r *ledgerRepository) FindByContractID(ctx context.Context, contractID uint
 }
 
 // FindByPaymentID retrieves all ledger entries for a payment
-// FindByPaymentID retrieves all ledger entries for a payment
 func (r *ledgerRepository) FindByPaymentID(ctx context.Context, paymentID uint) ([]models.ContractLedgerEntry, error) {
 	var entries []models.ContractLedgerEntry
 	err := r.db.WithContext(ctx).
@@ -57,10 +54,9 @@ func (r *ledgerRepository) FindByPaymentID(ctx context.Context, paymentID uint) 
 	return entries, err
 }
 
-// CalculateBalance calculates the current balance for a contract
-// Balance = sum of all ledger entries (positive for debits, negative for credits)
-// CalculateBalance calculates the current balance for a contract
-// Balance = sum of all ledger entries (positive for debits, negative for credits)
+// CalculateBalance calculates the current balance for a contract.
+// The ledger is authoritative: negative entries increase debt (initial,
+// interest) and positive entries reduce it (payment, prepayment, adjustment).
 func (r *ledgerRepository) CalculateBalance(ctx context.Context, contractID uint) (float64, error) {
 	var result struct {
 		Balance float64
@@ -75,10 +71,8 @@ func (r *ledgerRepository) CalculateBalance(ctx context.Context, contractID uint
 	return result.Balance, err
 }
 
-// FindOrCreateByPaymentAndType finds or creates a ledger entry for a payment and entry type
-// Used for updating interest entries without creating duplicates
-// FindOrCreateByPaymentAndType finds or creates a ledger entry for a payment and entry type
-// Used for updating interest entries without creating duplicates
+// FindOrCreateByPaymentAndType finds or creates a ledger entry for a payment
+// and entry type. Used for updating interest entries without creating duplicates.
 func (r *ledgerRepository) FindOrCreateByPaymentAndType(ctx context.Context, entry *models.ContractLedgerEntry) error {
 	// If payment_id and entry_type are set, try to find existing
 	if entry.PaymentID != nil && entry.EntryType == models.EntryTypeInterest {
@@ -116,27 +110,37 @@ func (r *ledgerRepository) BatchUpsertInterest(ctx context.Context, entries []mo
 		}
 	}
 
-	// 2. Find existing interest entries for these payments
-	var existing []models.ContractLedgerEntry
-	if err := r.db.WithContext(ctx).
-		Where("payment_id IN ? AND entry_type = ?", paymentIDs, models.EntryTypeInterest).
-		Find(&existing).Error; err != nil {
-		return err
-	}
-
-	// 3. Map existing entries by PaymentID for quick lookup
+	// 2. Find existing interest entries for these payments. Entries without a
+	// payment cannot be matched, so they always become new rows.
 	existingMap := make(map[uint]models.ContractLedgerEntry)
-	for _, e := range existing {
-		if e.PaymentID != nil {
-			existingMap[*e.PaymentID] = e
+	if len(paymentIDs) > 0 {
+		var existing []models.ContractLedgerEntry
+		if err := r.db.WithContext(ctx).
+			Where("payment_id IN ? AND entry_type = ?", paymentIDs, models.EntryTypeInterest).
+			Find(&existing).Error; err != nil {
+			return err
+		}
+
+		// 3. Map existing entries by PaymentID for quick lookup
+		for _, e := range existing {
+			if e.PaymentID != nil {
+				existingMap[*e.PaymentID] = e
+			}
 		}
 	}
 
-	// 4. Separate into Create and Update lists
+	// 4. Separate into Create and Update lists. A nil PaymentID is not an
+	// error: the caller may be recording an interest entry that is not tied to
+	// a payment yet, and dereferencing it used to panic here.
 	var toCreate []models.ContractLedgerEntry
 	var toUpdate []models.ContractLedgerEntry
 
 	for _, entry := range entries {
+		if entry.PaymentID == nil {
+			toCreate = append(toCreate, entry)
+			continue
+		}
+
 		if e, ok := existingMap[*entry.PaymentID]; ok {
 			// Update fields
 			e.Amount = entry.Amount
@@ -172,7 +176,6 @@ func (r *ledgerRepository) BatchUpsertInterest(ctx context.Context, entries []mo
 	})
 }
 
-// DeleteByContractID deletes all ledger entries for a contract (used when canceling)
 // DeleteByContractID deletes all ledger entries for a contract (used when canceling)
 func (r *ledgerRepository) DeleteByContractID(ctx context.Context, contractID uint) error {
 	return r.db.WithContext(ctx).

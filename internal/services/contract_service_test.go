@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -682,4 +683,381 @@ func TestContractService_CreatePrepaymentRequest_Validation(t *testing.T) {
 			paymentRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 		})
 	}
+}
+
+// newContractServiceForActions wires a ContractService with testify repository
+// mocks and a real AuditService backed by sqlmock. Email delivery is disabled so
+// background jobs never make network calls.
+func newContractServiceForActions(t *testing.T) (*ContractService, *mockContractRepo, *mockLotRepo, *mockUserRepoForContract, *mockPaymentRepo, *mockLedgerRepo, sqlmock.Sqlmock) {
+	t.Helper()
+	logger.Setup("test")
+
+	contractRepo := new(mockContractRepo)
+	lotRepo := new(mockLotRepo)
+	userRepo := new(mockUserRepoForContract)
+	paymentRepo := new(mockPaymentRepo)
+	ledgerRepo := new(mockLedgerRepo)
+
+	gdb, mockSQL := setupMockDB(t)
+	auditSvc := NewAuditService(gdb)
+	worker := jobs.NewWorker(1)
+	t.Cleanup(worker.Shutdown)
+
+	emailSvc := NewEmailService(&config.Config{EnableEmailNotifications: false})
+	notificationSvc := NewNotificationService(nil, nil)
+
+	service := NewContractService(contractRepo, lotRepo, userRepo, paymentRepo, ledgerRepo, notificationSvc, emailSvc, auditSvc, worker)
+	return service, contractRepo, lotRepo, userRepo, paymentRepo, ledgerRepo, mockSQL
+}
+
+func TestContractService_Approve(t *testing.T) {
+	ctx := context.Background()
+	service, contractRepo, lotRepo, _, paymentRepo, ledgerRepo, mockSQL := newContractServiceForActions(t)
+	mockSQL.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	amount, down, reserve := 10000.0, 1000.0, 500.0
+	contract := &models.Contract{
+		ID:              1,
+		LotID:           1,
+		Status:          models.ContractStatusPending,
+		Amount:          &amount,
+		DownPayment:     &down,
+		ReserveAmount:   &reserve,
+		PaymentTerm:     2,
+		FinancingType:   models.FinancingTypeDirect,
+		ApplicantUserID: 2,
+		Lot:             models.Lot{ID: 1, Name: "Lote 1", Project: models.Project{Name: "Proyecto"}},
+		ApplicantUser:   models.User{ID: 2, FullName: "Cliente"},
+	}
+
+	contractRepo.On("FindByIDWithDetails", ctx, uint(1)).Return(contract, nil)
+	contractRepo.On("Update", ctx, mock.AnythingOfType("*models.Contract")).Return(nil)
+	ledgerRepo.On("Create", ctx, mock.MatchedBy(func(entry *models.ContractLedgerEntry) bool {
+		return entry.EntryType == models.EntryTypeInitial && entry.Amount == -amount
+	})).Return(nil)
+	paymentRepo.On("FindByContract", ctx, uint(1)).Return([]models.Payment{}, nil)
+	created := 0
+	paymentRepo.On("Create", ctx, mock.AnythingOfType("*models.Payment")).
+		Run(func(mock.Arguments) { created++ }).
+		Return(nil)
+	lotRepo.On("FindByID", ctx, uint(1)).Return(&models.Lot{ID: 1}, nil)
+	lotRepo.On("Update", ctx, mock.AnythingOfType("*models.Lot")).Return(nil)
+
+	approved, err := service.Approve(ctx, 1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, models.ContractStatusApproved, approved.Status)
+	assert.NotNil(t, approved.ApprovedAt)
+	assert.True(t, approved.Active)
+	assert.Positive(t, created, "the generated payment schedule must be persisted")
+
+	contractRepo.AssertExpectations(t)
+	ledgerRepo.AssertExpectations(t)
+	paymentRepo.AssertExpectations(t)
+	lotRepo.AssertExpectations(t)
+}
+
+func TestContractService_Approve_KeepsExistingReservation(t *testing.T) {
+	ctx := context.Background()
+	service, contractRepo, lotRepo, _, paymentRepo, ledgerRepo, mockSQL := newContractServiceForActions(t)
+	mockSQL.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	amount, down, reserve := 10000.0, 1000.0, 500.0
+	contract := &models.Contract{
+		ID:              1,
+		LotID:           1,
+		Status:          models.ContractStatusPending,
+		Amount:          &amount,
+		DownPayment:     &down,
+		ReserveAmount:   &reserve,
+		PaymentTerm:     2,
+		FinancingType:   models.FinancingTypeDirect,
+		ApplicantUserID: 2,
+		Lot:             models.Lot{ID: 1, Name: "Lote 1", Project: models.Project{Name: "Proyecto"}},
+	}
+
+	contractRepo.On("FindByIDWithDetails", ctx, uint(1)).Return(contract, nil)
+	contractRepo.On("Update", ctx, mock.AnythingOfType("*models.Contract")).Return(nil)
+	ledgerRepo.On("Create", ctx, mock.AnythingOfType("*models.ContractLedgerEntry")).Return(nil)
+	paymentRepo.On("FindByContract", ctx, uint(1)).Return([]models.Payment{
+		{ID: 9, ContractID: 1, PaymentType: models.PaymentTypeReservation, Status: models.PaymentStatusPending},
+	}, nil)
+
+	var createdTypes []string
+	paymentRepo.On("Create", ctx, mock.AnythingOfType("*models.Payment")).
+		Run(func(args mock.Arguments) {
+			createdTypes = append(createdTypes, args.Get(1).(*models.Payment).PaymentType)
+		}).
+		Return(nil)
+	lotRepo.On("FindByID", ctx, uint(1)).Return(&models.Lot{ID: 1}, nil)
+	lotRepo.On("Update", ctx, mock.AnythingOfType("*models.Lot")).Return(nil)
+
+	_, err := service.Approve(ctx, 1)
+
+	assert.NoError(t, err)
+	assert.NotContains(t, createdTypes, models.PaymentTypeReservation,
+		"the reservation payment created at contract creation must not be duplicated")
+	assert.Positive(t, len(createdTypes))
+}
+
+func TestContractService_Approve_RejectsInvalidState(t *testing.T) {
+	ctx := context.Background()
+	service, contractRepo, _, _, paymentRepo, _, _ := newContractServiceForActions(t)
+
+	amount := 10000.0
+	contract := &models.Contract{ID: 1, Status: models.ContractStatusApproved, Amount: &amount}
+	contractRepo.On("FindByIDWithDetails", ctx, uint(1)).Return(contract, nil)
+
+	_, err := service.Approve(ctx, 1)
+
+	assert.ErrorContains(t, err, "cannot approve contract")
+	paymentRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+	contractRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestContractService_Close_RejectsOutstandingBalance(t *testing.T) {
+	ctx := context.Background()
+	service, contractRepo, _, _, _, ledgerRepo, _ := newContractServiceForActions(t)
+
+	balance := 0.0
+	contract := &models.Contract{ID: 1, Status: models.ContractStatusApproved, Balance: &balance}
+	contractRepo.On("FindByIDWithDetails", ctx, uint(1)).Return(contract, nil)
+	ledgerRepo.On("CalculateBalance", ctx, uint(1)).Return(-250.0, nil)
+
+	_, err := service.Close(ctx, 1)
+
+	assert.ErrorContains(t, err, "outstanding balance")
+	contractRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestContractService_Close_RejectsInvalidState(t *testing.T) {
+	ctx := context.Background()
+	service, contractRepo, _, _, _, ledgerRepo, _ := newContractServiceForActions(t)
+
+	balance := 0.0
+	contract := &models.Contract{ID: 1, Status: models.ContractStatusSubmitted, Balance: &balance}
+	contractRepo.On("FindByIDWithDetails", ctx, uint(1)).Return(contract, nil)
+	ledgerRepo.On("CalculateBalance", ctx, uint(1)).Return(0.0, nil)
+
+	_, err := service.Close(ctx, 1)
+
+	assert.ErrorContains(t, err, "cannot close contract")
+	contractRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+func TestContractService_Close_Success(t *testing.T) {
+	ctx := context.Background()
+	service, contractRepo, lotRepo, _, _, ledgerRepo, mockSQL := newContractServiceForActions(t)
+	mockSQL.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	balance := 0.0
+	contract := &models.Contract{ID: 1, LotID: 1, Status: models.ContractStatusApproved, Balance: &balance, ApplicantUserID: 2}
+	contractRepo.On("FindByIDWithDetails", ctx, uint(1)).Return(contract, nil)
+	ledgerRepo.On("CalculateBalance", ctx, uint(1)).Return(0.0, nil)
+	contractRepo.On("Update", ctx, mock.MatchedBy(func(c *models.Contract) bool {
+		return c.Status == models.ContractStatusClosed && !c.Active && c.ClosedAt != nil
+	})).Return(nil)
+	lotRepo.On("FindByID", ctx, uint(1)).Return(&models.Lot{ID: 1, Status: models.LotStatusFinanced}, nil)
+	lotRepo.On("Update", ctx, mock.MatchedBy(func(l *models.Lot) bool {
+		return l.Status == models.LotStatusFullyPaid
+	})).Return(nil)
+
+	closed, err := service.Close(ctx, 1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, models.ContractStatusClosed, closed.Status)
+	assert.NotNil(t, closed.ClosedAt)
+	assert.False(t, closed.Active)
+	contractRepo.AssertExpectations(t)
+	lotRepo.AssertExpectations(t)
+}
+
+func TestContractService_DeleteRejected(t *testing.T) {
+	ctx := context.Background()
+	service, contractRepo, lotRepo, _, paymentRepo, ledgerRepo, mockSQL := newContractServiceForActions(t)
+	mockSQL.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	contract := &models.Contract{ID: 1, LotID: 1, Status: models.ContractStatusRejected, ApplicantUserID: 2}
+	contractRepo.On("FindByIDWithDetails", ctx, uint(1)).Return(contract, nil)
+	paymentRepo.On("DeleteByContract", ctx, uint(1)).Return(nil)
+	ledgerRepo.On("DeleteByContractID", ctx, uint(1)).Return(nil)
+	contractRepo.On("Delete", ctx, uint(1)).Return(nil)
+	lotRepo.On("FindByID", ctx, uint(1)).Return(&models.Lot{ID: 1, Status: models.LotStatusReserved}, nil)
+	lotRepo.On("Update", ctx, mock.MatchedBy(func(l *models.Lot) bool {
+		return l.Status == models.LotStatusAvailable
+	})).Return(nil)
+
+	err := service.DeleteRejected(ctx, 1)
+
+	assert.NoError(t, err)
+	contractRepo.AssertExpectations(t)
+	paymentRepo.AssertExpectations(t)
+	ledgerRepo.AssertExpectations(t)
+	lotRepo.AssertExpectations(t)
+}
+
+func TestContractService_DeleteRejected_RejectsOtherStates(t *testing.T) {
+	ctx := context.Background()
+	service, contractRepo, _, _, paymentRepo, ledgerRepo, _ := newContractServiceForActions(t)
+
+	contract := &models.Contract{ID: 1, Status: models.ContractStatusPending}
+	contractRepo.On("FindByIDWithDetails", ctx, uint(1)).Return(contract, nil)
+
+	err := service.DeleteRejected(ctx, 1)
+
+	assert.ErrorContains(t, err, "rechazado")
+	paymentRepo.AssertNotCalled(t, "DeleteByContract", mock.Anything, mock.Anything)
+	ledgerRepo.AssertNotCalled(t, "DeleteByContractID", mock.Anything, mock.Anything)
+	contractRepo.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
+}
+
+func TestContractService_ResendAccountSetup(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("success", func(t *testing.T) {
+		service, contractRepo, _, userRepo, _, _, _ := newContractServiceForActions(t)
+		contractRepo.On("FindByGUIDWithDetails", ctx, "guid").
+			Return(&models.Contract{GUID: "guid", ApplicantUser: models.User{ID: 5, MustChangePassword: true}}, nil)
+		userRepo.On("Update", ctx, mock.AnythingOfType("*models.User")).Return(nil)
+
+		err := service.ResendAccountSetup(ctx, "guid")
+
+		assert.NoError(t, err)
+		userRepo.AssertExpectations(t)
+	})
+
+	t.Run("account already configured", func(t *testing.T) {
+		service, contractRepo, _, userRepo, _, _, _ := newContractServiceForActions(t)
+		contractRepo.On("FindByGUIDWithDetails", ctx, "guid").
+			Return(&models.Contract{GUID: "guid", ApplicantUser: models.User{ID: 5, MustChangePassword: false}}, nil)
+
+		err := service.ResendAccountSetup(ctx, "guid")
+
+		assert.ErrorIs(t, err, ErrAccountAlreadyConfigured)
+		userRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+	})
+
+	t.Run("contract not found", func(t *testing.T) {
+		service, contractRepo, _, userRepo, _, _, _ := newContractServiceForActions(t)
+		contractRepo.On("FindByGUIDWithDetails", ctx, "missing").Return(nil, errors.New("not found"))
+
+		err := service.ResendAccountSetup(ctx, "missing")
+
+		assert.ErrorIs(t, err, ErrNotFound)
+		userRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+	})
+}
+
+func TestContractService_CapitalRepayment_Success(t *testing.T) {
+	ctx := context.Background()
+	service, contractRepo, _, _, paymentRepo, ledgerRepo, mockSQL := newContractServiceForActions(t)
+	mockSQL.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	contract := &models.Contract{ID: 7, Status: models.ContractStatusApproved, ApplicantUserID: 2}
+	// The balance refresh runs on the worker context, so match any context.
+	contractRepo.On("FindByIDWithDetails", mock.Anything, uint(7)).Return(contract, nil)
+	ledgerRepo.On("CalculateBalance", mock.Anything, uint(7)).Return(-1000.0, nil)
+
+	paymentRepo.On("Create", ctx, mock.MatchedBy(func(p *models.Payment) bool {
+		return p.ContractID == 7 &&
+			p.PaymentType == models.PaymentTypeCapitalRepayment &&
+			p.Status == models.PaymentStatusPaid &&
+			p.Amount == 1000
+	})).Return(nil)
+	ledgerRepo.On("Create", ctx, mock.MatchedBy(func(e *models.ContractLedgerEntry) bool {
+		return e.ContractID == 7 &&
+			e.EntryType == models.EntryTypePrepayment &&
+			e.Amount == 1000
+	})).Return(nil)
+	paymentRepo.On("FindByContract", ctx, uint(7)).Return([]models.Payment{
+		{ID: 20, ContractID: 7, Amount: 1000, Status: models.PaymentStatusPending, PaymentType: models.PaymentTypeInstallment},
+		{ID: 21, ContractID: 7, Amount: 1000, Status: models.PaymentStatusPending, PaymentType: models.PaymentTypeInstallment},
+	}, nil)
+	paymentRepo.On("Delete", ctx, uint(21)).Return(nil)
+	// The balance refresh happens asynchronously; make it optional for the
+	// deterministic assertions below.
+	contractRepo.On("Update", mock.Anything, mock.AnythingOfType("*models.Contract")).Return(nil).Maybe()
+
+	err := service.CapitalRepayment(ctx, 7, 1000, 1, "", "")
+
+	assert.NoError(t, err)
+	paymentRepo.AssertExpectations(t)
+	ledgerRepo.AssertExpectations(t)
+}
+
+func TestContractService_CapitalRepayment_AutoClosesSettledContract(t *testing.T) {
+	ctx := context.Background()
+	service, contractRepo, _, _, paymentRepo, ledgerRepo, _ := newContractServiceForActions(t)
+
+	contract := &models.Contract{ID: 7, Status: models.ContractStatusApproved, ApplicantUserID: 2}
+	// The auto-close path runs on the worker context, so match any context and
+	// sequence the balance: outstanding first, settled afterwards.
+	contractRepo.On("FindByIDWithDetails", mock.Anything, uint(7)).Return(contract, nil)
+	ledgerRepo.On("CalculateBalance", mock.Anything, uint(7)).Return(-1000.0, nil).Once()
+	ledgerRepo.On("CalculateBalance", mock.Anything, uint(7)).Return(0.0, nil).Maybe()
+	paymentRepo.On("Create", ctx, mock.AnythingOfType("*models.Payment")).Return(nil)
+	ledgerRepo.On("Create", ctx, mock.AnythingOfType("*models.ContractLedgerEntry")).Return(nil)
+	paymentRepo.On("FindByContract", ctx, uint(7)).Return([]models.Payment{}, nil)
+
+	closed := make(chan struct{}, 1)
+	contractRepo.On("Update", mock.Anything, mock.AnythingOfType("*models.Contract")).
+		Run(func(args mock.Arguments) {
+			c := args.Get(1).(*models.Contract)
+			if c.Status == models.ContractStatusClosed {
+				select {
+				case closed <- struct{}{}:
+				default:
+				}
+			}
+		}).
+		Return(nil).
+		Maybe()
+
+	err := service.CapitalRepayment(ctx, 7, 1000, 1, "", "")
+	assert.NoError(t, err)
+
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected the settled contract to be auto-closed")
+	}
+}
+
+func TestContractService_Update(t *testing.T) {
+	ctx := context.Background()
+	service, contractRepo, _, _, _, _, _ := newContractServiceForActions(t)
+
+	contract := &models.Contract{ID: 1, Status: models.ContractStatusPending, PaymentTerm: 12}
+	contractRepo.On("Update", ctx, contract).Return(nil)
+
+	err := service.Update(ctx, contract)
+
+	assert.NoError(t, err)
+	contractRepo.AssertExpectations(t)
+}
+
+func TestContractService_ReleaseUnpaidReservations(t *testing.T) {
+	ctx := context.Background()
+	service, contractRepo, lotRepo, _, _, ledgerRepo, mockSQL := newContractServiceForActions(t)
+	mockSQL.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	stale := []models.Contract{
+		{ID: 1, LotID: 1, Status: models.ContractStatusPending, ApplicantUserID: 2},
+	}
+	contractRepo.On("FindPendingReservations", ctx, 48).Return(stale, nil)
+	contractRepo.On("FindByIDWithDetails", ctx, uint(1)).Return(&stale[0], nil)
+	contractRepo.On("Update", ctx, mock.MatchedBy(func(c *models.Contract) bool {
+		return c.Status == models.ContractStatusCancelled
+	})).Return(nil)
+	ledgerRepo.On("DeleteByContractID", ctx, uint(1)).Return(nil)
+	lotRepo.On("FindByID", ctx, uint(1)).Return(&models.Lot{ID: 1, Status: models.LotStatusReserved}, nil)
+	lotRepo.On("Update", ctx, mock.MatchedBy(func(l *models.Lot) bool {
+		return l.Status == models.LotStatusAvailable
+	})).Return(nil)
+
+	err := service.ReleaseUnpaidReservations(ctx)
+
+	assert.NoError(t, err)
+	contractRepo.AssertExpectations(t)
+	lotRepo.AssertExpectations(t)
 }

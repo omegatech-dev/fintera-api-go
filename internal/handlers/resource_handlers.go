@@ -25,6 +25,11 @@ func NewProjectHandler(projectService *services.ProjectService, mediaService *se
 
 func (h *ProjectHandler) response(ctx context.Context, project *models.Project) models.ProjectResponse {
 	response := project.ToResponse()
+	// Prefer the real lots over the denormalized counter: lot_count can drift
+	// when lots are added or removed outside the project form.
+	if len(project.Lots) > 0 {
+		response.LotCount = len(project.Lots)
+	}
 	response.Photos = []models.PhotoResponse{}
 	if photos, err := h.mediaService.ProjectCardPhotos(ctx, project.ID); err == nil {
 		response.Photos = photos
@@ -228,36 +233,80 @@ func (h *ProjectHandler) Approve(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Proyecto aprobado (Placeholder)"})
 }
 
-type ImportProjectRequest struct {
-	Projects []models.Project `json:"projects"`
-}
-
 // @Summary Import Projects
-// @Description Bulk import projects
+// @Description Bulk import projects from a CSV file (multipart/form-data field `file`). Duplicates are matched by code or GUID. `skip_duplicates` wins over `update_existing`.
 // @Tags Projects
-// @Accept json
+// @Accept multipart/form-data
 // @Produce json
-// @Param request body ImportProjectRequest true "Projects Data"
-// @Success 200 {object} map[string]string
+// @Param file formData file true "CSV file"
+// @Param update_existing formData bool false "Update existing projects instead of creating them"
+// @Param skip_duplicates formData bool false "Skip projects whose code or GUID already exists"
+// @Success 200 {object} services.ProjectImportResult
+// @Success 207 {object} services.ProjectImportResult "Import finished with row errors"
+// @Failure 400 {object} map[string]string
 // @Security BearerAuth
 // @Router /projects/import [post]
 func (h *ProjectHandler) Import(c *gin.Context) {
-	var req ImportProjectRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "El archivo CSV es obligatorio (campo file)"})
+		return
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No se pudo leer el archivo CSV"})
+		return
+	}
+	defer file.Close()
+
+	records, err := services.ParseProjectCSV(file)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	actorID := middleware.GetUserID(c)
-	imported := 0
-	for _, p := range req.Projects {
-		if err := h.projectService.Create(c.Request.Context(), &p, actorID); err != nil {
-			continue
-		}
-		imported++
+	options := services.ProjectCSVOptions{
+		UpdateExisting: importBoolOption(c, "update_existing"),
+		SkipDuplicates: importBoolOption(c, "skip_duplicates"),
+	}
+	result, err := h.projectService.ImportCSV(c.Request.Context(), records, options, middleware.GetUserID(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Importados %d proyectos", imported)})
+	status := http.StatusOK
+	if len(result.Errors) > 0 {
+		status = http.StatusMultiStatus
+	}
+	c.JSON(status, result)
+}
+
+// @Summary Download project import template
+// @Description Download the canonical CSV template accepted by the import endpoint
+// @Tags Projects
+// @Produce text/csv
+// @Success 200 {file} file
+// @Security BearerAuth
+// @Router /projects/import/template [get]
+func (h *ProjectHandler) ImportTemplate(c *gin.Context) {
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", `attachment; filename="projects-template.csv"`)
+	c.String(http.StatusOK, services.ProjectCSVTemplate())
+}
+
+func importBoolOption(c *gin.Context, name string) bool {
+	value := c.PostForm(name)
+	if value == "" {
+		value = c.PostForm("options[" + name + "]")
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "on", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 type LotHandler struct {

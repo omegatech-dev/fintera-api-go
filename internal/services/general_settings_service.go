@@ -11,8 +11,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/microcosm-cc/bluemonday"
 	"github.com/sjperalta/fintera-api/internal/models"
 	"github.com/sjperalta/fintera-api/internal/repository"
+	"golang.org/x/net/html"
 	"gorm.io/gorm"
 )
 
@@ -40,6 +42,52 @@ const (
 )
 
 var whatsappPattern = regexp.MustCompile(`^\+?[0-9]{8,20}$`)
+
+// termsHTMLPolicy is the allow-list used for the admin-authored terms. It
+// mirrors the editor toolbar: paragraphs, emphasis, headings, lists, links and
+// quotes. Images, inline styles, scripts and event handlers are discarded.
+var termsHTMLPolicy = func() *bluemonday.Policy {
+	policy := bluemonday.NewPolicy()
+	policy.AllowElements(
+		"p", "br", "strong", "b", "em", "i", "u", "s", "a",
+		"ul", "ol", "li", "h1", "h2", "h3", "blockquote",
+	)
+	policy.AllowAttrs("href").OnElements("a")
+	policy.AllowStandardURLs()
+	policy.AllowURLSchemes("http", "https", "mailto")
+	policy.RequireParseableURLs(true)
+	policy.AllowRelativeURLs(false)
+	policy.RequireNoFollowOnLinks(false)
+	return policy
+}()
+
+// sanitizeTermsContent keeps only formatting allowed by the terms editor and
+// drops markup that renders as an empty document.
+func sanitizeTermsContent(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	clean := strings.TrimSpace(termsHTMLPolicy.Sanitize(*value))
+	if strings.TrimSpace(htmlVisibleText(clean)) == "" {
+		return nil
+	}
+	return &clean
+}
+
+// htmlVisibleText returns the text a reader sees, ignoring markup. It is used
+// to keep the 20000-character limit aligned with the UI character counter.
+func htmlVisibleText(value string) string {
+	tokenizer := html.NewTokenizer(strings.NewReader(value))
+	var text strings.Builder
+	for {
+		switch tokenizer.Next() {
+		case html.ErrorToken:
+			return text.String()
+		case html.TextToken:
+			text.Write(tokenizer.Text())
+		}
+	}
+}
 
 // GeneralSettingsService manages the deployment-wide customer settings.
 type GeneralSettingsService struct {
@@ -70,6 +118,8 @@ func (s *GeneralSettingsService) Get(ctx context.Context) (*models.GeneralSettin
 func (s *GeneralSettingsService) Update(ctx context.Context, actorID uint, payload models.GeneralSettings) (*models.GeneralSettings, error) {
 	settings := &payload
 	applySettingsDefaults(settings)
+	settings.TermsContentES = sanitizeTermsContent(settings.TermsContentES)
+	settings.TermsContentEN = sanitizeTermsContent(settings.TermsContentEN)
 	if err := validateGeneralSettings(settings); err != nil {
 		return nil, err
 	}
@@ -158,10 +208,10 @@ func validateGeneralSettings(settings *models.GeneralSettings) error {
 			return ErrInvalidWebsite
 		}
 	}
-	if settings.TermsContentES != nil && utf8.RuneCountInString(*settings.TermsContentES) > maxTermsContentLength {
+	if settings.TermsContentES != nil && utf8.RuneCountInString(htmlVisibleText(*settings.TermsContentES)) > maxTermsContentLength {
 		return ErrTermsContentTooLong
 	}
-	if settings.TermsContentEN != nil && utf8.RuneCountInString(*settings.TermsContentEN) > maxTermsContentLength {
+	if settings.TermsContentEN != nil && utf8.RuneCountInString(htmlVisibleText(*settings.TermsContentEN)) > maxTermsContentLength {
 		return ErrTermsContentTooLong
 	}
 	return nil

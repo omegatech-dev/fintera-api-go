@@ -292,13 +292,19 @@ func (r *contractRepository) List(ctx context.Context, query *ContractQuery) ([]
 	return contracts, total, err
 }
 
-// ContractStats holds the count of contracts by status
+// ContractStats holds the count of contracts by status plus the money still
+// outstanding on active contracts.
 type ContractStats struct {
-	Total                       int64 `json:"total"`
-	Pending                     int64 `json:"pending"`
-	Approved                    int64 `json:"approved"`
-	Rejected                    int64 `json:"rejected"`
-	ReservationsWithoutContract int64 `json:"reservations_without_contract"`
+	Total                       int64   `json:"total"`
+	Pending                     int64   `json:"pending"`
+	Approved                    int64   `json:"approved"`
+	Rejected                    int64   `json:"rejected"`
+	Cancelled                   int64   `json:"cancelled"`
+	Active                      int64   `json:"active"`
+	PendingBalance              float64 `json:"pending_balance"`
+	Overdue                     float64 `json:"overdue"`
+	OverdueCount                int64   `json:"overdue_count"`
+	ReservationsWithoutContract int64   `json:"reservations_without_contract"`
 }
 
 func (r *contractRepository) GetStats(ctx context.Context) (*ContractStats, error) {
@@ -330,12 +336,53 @@ func (r *contractRepository) GetStats(ctx context.Context) (*ContractStats, erro
 			stats.Approved = count
 		case models.ContractStatusRejected:
 			stats.Rejected = count
+		case models.ContractStatusCancelled:
+			stats.Cancelled = count
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	stats.Total = total
+
+	// Active contracts (approved and not closed/cancelled). This mirrors the
+	// contracts.active flag maintained by the state machine.
+	if err := r.db.WithContext(ctx).
+		Model(&models.Contract{}).
+		Where("active = ?", true).
+		Count(&stats.Active).Error; err != nil {
+		return nil, err
+	}
+
+	// Outstanding balance of active contracts: pending and submitted
+	// installments that have not been collected yet.
+	if err := r.db.WithContext(ctx).
+		Model(&models.Payment{}).
+		Joins("JOIN contracts ON contracts.id = payments.contract_id").
+		Where("contracts.active = ?", true).
+		Where("payments.status IN ?", []string{models.PaymentStatusPending, models.PaymentStatusSubmitted}).
+		Select("COALESCE(SUM(payments.amount), 0)").
+		Scan(&stats.PendingBalance).Error; err != nil {
+		return nil, err
+	}
+
+	// Overdue money and installments for active contracts.
+	var overdue struct {
+		Total float64
+		Count int64
+	}
+	if err := r.db.WithContext(ctx).
+		Model(&models.Payment{}).
+		Joins("JOIN contracts ON contracts.id = payments.contract_id").
+		Where("contracts.active = ?", true).
+		Where("payments.status = ?", models.PaymentStatusPending).
+		Where("payments.due_date < CURRENT_DATE").
+		Select("COALESCE(SUM(payments.amount), 0) as total, COUNT(*) as count").
+		Scan(&overdue).Error; err != nil {
+		return nil, err
+	}
+	stats.Overdue = overdue.Total
+	stats.OverdueCount = overdue.Count
 
 	// Lots marked as reserved that never produced a contract.
 	if err := r.db.WithContext(ctx).

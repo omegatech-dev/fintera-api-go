@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -533,4 +534,145 @@ func TestLotService_Delete(t *testing.T) {
 
 	mockLotRepo.AssertExpectations(t)
 	mockProjRepo.AssertExpectations(t)
+}
+
+func TestProjectService_ImportCSVCreateAndSkipDuplicates(t *testing.T) {
+	ctx := context.Background()
+	mockProjRepo := new(mockProjectRepo)
+	mockLotRepo := new(mockLotRepo)
+
+	gdb, mockSQL := setupMockDB(t)
+	mockSQL.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	service := NewProjectService(mockProjRepo, mockLotRepo, NewAuditService(gdb))
+	existing := []models.Project{{ID: 4, GUID: "existing-guid", Name: "Existente", Code: stringPtr("DUP")}}
+	mockProjRepo.On("FindAll", ctx).Return(existing, nil)
+	mockProjRepo.On("Create", ctx, mock.AnythingOfType("*models.Project")).Return(nil)
+
+	records, err := ParseProjectCSV(strings.NewReader(
+		"name,code,address,price_per_square_unit\n" +
+			"Nuevo,NEW,Calle 1,100\n" +
+			"Duplicado,dup,Calle 2,200\n",
+	))
+	if err != nil {
+		t.Fatalf("ParseProjectCSV: %v", err)
+	}
+
+	result, err := service.ImportCSV(ctx, records, ProjectCSVOptions{SkipDuplicates: true}, 1)
+	if err != nil {
+		t.Fatalf("ImportCSV: %v", err)
+	}
+	assert.Equal(t, 1, result.Imported)
+	assert.Equal(t, 0, result.Updated)
+	assert.Equal(t, 1, result.Skipped)
+	assert.Empty(t, result.Errors)
+	mockProjRepo.AssertExpectations(t)
+}
+
+func TestProjectService_ImportCSVUpdatesExisting(t *testing.T) {
+	ctx := context.Background()
+	mockProjRepo := new(mockProjectRepo)
+	mockLotRepo := new(mockLotRepo)
+
+	gdb, mockSQL := setupMockDB(t)
+	mockSQL.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	service := NewProjectService(mockProjRepo, mockLotRepo, NewAuditService(gdb))
+	existing := &models.Project{
+		ID:                 4,
+		GUID:               "existing-guid",
+		Name:               "Viejo",
+		Address:            "Calle vieja",
+		Code:               stringPtr("DUP"),
+		LotCount:           9,
+		PricePerSquareUnit: 100,
+		MeasurementUnit:    "m2",
+		ProjectType:        "residential",
+		IsPublished:        true,
+		IsActive:           true,
+	}
+	mockProjRepo.On("FindAll", ctx).Return([]models.Project{*existing}, nil)
+	mockProjRepo.On("FindByID", ctx, uint(4)).Return(existing, nil)
+	mockProjRepo.On("Update", ctx, mock.MatchedBy(func(project *models.Project) bool {
+		return project.ID == 4 &&
+			project.Name == "Actualizado" &&
+			project.InterestRate == 5 &&
+			project.LotCount == 9 &&
+			project.GUID == "existing-guid"
+	})).Return(nil)
+
+	records, err := ParseProjectCSV(strings.NewReader(
+		"name,code,address,price_per_square_unit,interest_rate\n" +
+			"Actualizado,DUP,Calle nueva,100,5\n",
+	))
+	if err != nil {
+		t.Fatalf("ParseProjectCSV: %v", err)
+	}
+
+	result, err := service.ImportCSV(ctx, records, ProjectCSVOptions{UpdateExisting: true}, 1)
+	if err != nil {
+		t.Fatalf("ImportCSV: %v", err)
+	}
+	assert.Equal(t, 0, result.Imported)
+	assert.Equal(t, 1, result.Updated)
+	assert.Empty(t, result.Errors)
+	mockProjRepo.AssertExpectations(t)
+}
+
+func TestProjectService_ImportCSVSkipWinsOverUpdate(t *testing.T) {
+	ctx := context.Background()
+	mockProjRepo := new(mockProjectRepo)
+	mockLotRepo := new(mockLotRepo)
+	service := NewProjectService(mockProjRepo, mockLotRepo, nil)
+
+	existing := []models.Project{{ID: 4, GUID: "existing-guid", Name: "Existente", Code: stringPtr("DUP")}}
+	mockProjRepo.On("FindAll", ctx).Return(existing, nil)
+
+	records, err := ParseProjectCSV(strings.NewReader(
+		"name,code,address,price_per_square_unit\n" +
+			"Duplicado,DUP,Calle 2,200\n",
+	))
+	if err != nil {
+		t.Fatalf("ParseProjectCSV: %v", err)
+	}
+
+	result, err := service.ImportCSV(ctx, records, ProjectCSVOptions{UpdateExisting: true, SkipDuplicates: true}, 1)
+	if err != nil {
+		t.Fatalf("ImportCSV: %v", err)
+	}
+	assert.Equal(t, 1, result.Skipped)
+	mockProjRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+	mockProjRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+func TestProjectService_ImportCSVReportsRowErrors(t *testing.T) {
+	ctx := context.Background()
+	mockProjRepo := new(mockProjectRepo)
+	mockLotRepo := new(mockLotRepo)
+
+	gdb, mockSQL := setupMockDB(t)
+	mockSQL.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	service := NewProjectService(mockProjRepo, mockLotRepo, NewAuditService(gdb))
+	mockProjRepo.On("FindAll", ctx).Return([]models.Project{}, nil)
+	mockProjRepo.On("Create", ctx, mock.AnythingOfType("*models.Project")).Return(nil)
+
+	records, err := ParseProjectCSV(strings.NewReader(
+		"name,address,price_per_square_unit\n" +
+			"Válido,Calle 1,100\n" +
+			",Calle 2,200\n",
+	))
+	if err != nil {
+		t.Fatalf("ParseProjectCSV: %v", err)
+	}
+
+	result, err := service.ImportCSV(ctx, records, ProjectCSVOptions{}, 1)
+	if err != nil {
+		t.Fatalf("ImportCSV: %v", err)
+	}
+	assert.Equal(t, 1, result.Imported)
+	if assert.Len(t, result.Errors, 1) {
+		assert.Equal(t, 3, result.Errors[0].Row)
+		assert.Contains(t, result.Errors[0].Message, "name es obligatorio")
+	}
 }

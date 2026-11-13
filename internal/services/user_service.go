@@ -49,6 +49,12 @@ func (s *UserService) Stats(ctx context.Context) (map[string]int64, error) {
 	return s.repo.CountByRole(ctx)
 }
 
+// CountActiveClientsByCreator returns the number of active clients created by
+// each user in creatorIDs.
+func (s *UserService) CountActiveClientsByCreator(ctx context.Context, creatorIDs []uint) (map[uint]int64, error) {
+	return s.repo.CountActiveClientsByCreator(ctx, creatorIDs)
+}
+
 func (s *UserService) Create(ctx context.Context, user *models.User, password string, actorID uint) error {
 	user.Email = strings.ToLower(user.Email)
 

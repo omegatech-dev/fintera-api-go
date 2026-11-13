@@ -189,6 +189,10 @@ func (m *mockUserRepoForContract) CountByRole(ctx context.Context) (map[string]i
 	return map[string]int64{}, nil
 }
 
+func (m *mockUserRepoForContract) CountActiveClientsByCreator(ctx context.Context, creatorIDs []uint) (map[uint]int64, error) {
+	return map[uint]int64{}, nil
+}
+
 func (m *mockUserRepoForContract) FindAll(ctx context.Context) ([]models.User, error) {
 	args := m.Called(ctx)
 	return args.Get(0).([]models.User), args.Error(1)

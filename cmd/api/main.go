@@ -304,6 +304,7 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				admin.POST("/projects/:project_id/publish", h.Project.Publish)
 				admin.POST("/projects/:project_id/unpublish", h.Project.Unpublish)
 				admin.POST("/projects/import", h.Project.Import)
+				admin.GET("/projects/import/template", h.Project.ImportTemplate)
 
 				// Lot management (admin only)
 				admin.POST("/projects/:project_id/lots", h.Lot.Create)

@@ -47,6 +47,44 @@ func NewUserHandler(
 	}
 }
 
+// userResponse decorates the shared user payload with the number of active
+// clients created by that user. It is computed per listing instead of stored on
+// the model so every endpoint that embeds models.UserResponse stays unchanged.
+type userResponse struct {
+	models.UserResponse
+	ClientsCount *int64 `json:"clients_count"`
+}
+
+func newUserResponse(user *models.User, clientsCount *int64) userResponse {
+	return userResponse{
+		UserResponse: user.ToResponse(),
+		ClientsCount: clientsCount,
+	}
+}
+
+// clientsCounts returns nil when the count could not be computed so the API
+// sends clients_count: null (the UI renders "—") instead of inventing a zero.
+func (h *UserHandler) clientsCounts(ctx context.Context, users []models.User) map[uint]int64 {
+	ids := make([]uint, 0, len(users))
+	for _, user := range users {
+		ids = append(ids, user.ID)
+	}
+	counts, err := h.userService.CountActiveClientsByCreator(ctx, ids)
+	if err != nil {
+		logger.Warn("failed to count active clients by creator", "error", err)
+		return nil
+	}
+	return counts
+}
+
+func clientCountFor(counts map[uint]int64, userID uint) *int64 {
+	if counts == nil {
+		return nil
+	}
+	count := counts[userID]
+	return &count
+}
+
 // @Summary User statistics
 // @Description Count active users grouped by role.
 // @Tags Users
@@ -73,7 +111,7 @@ func (h *UserHandler) Stats(c *gin.Context) {
 }
 
 // @Summary List Users
-// @Description Get a paginated list of users
+// @Description Get a paginated list of users. Each user includes clients_count: the number of active clients (role=user) created by that user.
 // @Tags Users
 // @Accept json
 // @Produce json
@@ -122,9 +160,10 @@ func (h *UserHandler) Index(c *gin.Context) {
 		return
 	}
 
-	var responses []models.UserResponse
-	for _, u := range users {
-		responses = append(responses, u.ToResponse())
+	counts := h.clientsCounts(c.Request.Context(), users)
+	responses := make([]userResponse, 0, len(users))
+	for index := range users {
+		responses = append(responses, newUserResponse(&users[index], clientCountFor(counts, users[index].ID)))
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -139,7 +178,7 @@ func (h *UserHandler) Index(c *gin.Context) {
 }
 
 // @Summary Get User
-// @Description Get a user by ID
+// @Description Get a user by ID, including clients_count for the active clients they created.
 // @Tags Users
 // @Accept json
 // @Produce json
@@ -155,7 +194,8 @@ func (h *UserHandler) Show(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Usuario no encontrado"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"user": user.ToResponse()})
+	counts := h.clientsCounts(c.Request.Context(), []models.User{*user})
+	c.JSON(http.StatusOK, gin.H{"user": newUserResponse(user, clientCountFor(counts, user.ID))})
 }
 
 type CreateUserRequest struct {

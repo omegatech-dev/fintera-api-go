@@ -96,7 +96,7 @@ func (h *ContractHandler) Index(c *gin.Context) {
 }
 
 // @Summary Get Contract Stats
-// @Description Get contract count statistics (Total, Pending, Approved, Rejected)
+// @Description Get contract statistics: status counts plus active outstanding and overdue amounts.
 // @Tags Contracts
 // @Accept json
 // @Produce json

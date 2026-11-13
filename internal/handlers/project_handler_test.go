@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -439,3 +441,252 @@ func TestProjectHandler_Delete(t *testing.T) {
 		}
 	})
 }
+
+func importRequestContext(t *testing.T, csvBody string, options map[string]string, userID uint) (*gin.Context, *httptest.ResponseRecorder) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, err := writer.CreateFormFile("file", "projects.csv")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := part.Write([]byte(csvBody)); err != nil {
+		t.Fatalf("write CSV: %v", err)
+	}
+	for key, value := range options {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatalf("WriteField: %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodPost, "/", body)
+	context.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	context.Set("userID", userID)
+	return context, recorder
+}
+
+func decodeImportResult(t *testing.T, w *httptest.ResponseRecorder) struct {
+	Imported int `json:"imported"`
+	Updated  int `json:"updated"`
+	Skipped  int `json:"skipped"`
+	Errors   []struct {
+		Row     int    `json:"row"`
+		Message string `json:"message"`
+	} `json:"errors"`
+} {
+	t.Helper()
+	var payload struct {
+		Imported int `json:"imported"`
+		Updated  int `json:"updated"`
+		Skipped  int `json:"skipped"`
+		Errors   []struct {
+			Row     int    `json:"row"`
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode import result: %v (body %s)", err, w.Body.String())
+	}
+	return payload
+}
+
+func TestProjectHandler_ImportCreatesProjects(t *testing.T) {
+	repo := &projectRepoForHandlerTests{}
+	handler, mockDB := newProjectHandlerWithRepo(t, repo, &stubLotRepo{})
+	mockDB.MatchExpectationsInOrder(false)
+	mockDB.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	mockDB.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	csvBody := "name,address,price_per_square_unit,code,interest_rate\n" +
+		"Altos,Calle 1,100,ALT-1,5\n" +
+		"Bosques,Calle 2,200,BOS-1,0\n"
+	c, w := importRequestContext(t, csvBody, nil, 1)
+	handler.Import(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", w.Code, w.Body.String())
+	}
+	result := decodeImportResult(t, w)
+	if result.Imported != 2 || result.Updated != 0 || result.Skipped != 0 {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(result.Errors) != 0 {
+		t.Fatalf("errors = %+v", result.Errors)
+	}
+	if len(repo.created) != 2 {
+		t.Fatalf("created = %d, want 2", len(repo.created))
+	}
+	if repo.created[0].InterestRate != 5 || repo.created[0].Code == nil || *repo.created[0].Code != "ALT-1" {
+		t.Fatalf("first project = %+v", repo.created[0])
+	}
+}
+
+func TestProjectHandler_ImportSkipsDuplicates(t *testing.T) {
+	existing := models.Project{ID: 4, GUID: "existing-guid", Name: "Existente", Code: stringPointer("ALT-1")}
+	repo := &projectRepoForHandlerTests{list: []models.Project{existing}, project: &existing}
+	handler, mockDB := newProjectHandlerWithRepo(t, repo, &stubLotRepo{})
+	mockDB.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	csvBody := "name,address,price_per_square_unit,code\n" +
+		"Duplicado,Calle 1,100,alt-1\n" +
+		"Nuevo,Calle 2,200,NEW-1\n"
+	c, w := importRequestContext(t, csvBody, map[string]string{"skip_duplicates": "1"}, 1)
+	handler.Import(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", w.Code, w.Body.String())
+	}
+	result := decodeImportResult(t, w)
+	if result.Imported != 1 || result.Skipped != 1 || result.Updated != 0 {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(repo.created) != 1 {
+		t.Fatalf("created = %d, want 1", len(repo.created))
+	}
+}
+
+func TestProjectHandler_ImportUpdatesExisting(t *testing.T) {
+	existing := models.Project{
+		ID:                 4,
+		GUID:               "existing-guid",
+		Name:               "Viejo",
+		Address:            "Calle vieja",
+		Code:               stringPointer("ALT-1"),
+		LotCount:           5,
+		PricePerSquareUnit: 100,
+		MeasurementUnit:    "m2",
+		ProjectType:        "residential",
+		IsPublished:        true,
+		IsActive:           true,
+	}
+	repo := &projectRepoForHandlerTests{list: []models.Project{existing}, project: &existing}
+	handler, mockDB := newProjectHandlerWithRepo(t, repo, &stubLotRepo{})
+	mockDB.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	csvBody := "name,address,price_per_square_unit,code,interest_rate\n" +
+		"Actualizado,Calle nueva,100,ALT-1,5\n"
+	c, w := importRequestContext(t, csvBody, map[string]string{"update_existing": "1"}, 1)
+	handler.Import(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", w.Code, w.Body.String())
+	}
+	result := decodeImportResult(t, w)
+	if result.Updated != 1 || result.Imported != 0 {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(repo.updated) != 1 {
+		t.Fatalf("updated = %d, want 1", len(repo.updated))
+	}
+	updated := repo.updated[0]
+	if updated.Name != "Actualizado" || updated.InterestRate != 5 || updated.LotCount != 5 || updated.GUID != "existing-guid" {
+		t.Fatalf("updated project = %+v", updated)
+	}
+}
+
+func TestProjectHandler_ImportSkipWinsOverUpdate(t *testing.T) {
+	existing := models.Project{ID: 4, GUID: "existing-guid", Name: "Existente", Code: stringPointer("ALT-1")}
+	repo := &projectRepoForHandlerTests{list: []models.Project{existing}, project: &existing}
+	handler, _ := newProjectHandlerWithRepo(t, repo, &stubLotRepo{})
+
+	c, w := importRequestContext(t,
+		"name,address,price_per_square_unit,code\nDuplicado,Calle 1,100,ALT-1\n",
+		map[string]string{"update_existing": "1", "skip_duplicates": "1"}, 1)
+	handler.Import(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", w.Code, w.Body.String())
+	}
+	result := decodeImportResult(t, w)
+	if result.Skipped != 1 || result.Updated != 0 || result.Imported != 0 {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(repo.updated) != 0 || len(repo.created) != 0 {
+		t.Fatalf("updated/created = %d/%d, want 0/0", len(repo.updated), len(repo.created))
+	}
+}
+
+func TestProjectHandler_ImportReturns207ForInvalidRows(t *testing.T) {
+	repo := &projectRepoForHandlerTests{}
+	handler, mockDB := newProjectHandlerWithRepo(t, repo, &stubLotRepo{})
+	mockDB.ExpectQuery(`INSERT INTO "audit_logs"`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	csvBody := "name,address,price_per_square_unit\n" +
+		"Válido,Calle 1,100\n" +
+		",Calle 2,200\n" +
+		"Otro,Calle 3,no-es-numero\n"
+	c, w := importRequestContext(t, csvBody, nil, 1)
+	handler.Import(c)
+
+	if w.Code != http.StatusMultiStatus {
+		t.Fatalf("status = %d, want 207, body %s", w.Code, w.Body.String())
+	}
+	result := decodeImportResult(t, w)
+	if result.Imported != 1 || len(result.Errors) != 2 {
+		t.Fatalf("result = %+v", result)
+	}
+	if result.Errors[0].Row != 3 || result.Errors[1].Row != 4 {
+		t.Fatalf("error rows = %d/%d, want 3/4", result.Errors[0].Row, result.Errors[1].Row)
+	}
+}
+
+func TestProjectHandler_ImportRejectsMissingRequiredColumns(t *testing.T) {
+	repo := &projectRepoForHandlerTests{}
+	handler, _ := newProjectHandlerWithRepo(t, repo, &stubLotRepo{})
+
+	c, w := importRequestContext(t, "name,address\nAltos,Calle 1\n", nil, 1)
+	handler.Import(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "price_per_square_unit") {
+		t.Fatalf("body = %s", w.Body.String())
+	}
+	if len(repo.created) != 0 {
+		t.Fatalf("created = %d, want 0", len(repo.created))
+	}
+}
+
+func TestProjectHandler_ImportRequiresFile(t *testing.T) {
+	repo := &projectRepoForHandlerTests{}
+	handler, _ := newProjectHandlerWithRepo(t, repo, &stubLotRepo{})
+
+	c, w := projectRequestContext(http.MethodPost, "", nil, 1)
+	handler.Import(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body %s", w.Code, w.Body.String())
+	}
+}
+
+func TestProjectHandler_ImportTemplate(t *testing.T) {
+	handler, _ := newProjectHandlerWithRepo(t, &projectRepoForHandlerTests{}, &stubLotRepo{})
+
+	c, w := projectRequestContext(http.MethodGet, "", nil, 1)
+	handler.ImportTemplate(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", w.Code, w.Body.String())
+	}
+	if contentType := w.Header().Get("Content-Type"); !strings.Contains(contentType, "text/csv") {
+		t.Fatalf("content type = %q", contentType)
+	}
+	for _, header := range services.ProjectCSVCanonicalHeaders {
+		if !strings.Contains(w.Body.String(), header) {
+			t.Fatalf("template missing header %q", header)
+		}
+	}
+	if _, err := services.ParseProjectCSV(strings.NewReader(w.Body.String())); err != nil {
+		t.Fatalf("template cannot be parsed: %v", err)
+	}
+}
+
+func stringPointer(value string) *string { return &value }

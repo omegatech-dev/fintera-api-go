@@ -1,12 +1,32 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/sjperalta/fintera-api/internal/models"
+	"gorm.io/gorm"
 )
+
+type stubGeneralSettingsRepository struct {
+	row *models.GeneralSettings
+}
+
+func (r *stubGeneralSettingsRepository) Get(ctx context.Context) (*models.GeneralSettings, error) {
+	if r.row == nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return r.row, nil
+}
+
+func (r *stubGeneralSettingsRepository) Upsert(ctx context.Context, settings *models.GeneralSettings) error {
+	settings.ID = 1
+	stored := *settings
+	r.row = &stored
+	return nil
+}
 
 func TestValidateGeneralSettings(t *testing.T) {
 	valid := models.GeneralSettings{
@@ -182,5 +202,101 @@ func TestGeneralSettingsResponseFormatsDateAndNils(t *testing.T) {
 	}
 	if response.TermsContentEN != "" {
 		t.Errorf("expected empty english terms, got %q", response.TermsContentEN)
+	}
+}
+
+func TestSanitizeTermsContentKeepsAllowedFormatting(t *testing.T) {
+	input := `<h2>Título</h2><p><strong>Negrita</strong> y <em>cursiva</em> con ` +
+		`<a href="https://fintera.test/terminos">enlace</a>, <u>subrayado</u> y <s>tachado</s>.</p>` +
+		`<ul><li>Uno</li><li>Dos</li></ul><blockquote>Cita</blockquote>`
+	clean := sanitizeTermsContent(&input)
+	if clean == nil {
+		t.Fatal("expected sanitized content")
+	}
+	for _, expected := range []string{"<h2>Título</h2>", "<strong>Negrita</strong>", "<em>cursiva</em>", "<u>subrayado</u>", "<s>tachado</s>", "<ul>", "<blockquote>"} {
+		if !strings.Contains(*clean, expected) {
+			t.Errorf("sanitized content missing %q: %s", expected, *clean)
+		}
+	}
+	if !strings.Contains(*clean, `href="https://fintera.test/terminos"`) {
+		t.Errorf("allowed link removed: %s", *clean)
+	}
+}
+
+func TestSanitizeTermsContentDropsScriptsAndEventHandlers(t *testing.T) {
+	input := `<p onclick="steal()">Texto</p><script>alert("xss")</script>` +
+		`<img src="x" onerror="alert(1)">` +
+		`<a href="javascript:alert(1)">malicioso</a>`
+	clean := sanitizeTermsContent(&input)
+	if clean == nil {
+		t.Fatal("expected sanitized content")
+	}
+	lower := strings.ToLower(*clean)
+	for _, forbidden := range []string{"script", "onclick", "onerror", "javascript:", "<img"} {
+		if strings.Contains(lower, forbidden) {
+			t.Errorf("sanitized content still contains %q: %s", forbidden, *clean)
+		}
+	}
+	if !strings.Contains(*clean, "Texto") || !strings.Contains(*clean, "malicioso") {
+		t.Errorf("visible text was removed: %s", *clean)
+	}
+}
+
+func TestSanitizeTermsContentNormalizesEmptyMarkup(t *testing.T) {
+	empty := "<p><br></p>"
+	if clean := sanitizeTermsContent(&empty); clean != nil {
+		t.Errorf("empty markup = %v, want nil", *clean)
+	}
+	if clean := sanitizeTermsContent(nil); clean != nil {
+		t.Errorf("nil = %v, want nil", clean)
+	}
+}
+
+func TestValidateGeneralSettingsCountsVisibleTermsText(t *testing.T) {
+	visible := strings.Repeat("a", 20000)
+	withMarkup := "<p><strong>" + visible + "</strong></p>"
+	if len(withMarkup) <= 20000 {
+		t.Fatal("expected markup to exceed the raw HTML limit")
+	}
+	if err := validateGeneralSettings(&models.GeneralSettings{TermsContentES: &withMarkup, ReservationHoldHours: 48}); err != nil {
+		t.Fatalf("visible text at limit should be valid: %v", err)
+	}
+
+	tooLong := "<p>" + strings.Repeat("a", 20001) + "</p>"
+	if err := validateGeneralSettings(&models.GeneralSettings{TermsContentES: &tooLong, ReservationHoldHours: 48}); !errors.Is(err, ErrTermsContentTooLong) {
+		t.Errorf("error = %v, want %v", err, ErrTermsContentTooLong)
+	}
+}
+
+func TestUpdateSanitizesTermsBeforePersisting(t *testing.T) {
+	repo := &stubGeneralSettingsRepository{}
+	service := NewGeneralSettingsService(repo, nil)
+	unsafe := `<h2>Términos</h2><script>alert(1)</script><p onclick="x()"><strong>Seguro</strong></p>`
+	settings, err := service.Update(context.Background(), 1, models.GeneralSettings{
+		ReservationHoldHours: 48,
+		TermsContentES:       &unsafe,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if settings.TermsContentES == nil || strings.Contains(*settings.TermsContentES, "script") || strings.Contains(*settings.TermsContentES, "onclick") {
+		t.Errorf("unsafe content returned: %v", settings.TermsContentES)
+	}
+	if repo.row == nil || repo.row.TermsContentES == nil || !strings.Contains(*repo.row.TermsContentES, "<strong>Seguro</strong>") {
+		t.Errorf("unexpected persisted row: %+v", repo.row)
+	}
+}
+
+func TestSanitizeTermsContentPreservesLegacyPlainText(t *testing.T) {
+	legacy := "Primer párrafo con\rsalto.\n\nSegundo párrafo con 3 < 5."
+	clean := sanitizeTermsContent(&legacy)
+	if clean == nil {
+		t.Fatal("expected legacy content to survive sanitization")
+	}
+	if !strings.Contains(*clean, "Primer párrafo") || !strings.Contains(*clean, "Segundo párrafo") {
+		t.Errorf("legacy text lost: %q", *clean)
+	}
+	if !strings.Contains(*clean, "\n\n") {
+		t.Errorf("paragraph breaks lost: %q", *clean)
 	}
 }

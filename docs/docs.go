@@ -671,7 +671,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get contract count statistics (Total, Pending, Approved, Rejected)",
+                "description": "Get contract statistics: status counts plus active outstanding and overdue amounts.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1860,9 +1860,9 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Bulk import projects",
+                "description": "Bulk import projects from a CSV file (multipart/form-data field ` + "`" + `file` + "`" + `). Duplicates are matched by code or GUID. ` + "`" + `skip_duplicates` + "`" + ` wins over ` + "`" + `update_existing` + "`" + `.",
                 "consumes": [
-                    "application/json"
+                    "multipart/form-data"
                 ],
                 "produces": [
                     "application/json"
@@ -1873,23 +1873,70 @@ const docTemplate = `{
                 "summary": "Import Projects",
                 "parameters": [
                     {
-                        "description": "Projects Data",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handlers.ImportProjectRequest"
-                        }
+                        "type": "file",
+                        "description": "CSV file",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Update existing projects instead of creating them",
+                        "name": "update_existing",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Skip projects whose code or GUID already exists",
+                        "name": "skip_duplicates",
+                        "in": "formData"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
+                            "$ref": "#/definitions/services.ProjectImportResult"
+                        }
+                    },
+                    "207": {
+                        "description": "Import finished with row errors",
+                        "schema": {
+                            "$ref": "#/definitions/services.ProjectImportResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
                             "type": "object",
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/import/template": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Download the canonical CSV template accepted by the import endpoint",
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Download project import template",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
                         }
                     }
                 }
@@ -4536,7 +4583,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get a paginated list of users",
+                "description": "Get a paginated list of users. Each user includes clients_count: the number of active clients (role=user) created by that user.",
                 "consumes": [
                     "application/json"
                 ],
@@ -4791,7 +4838,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get a user by ID",
+                "description": "Get a user by ID, including clients_count for the active clients they created.",
                 "consumes": [
                     "application/json"
                 ],
@@ -5608,17 +5655,6 @@ const docTemplate = `{
                 },
                 "rtn": {
                     "type": "string"
-                }
-            }
-        },
-        "handlers.ImportProjectRequest": {
-            "type": "object",
-            "properties": {
-                "projects": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/models.Project"
-                    }
                 }
             }
         },
@@ -6923,11 +6959,26 @@ const docTemplate = `{
         "repository.ContractStats": {
             "type": "object",
             "properties": {
+                "active": {
+                    "type": "integer"
+                },
                 "approved": {
+                    "type": "integer"
+                },
+                "cancelled": {
+                    "type": "integer"
+                },
+                "overdue": {
+                    "type": "number"
+                },
+                "overdue_count": {
                     "type": "integer"
                 },
                 "pending": {
                     "type": "integer"
+                },
+                "pending_balance": {
+                    "type": "number"
                 },
                 "rejected": {
                     "type": "integer"
@@ -6997,6 +7048,37 @@ const docTemplate = `{
                 },
                 "user": {
                     "$ref": "#/definitions/models.UserResponse"
+                }
+            }
+        },
+        "services.ProjectImportResult": {
+            "type": "object",
+            "properties": {
+                "errors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/services.ProjectImportRowError"
+                    }
+                },
+                "imported": {
+                    "type": "integer"
+                },
+                "skipped": {
+                    "type": "integer"
+                },
+                "updated": {
+                    "type": "integer"
+                }
+            }
+        },
+        "services.ProjectImportRowError": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "row": {
+                    "type": "integer"
                 }
             }
         },

@@ -67,13 +67,6 @@ definitions:
     required:
     - email
     type: object
-  handlers.ImportProjectRequest:
-    properties:
-      projects:
-        items:
-          $ref: '#/definitions/models.Project'
-        type: array
-    type: object
   handlers.LoginRequest:
     properties:
       email:
@@ -934,10 +927,20 @@ definitions:
     type: object
   repository.ContractStats:
     properties:
+      active:
+        type: integer
       approved:
+        type: integer
+      cancelled:
+        type: integer
+      overdue:
+        type: number
+      overdue_count:
         type: integer
       pending:
         type: integer
+      pending_balance:
+        type: number
       rejected:
         type: integer
       reservations_without_contract:
@@ -983,6 +986,26 @@ definitions:
         type: string
       user:
         $ref: '#/definitions/models.UserResponse'
+    type: object
+  services.ProjectImportResult:
+    properties:
+      errors:
+        items:
+          $ref: '#/definitions/services.ProjectImportRowError'
+        type: array
+      imported:
+        type: integer
+      skipped:
+        type: integer
+      updated:
+        type: integer
+    type: object
+  services.ProjectImportRowError:
+    properties:
+      message:
+        type: string
+      row:
+        type: integer
     type: object
   services.RecentCustomer:
     properties:
@@ -1583,7 +1606,8 @@ paths:
     get:
       consumes:
       - application/json
-      description: Get contract count statistics (Total, Pending, Approved, Rejected)
+      description: 'Get contract statistics: status counts plus active outstanding
+        and overdue amounts.'
       produces:
       - application/json
       responses:
@@ -3432,20 +3456,37 @@ paths:
   /projects/import:
     post:
       consumes:
-      - application/json
-      description: Bulk import projects
+      - multipart/form-data
+      description: Bulk import projects from a CSV file (multipart/form-data field
+        `file`). Duplicates are matched by code or GUID. `skip_duplicates` wins over
+        `update_existing`.
       parameters:
-      - description: Projects Data
-        in: body
-        name: request
+      - description: CSV file
+        in: formData
+        name: file
         required: true
-        schema:
-          $ref: '#/definitions/handlers.ImportProjectRequest'
+        type: file
+      - description: Update existing projects instead of creating them
+        in: formData
+        name: update_existing
+        type: boolean
+      - description: Skip projects whose code or GUID already exists
+        in: formData
+        name: skip_duplicates
+        type: boolean
       produces:
       - application/json
       responses:
         "200":
           description: OK
+          schema:
+            $ref: '#/definitions/services.ProjectImportResult'
+        "207":
+          description: Import finished with row errors
+          schema:
+            $ref: '#/definitions/services.ProjectImportResult'
+        "400":
+          description: Bad Request
           schema:
             additionalProperties:
               type: string
@@ -3453,6 +3494,21 @@ paths:
       security:
       - BearerAuth: []
       summary: Import Projects
+      tags:
+      - Projects
+  /projects/import/template:
+    get:
+      description: Download the canonical CSV template accepted by the import endpoint
+      produces:
+      - text/csv
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      security:
+      - BearerAuth: []
+      summary: Download project import template
       tags:
       - Projects
   /public/projects:
@@ -3941,7 +3997,8 @@ paths:
     get:
       consumes:
       - application/json
-      description: Get a paginated list of users
+      description: 'Get a paginated list of users. Each user includes clients_count:
+        the number of active clients (role=user) created by that user.'
       parameters:
       - default: 1
         description: Page number
@@ -4041,7 +4098,8 @@ paths:
     get:
       consumes:
       - application/json
-      description: Get a user by ID
+      description: Get a user by ID, including clients_count for the active clients
+        they created.
       parameters:
       - description: User ID
         in: path

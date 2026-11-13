@@ -200,3 +200,34 @@ func TestGeneralSettingsUpdateRejectsInvalidFields(t *testing.T) {
 		})
 	}
 }
+
+func TestGeneralSettingsUpdateSanitizesTermsHTML(t *testing.T) {
+	repo := &stubGeneralSettingsRepo{}
+	r := generalSettingsTestRouter(services.NewGeneralSettingsService(repo, nil))
+
+	payload := `{"settings": {
+		"reservation_hold_hours": 48,
+		"terms_content_es": "<h2>Términos</h2><p><strong>Negrita</strong> y <a href=\"https://fintera.test\">enlace</a></p><script>alert(1)</script><img src=x onerror=\"alert(1)\">"
+	}}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", bytes.NewBufferString(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	settings := decodeSettingsResponse(t, rec)
+	if !strings.Contains(settings.TermsContentES, "<h2>Términos</h2>") || !strings.Contains(settings.TermsContentES, "<strong>Negrita</strong>") {
+		t.Errorf("allowed formatting was removed: %q", settings.TermsContentES)
+	}
+	lower := strings.ToLower(settings.TermsContentES)
+	for _, forbidden := range []string{"script", "onerror", "<img"} {
+		if strings.Contains(lower, forbidden) {
+			t.Errorf("response still contains %q: %q", forbidden, settings.TermsContentES)
+		}
+	}
+	if repo.row == nil || repo.row.TermsContentES == nil || strings.Contains(*repo.row.TermsContentES, "script") {
+		t.Errorf("unexpected persisted row: %+v", repo.row)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/sjperalta/fintera-api/internal/repository"
 	"github.com/sjperalta/fintera-api/internal/services"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateUserRequestBinding(t *testing.T) {
@@ -91,9 +93,10 @@ func TestCreateUserRequestBinding(t *testing.T) {
 
 type mockUserRepo struct {
 	repository.UserRepository
-	mockList     func(ctx context.Context, query *repository.ListQuery) ([]models.User, int64, error)
-	mockFindByID func(ctx context.Context, id uint) (*models.User, error)
-	mockUpdate   func(ctx context.Context, user *models.User) error
+	mockList        func(ctx context.Context, query *repository.ListQuery) ([]models.User, int64, error)
+	mockFindByID    func(ctx context.Context, id uint) (*models.User, error)
+	mockUpdate      func(ctx context.Context, user *models.User) error
+	mockClientCount func(ctx context.Context, creatorIDs []uint) (map[uint]int64, error)
 }
 
 func (m *mockUserRepo) List(ctx context.Context, query *repository.ListQuery) ([]models.User, int64, error) {
@@ -115,6 +118,13 @@ func (m *mockUserRepo) Update(ctx context.Context, user *models.User) error {
 		return m.mockUpdate(ctx, user)
 	}
 	return nil
+}
+
+func (m *mockUserRepo) CountActiveClientsByCreator(ctx context.Context, creatorIDs []uint) (map[uint]int64, error) {
+	if m.mockClientCount != nil {
+		return m.mockClientCount(ctx, creatorIDs)
+	}
+	return map[uint]int64{}, nil
 }
 
 func TestUserHandler_Index_DefaultStatus(t *testing.T) {
@@ -150,6 +160,104 @@ func TestUserHandler_Index_DefaultStatus(t *testing.T) {
 	c.Request, _ = http.NewRequest("GET", "/users?status=inactive", nil)
 	handler.Index(c)
 	assert.Equal(t, "inactive", capturedStatus)
+}
+
+func TestUserHandler_Index_IncludesClientsCount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockRepo := &mockUserRepo{}
+	var countedIDs []uint
+	mockRepo.mockList = func(context.Context, *repository.ListQuery) ([]models.User, int64, error) {
+		return []models.User{
+			{ID: 10, FullName: "Seller One", Role: models.RoleSeller},
+			{ID: 11, FullName: "Seller Two", Role: models.RoleSeller},
+		}, 2, nil
+	}
+	mockRepo.mockClientCount = func(_ context.Context, creatorIDs []uint) (map[uint]int64, error) {
+		countedIDs = creatorIDs
+		return map[uint]int64{10: 3}, nil
+	}
+
+	userService := services.NewUserService(mockRepo, nil, nil, nil, nil, nil)
+	handler := NewUserHandler(userService, nil, nil, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/users", nil)
+	handler.Index(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.ElementsMatch(t, []uint{10, 11}, countedIDs)
+
+	var payload struct {
+		Users []struct {
+			ID           uint  `json:"id"`
+			ClientsCount int64 `json:"clients_count"`
+		} `json:"users"`
+	}
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	assert.Len(t, payload.Users, 2)
+	assert.Equal(t, int64(3), payload.Users[0].ClientsCount)
+	assert.Equal(t, int64(0), payload.Users[1].ClientsCount)
+}
+
+func TestUserHandler_Index_ClientsCountNullOnFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockRepo := &mockUserRepo{}
+	mockRepo.mockList = func(context.Context, *repository.ListQuery) ([]models.User, int64, error) {
+		return []models.User{{ID: 20, Role: models.RoleSeller}}, 1, nil
+	}
+	mockRepo.mockClientCount = func(context.Context, []uint) (map[uint]int64, error) {
+		return nil, errors.New("count failed")
+	}
+
+	userService := services.NewUserService(mockRepo, nil, nil, nil, nil, nil)
+	handler := NewUserHandler(userService, nil, nil, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/users", nil)
+	handler.Index(c)
+
+	var payload struct {
+		Users []struct {
+			ClientsCount *int64 `json:"clients_count"`
+		} `json:"users"`
+	}
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	require.Len(t, payload.Users, 1)
+	assert.Nil(t, payload.Users[0].ClientsCount)
+}
+
+func TestUserHandler_Show_IncludesClientsCount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockRepo := &mockUserRepo{}
+	mockRepo.mockFindByID = func(context.Context, uint) (*models.User, error) {
+		return &models.User{ID: 4, FullName: "Seller", Role: models.RoleSeller}, nil
+	}
+	mockRepo.mockClientCount = func(context.Context, []uint) (map[uint]int64, error) {
+		return map[uint]int64{4: 7}, nil
+	}
+
+	userService := services.NewUserService(mockRepo, nil, nil, nil, nil, nil)
+	handler := NewUserHandler(userService, nil, nil, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("GET", "/users/4", nil)
+	c.Params = []gin.Param{{Key: "user_id", Value: "4"}}
+	handler.Show(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var payload struct {
+		User struct {
+			ClientsCount int64 `json:"clients_count"`
+		} `json:"user"`
+	}
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	assert.Equal(t, int64(7), payload.User.ClientsCount)
 }
 
 func TestUploadProfilePicture(t *testing.T) {

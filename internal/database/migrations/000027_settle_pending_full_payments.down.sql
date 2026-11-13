@@ -1,0 +1,3 @@
+-- Data repair only: the previous pending state mixed rows settled by a
+-- capital repayment with rows waiting for a receipt, so it cannot be restored
+-- safely.

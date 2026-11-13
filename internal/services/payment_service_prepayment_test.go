@@ -68,6 +68,101 @@ func TestPaymentService_applyToPendingInstallments(t *testing.T) {
 		assert.NoError(t, err)
 		repo.AssertNotCalled(t, "FindByContract", mock.Anything, mock.Anything)
 	})
+
+	t.Run("marks a fully covered full payment as paid", func(t *testing.T) {
+		repo := new(mockPaymentRepo)
+		service := &PaymentService{repo: repo}
+
+		current := &models.Payment{ID: 1, ContractID: 7, Status: models.PaymentStatusSubmitted}
+		pending := []models.Payment{
+			{
+				ID:          2,
+				ContractID:  7,
+				Amount:      95000,
+				Status:      models.PaymentStatusPending,
+				PaymentType: models.PaymentTypeFull,
+			},
+		}
+
+		repo.On("FindByContract", ctx, uint(7)).Return(pending, nil)
+		repo.On("Update", ctx, mock.MatchedBy(func(payment *models.Payment) bool {
+			return payment.ID == 2 &&
+				payment.Status == models.PaymentStatusPaid &&
+				payment.PaidAmount != nil && *payment.PaidAmount == 0 &&
+				payment.PaymentDate != nil && payment.ApprovedAt != nil
+		})).Return(nil)
+
+		err := service.applyToPendingInstallments(ctx, current, 95000)
+
+		assert.NoError(t, err)
+		repo.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("reduces a partially covered full payment and keeps it pending", func(t *testing.T) {
+		repo := new(mockPaymentRepo)
+		service := &PaymentService{repo: repo}
+
+		current := &models.Payment{ID: 1, ContractID: 7, Status: models.PaymentStatusSubmitted}
+		pending := []models.Payment{
+			{
+				ID:          2,
+				ContractID:  7,
+				Amount:      95000,
+				Status:      models.PaymentStatusPending,
+				PaymentType: models.PaymentTypeFull,
+			},
+		}
+
+		repo.On("FindByContract", ctx, uint(7)).Return(pending, nil)
+		repo.On("Update", ctx, mock.MatchedBy(func(payment *models.Payment) bool {
+			return payment.ID == 2 &&
+				payment.Status == models.PaymentStatusPending &&
+				payment.Amount == 65000
+		})).Return(nil)
+
+		err := service.applyToPendingInstallments(ctx, current, 30000)
+
+		assert.NoError(t, err)
+		repo.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("settles the reservation when the repayment covers the whole debt", func(t *testing.T) {
+		repo := new(mockPaymentRepo)
+		service := &PaymentService{repo: repo}
+
+		current := &models.Payment{ID: 1, ContractID: 7, Status: models.PaymentStatusSubmitted}
+		pending := []models.Payment{
+			{
+				ID:          2,
+				ContractID:  7,
+				Amount:      5000,
+				Status:      models.PaymentStatusPending,
+				PaymentType: models.PaymentTypeReservation,
+			},
+			{
+				ID:          3,
+				ContractID:  7,
+				Amount:      95000,
+				Status:      models.PaymentStatusPending,
+				PaymentType: models.PaymentTypeFull,
+			},
+		}
+
+		repo.On("FindByContract", ctx, uint(7)).Return(pending, nil)
+		repo.On("Update", ctx, mock.MatchedBy(func(payment *models.Payment) bool {
+			return payment.ID == 3 && payment.Status == models.PaymentStatusPaid
+		})).Return(nil).Once()
+		repo.On("Update", ctx, mock.MatchedBy(func(payment *models.Payment) bool {
+			return payment.ID == 2 && payment.Status == models.PaymentStatusPaid
+		})).Return(nil).Once()
+
+		err := service.applyToPendingInstallments(ctx, current, 100000)
+
+		assert.NoError(t, err)
+		repo.AssertExpectations(t)
+	})
 }
 
 func TestPaymentService_ApproveCapitalRepayment(t *testing.T) {

@@ -637,8 +637,9 @@ func (s *ContractService) CreatePrepaymentRequest(ctx context.Context, contractG
 	return prepayment, nil
 }
 
-// CapitalRepayment applies a capital repayment to the contract, marking pending installments as paid
-// and adjusting the last partially covered installment.
+// CapitalRepayment applies a capital repayment to the contract, reducing the
+// pending obligations from the end of the schedule and settling the terminal
+// balance when the repayment covers it.
 func (s *ContractService) CapitalRepayment(ctx context.Context, id uint, amount float64, actorID uint, ip, userAgent string) error {
 	if amount <= 0 {
 		return fmt.Errorf("repayment amount must be greater than 0")
@@ -653,6 +654,20 @@ func (s *ContractService) CapitalRepayment(ctx context.Context, id uint, amount 
 	// Check contract is approved
 	if contract.Status != models.ContractStatusApproved {
 		return fmt.Errorf("can only apply capital repayment to approved contracts")
+	}
+
+	// The ledger is authoritative: never credit more than the outstanding debt
+	// or the schedule and the balance would disagree.
+	balance, err := s.ledgerRepo.CalculateBalance(ctx, contract.ID)
+	if err != nil {
+		return fmt.Errorf("failed to calculate balance: %w", err)
+	}
+	outstanding := -balance
+	if outstanding <= capitalRepaymentEpsilon {
+		return fmt.Errorf("el contrato no tiene saldo pendiente")
+	}
+	if amount > outstanding+capitalRepaymentEpsilon {
+		return fmt.Errorf("el abono no puede superar el saldo pendiente de L%.2f", outstanding)
 	}
 
 	// 2. Create Payment record for the repayment (to show in schedule/history)
@@ -686,50 +701,14 @@ func (s *ContractService) CapitalRepayment(ctx context.Context, id uint, amount 
 		return fmt.Errorf("failed to create ledger entry: %w", err)
 	}
 
-	// 4. Process pending installment payments (Strategy: Reduce Term - Delete from end)
-	remainingAmount := amount
-	payments := contract.Payments
-
-	// Filter for actionable installments
-	var targets []*models.Payment
-	for i := range payments {
-		p := &payments[i]
-		if p.PaymentType == models.PaymentTypeInstallment && (p.Status == models.PaymentStatusPending || p.Status == models.PaymentStatusSubmitted) {
-			targets = append(targets, p)
-		}
+	// 4. Distribute the repayment over the pending obligations. Future
+	// installments are removed or reduced, while the full balance (cash/bank
+	// contracts) is marked as paid once covered.
+	if _, err := applyCapitalToSchedule(ctx, s.paymentRepo, contract.ID, repaymentPayment.ID, amount); err != nil {
+		return err
 	}
 
-	// Iterate backwards (last payments first)
-	for i := len(targets) - 1; i >= 0 && remainingAmount > 0; i-- {
-		target := targets[i]
-
-		// Apply capital payment ONLY to Principal (Amount)
-		// We do not pay off future interest with capital payments; we simply delete the principal obligation.
-		targetAmount := target.Amount
-
-		if remainingAmount >= targetAmount {
-			// Fully covered - DELETE the payment to shorten term
-			if err := s.paymentRepo.Delete(ctx, target.ID); err != nil {
-				return fmt.Errorf("failed to delete payment #%d: %w", target.ID, err)
-			}
-			remainingAmount -= targetAmount
-		} else {
-			// Partially covered - Reduce amount
-			target.Amount -= remainingAmount
-			desc := fmt.Sprintf("Ajustado por abono a capital de L%.2f", remainingAmount)
-			if target.Description != nil {
-				desc = fmt.Sprintf("%s (%s)", *target.Description, desc)
-			}
-			target.Description = &desc
-
-			if err := s.paymentRepo.Update(ctx, target); err != nil {
-				return fmt.Errorf("failed to update payment #%d: %w", target.ID, err)
-			}
-			remainingAmount = 0
-		}
-	}
-
-	// 4. Update contract balance and lot status if needed
+	// 5. Update contract balance and lot status if needed
 	s.worker.EnqueueAsync(func(ctx context.Context) error {
 		// Calculate current balance
 		balance, err := s.ledgerRepo.CalculateBalance(ctx, contract.ID)
@@ -754,7 +733,7 @@ func (s *ContractService) CapitalRepayment(ctx context.Context, id uint, amount 
 		return nil
 	})
 
-	// 5. Audit log
+	// 6. Audit log
 	logIgnoredError("write capital repayment audit log", s.auditSvc.Log(ctx, actorID, "CAPITAL_REPAYMENT", "Contract", contract.ID,
 		fmt.Sprintf("Abono a capital de L%.2f aplicado al contrato #%d", amount, contract.ID), ip, userAgent))
 

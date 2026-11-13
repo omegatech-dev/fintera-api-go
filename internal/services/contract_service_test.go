@@ -536,6 +536,43 @@ func TestContractService_CapitalRepayment_RequiresApprovedContract(t *testing.T)
 	ledgerRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
+func TestContractService_CapitalRepayment_RejectsAmountAboveBalance(t *testing.T) {
+	logger.Setup("test")
+	ctx := context.Background()
+	service, contractRepo, paymentRepo, ledgerRepo := newPrepaymentService()
+
+	contractRepo.On("FindByIDWithDetails", ctx, uint(7)).Return(&models.Contract{
+		ID:     7,
+		Status: models.ContractStatusApproved,
+	}, nil)
+	ledgerRepo.On("CalculateBalance", ctx, uint(7)).Return(-1000.0, nil)
+
+	err := service.CapitalRepayment(ctx, 7, 1500, 1, "", "")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "superar el saldo")
+	paymentRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+	ledgerRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+func TestContractService_CapitalRepayment_RejectsContractWithoutBalance(t *testing.T) {
+	logger.Setup("test")
+	ctx := context.Background()
+	service, contractRepo, paymentRepo, ledgerRepo := newPrepaymentService()
+
+	contractRepo.On("FindByIDWithDetails", ctx, uint(7)).Return(&models.Contract{
+		ID:     7,
+		Status: models.ContractStatusApproved,
+	}, nil)
+	ledgerRepo.On("CalculateBalance", ctx, uint(7)).Return(0.0, nil)
+
+	err := service.CapitalRepayment(ctx, 7, 1000, 1, "", "")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no tiene saldo pendiente")
+	paymentRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
 func TestContractService_CreatePrepaymentRequest(t *testing.T) {
 	logger.Setup("test")
 	ctx := context.Background()

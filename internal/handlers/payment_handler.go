@@ -264,6 +264,13 @@ func (h *PaymentHandler) UploadReceipt(c *gin.Context) {
 		return
 	}
 
+	// Validate before writing the file so a settled contract does not leave an
+	// orphan receipt in storage.
+	if err := h.paymentService.ValidateReceiptUpload(c.Request.Context(), payment); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
+	}
+
 	file, header, err := c.Request.FormFile("receipt")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Archivo requerido"})

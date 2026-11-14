@@ -162,6 +162,7 @@ func (s *ReferralService) signature(payload string) string {
 
 // AttributionCookie builds the signed cookie for a resolved visit.
 func (s *ReferralService) AttributionCookie(guid string, now time.Time) *http.Cookie {
+	// #nosec G124 -- Secure is enforced in production (s.secure); HttpOnly and SameSite are always set.
 	return &http.Cookie{
 		Name:     ReferralAttributionCookieName,
 		Value:    s.SignAttribution(guid, now),
@@ -176,6 +177,7 @@ func (s *ReferralService) AttributionCookie(guid string, now time.Time) *http.Co
 
 // ClearedAttributionCookie expires the attribution after a reservation uses it.
 func (s *ReferralService) ClearedAttributionCookie() *http.Cookie {
+	// #nosec G124 -- Secure is enforced in production (s.secure); HttpOnly and SameSite are always set.
 	return &http.Cookie{
 		Name:     ReferralAttributionCookieName,
 		Value:    "",

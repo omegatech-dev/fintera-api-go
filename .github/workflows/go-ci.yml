@@ -125,7 +125,7 @@ jobs:
         repo-checkout: false
         go-version-file: 'go.mod'
         check-latest: false
-        cache: true
+        cache: false
         go-package: ./...
 
   migrations:

@@ -190,6 +190,14 @@ func (c *Contract) CommissionDate() *time.Time {
 }
 
 // ContractResponse is the JSON response format for contracts
+// SellerContactResponse is the public contact card of the assigned seller. It
+// is safe to expose to the customer: it carries no commission or score data.
+type SellerContactResponse struct {
+	Name  string `json:"name"`
+	Phone string `json:"phone"`
+	Email string `json:"email"`
+}
+
 type ContractResponse struct {
 	ID                     uint                          `json:"id"`
 	ContractID             uint                          `json:"contract_id"`
@@ -236,6 +244,7 @@ type ContractResponse struct {
 	CommissionAccrualDate  *time.Time                    `json:"commission_accrual_date"`
 	Seller                 string                        `json:"seller"`
 	SellerID               *uint                         `json:"seller_id"`
+	SellerContact          *SellerContactResponse        `json:"seller_contact,omitempty"`
 	AssignmentOrigin       string                        `json:"assignment_origin"`
 	AssignmentStatus       string                        `json:"assignment_status"`
 	AssignedAt             *time.Time                    `json:"assigned_at"`
@@ -268,7 +277,8 @@ func (c ContractResponse) RedactForCustomer() ContractResponse {
 	c.CommissionPaidBy = nil
 	c.CommissionOrigin = ""
 	c.CommissionAccrualDate = nil
-	c.Seller = ""
+	// Seller and SellerContact stay: the customer needs to know who is
+	// assisting them. Internal IDs and assignment timing are removed below.
 	c.SellerID = nil
 	c.AssignmentOrigin = ""
 	c.AssignmentStatus = ""
@@ -384,6 +394,11 @@ func (c *Contract) ToResponse() ContractResponse {
 	resp.ReferralGUID = c.ReferralGUID
 	if c.Seller != nil {
 		resp.Seller = c.Seller.FullName
+		resp.SellerContact = &SellerContactResponse{
+			Name:  c.Seller.FullName,
+			Phone: c.Seller.Phone,
+			Email: c.Seller.Email,
+		}
 	}
 
 	// Add payment schedule

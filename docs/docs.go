@@ -7373,6 +7373,9 @@ const docTemplate = `{
                 "seller": {
                     "type": "string"
                 },
+                "seller_contact": {
+                    "$ref": "#/definitions/models.SellerContactResponse"
+                },
                 "seller_id": {
                     "type": "integer"
                 },
@@ -8075,6 +8078,20 @@ const docTemplate = `{
                 },
                 "visits": {
                     "type": "integer"
+                }
+            }
+        },
+        "models.SellerContactResponse": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "phone": {
+                    "type": "string"
                 }
             }
         },

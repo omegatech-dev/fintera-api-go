@@ -256,6 +256,15 @@ func (h *ContractHandler) CreateGuest(c *gin.Context) {
 func (h *ContractHandler) create(c *gin.Context, lotID uint, guest bool) {
 	creatorID := middleware.GetUserID(c)
 
+	// Admins and sellers administer the marketplace; they must not create a
+	// reservation as a customer from the public portal.
+	if guest {
+		if role := middleware.GetUserRole(c); creatorID > 0 && role != "" && role != models.RoleUser {
+			c.JSON(http.StatusForbidden, gin.H{"error": "No puedes reservar desde el portal con una cuenta de administrador o vendedor"})
+			return
+		}
+	}
+
 	// 2. Parse Form Data
 	if err := c.Request.ParseMultipartForm(32 << 20); err != nil { // 32MB max
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Error parsing form data: " + err.Error()})

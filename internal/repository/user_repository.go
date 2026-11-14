@@ -14,6 +14,7 @@ import (
 // UserRepository defines the interface for user data access
 type UserRepository interface {
 	FindByID(ctx context.Context, id uint) (*models.User, error)
+	FindByIDs(ctx context.Context, ids []uint) ([]models.User, error)
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
 	FindByIdentity(ctx context.Context, identity string) (*models.User, error)
 	Create(ctx context.Context, user *models.User) error
@@ -102,6 +103,17 @@ func (r *userRepository) FindByID(ctx context.Context, id uint) (*models.User, e
 		return nil, err
 	}
 	return &user, nil
+}
+
+func (r *userRepository) FindByIDs(ctx context.Context, ids []uint) ([]models.User, error) {
+	if len(ids) == 0 {
+		return []models.User{}, nil
+	}
+	var users []models.User
+	err := r.db.WithContext(ctx).
+		Where("id IN ? AND discarded_at IS NULL", ids).
+		Find(&users).Error
+	return users, err
 }
 
 func (r *userRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {

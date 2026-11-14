@@ -19,6 +19,8 @@ type UserService struct {
 	emailService *EmailService
 	auditSvc     *AuditService
 	imageService *ImageService
+	sellerSvc    *SellerService
+	scoreSvc     *ScoreService
 }
 
 func NewUserService(repo repository.UserRepository, contractRepo repository.ContractRepository, worker *jobs.Worker, emailService *EmailService, auditSvc *AuditService, imageService *ImageService) *UserService {
@@ -30,6 +32,29 @@ func NewUserService(repo repository.UserRepository, contractRepo repository.Cont
 		auditSvc:     auditSvc,
 		imageService: imageService,
 	}
+}
+
+// SetSellerService wires referral GUID generation for sellers.
+func (s *UserService) SetSellerService(sellerSvc *SellerService) {
+	s.sellerSvc = sellerSvc
+}
+
+// SetScoreService wires the acceptance-score breakdown used by the user list
+// and detail payloads.
+func (s *UserService) SetScoreService(scoreSvc *ScoreService) {
+	s.scoreSvc = scoreSvc
+}
+
+// ScoreMetrics returns the accepted/expired breakdown for the given users.
+func (s *UserService) ScoreMetrics(ctx context.Context, userIDs []uint) (map[uint]models.ScoreMetrics, error) {
+	if s.scoreSvc == nil {
+		metrics := make(map[uint]models.ScoreMetrics, len(userIDs))
+		for _, id := range userIDs {
+			metrics[id] = models.EmptyScoreMetrics()
+		}
+		return metrics, nil
+	}
+	return s.scoreSvc.MetricsForUsers(ctx, userIDs)
 }
 
 func (s *UserService) FindByID(ctx context.Context, id uint) (*models.User, error) {
@@ -78,6 +103,9 @@ func (s *UserService) Create(ctx context.Context, user *models.User, password st
 	if err := s.repo.Create(ctx, user); err != nil {
 		return err
 	}
+	if s.sellerSvc != nil {
+		logIgnoredError("assign seller referral GUID", s.sellerSvc.EnsureReferralGUID(ctx, user))
+	}
 	if err := s.emailService.SendAccountCreated(ctx, user, tempPassword); err != nil {
 		// Log but don't fail user creation; welcome email is best-effort
 		_ = err
@@ -88,6 +116,9 @@ func (s *UserService) Create(ctx context.Context, user *models.User, password st
 func (s *UserService) Update(ctx context.Context, user *models.User, actorID uint) error {
 	if err := s.repo.Update(ctx, user); err != nil {
 		return err
+	}
+	if s.sellerSvc != nil && user.IsSeller() {
+		logIgnoredError("assign seller referral GUID", s.sellerSvc.EnsureReferralGUID(ctx, user))
 	}
 	return s.auditSvc.Log(ctx, actorID, "UPDATE", "User", user.ID, fmt.Sprintf("Usuario actualizado: %s", user.Email), "", "")
 }

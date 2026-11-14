@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +26,9 @@ type ContractService struct {
 	auditSvc        *AuditService
 	worker          *jobs.Worker
 	paymentSchedule *PaymentScheduleService
+	referralSvc     *ReferralService
+	assignmentSvc   *AssignmentService
+	commissionSvc   *CommissionService
 }
 
 func NewContractService(
@@ -49,6 +54,151 @@ func NewContractService(
 		worker:          worker,
 		paymentSchedule: NewPaymentScheduleService(),
 	}
+}
+
+// SetAssignmentServices wires the referral and assignment services after
+// construction. Keeping it as a setter preserves the existing constructor
+// used by focused unit tests.
+func (s *ContractService) SetAssignmentServices(referral *ReferralService, assignment *AssignmentService) {
+	s.referralSvc = referral
+	s.assignmentSvc = assignment
+}
+
+// SetCommissionService wires the commission-rate resolver. Keeping it as a
+// setter preserves the constructor used by focused unit tests.
+func (s *ContractService) SetCommissionService(commission *CommissionService) {
+	s.commissionSvc = commission
+}
+
+// ContractAssignmentInput carries the assignment-related reservation fields
+// parsed from the create request.
+type ContractAssignmentInput struct {
+	Origin            string
+	SellerID          *uint
+	ReferralGUID      string
+	AttributionCookie string
+}
+
+// CreateWithAssignment resolves the referral attribution and the requested
+// seller, persists the contract and then materializes the assignment.
+func (s *ContractService) CreateWithAssignment(ctx context.Context, contract *models.Contract, input ContractAssignmentInput) error {
+	now := time.Now()
+	origin := normalizeAssignmentOrigin(input.Origin)
+
+	var attributedSeller *models.User
+	var referralGUID string
+	if s.referralSvc != nil {
+		attributedSeller, referralGUID, _ = s.referralSvc.ResolveAttribution(ctx, input.ReferralGUID, input.AttributionCookie, now)
+	}
+
+	switch {
+	case attributedSeller != nil:
+		contract.SellerID = &attributedSeller.ID
+		contract.ReferralGUID = &referralGUID
+		contract.AssignmentOrigin = models.AssignmentOriginReferral
+		contract.AssignmentStatus = models.AssignmentStatusAccepted
+		contract.AssignedAt = &now
+		contract.RespondedAt = &now
+	case origin == models.AssignmentOriginReferral:
+		if input.SellerID != nil {
+			seller, err := s.ValidateAssignmentSeller(ctx, *input.SellerID)
+			if err != nil {
+				return err
+			}
+			contract.SellerID = &seller.ID
+			contract.AssignmentOrigin = models.AssignmentOriginReferral
+			contract.AssignmentStatus = models.AssignmentStatusAccepted
+			contract.AssignedAt = &now
+			contract.RespondedAt = &now
+		} else {
+			contract.AssignmentOrigin = models.AssignmentOriginAutomatic
+			contract.AssignmentStatus = models.AssignmentStatusNone
+		}
+	case origin == models.AssignmentOriginManual && input.SellerID != nil:
+		seller, err := s.ValidateAssignmentSeller(ctx, *input.SellerID)
+		if err != nil {
+			return err
+		}
+		deadline := s.assignmentDeadline(ctx, now)
+		contract.SellerID = &seller.ID
+		contract.AssignmentOrigin = models.AssignmentOriginManual
+		contract.AssignmentStatus = models.AssignmentStatusPending
+		contract.AssignedAt = &now
+		contract.AcceptDeadlineAt = &deadline
+	case origin == "" && input.SellerID != nil:
+		seller, err := s.ValidateAssignmentSeller(ctx, *input.SellerID)
+		if err != nil {
+			return err
+		}
+		deadline := s.assignmentDeadline(ctx, now)
+		contract.SellerID = &seller.ID
+		contract.AssignmentOrigin = models.AssignmentOriginManual
+		contract.AssignmentStatus = models.AssignmentStatusPending
+		contract.AssignedAt = &now
+		contract.AcceptDeadlineAt = &deadline
+	default:
+		contract.AssignmentOrigin = models.AssignmentOriginAutomatic
+		contract.AssignmentStatus = models.AssignmentStatusNone
+	}
+
+	if err := s.Create(ctx, contract); err != nil {
+		return err
+	}
+	if s.assignmentSvc != nil {
+		if err := s.assignmentSvc.ApplyOnCreate(ctx, contract, now); err != nil {
+			return err
+		}
+		// The automatic path picks the seller after the initial commission
+		// preview. Recalculate and persist so the stored amount uses the
+		// assigned seller's rate instead of the unassigned fallback.
+		if contract.SellerID != nil && s.commissionSvc != nil {
+			if err := s.commissionSvc.ApplyToContract(ctx, contract, time.Time{}); err != nil {
+				logIgnoredError("recalculate commission after assignment", err)
+			} else if err := s.repo.Update(ctx, contract); err != nil {
+				logIgnoredError("persist commission after assignment", err)
+			}
+		}
+	}
+	return nil
+}
+
+// assignmentDeadline returns the acceptance deadline using the admin-configured
+// window, falling back to the documented default.
+func (s *ContractService) assignmentDeadline(ctx context.Context, now time.Time) time.Time {
+	if s.commissionSvc != nil {
+		return now.Add(s.commissionSvc.AcceptanceWindow(ctx))
+	}
+	return models.AssignmentDeadlineFrom(now)
+}
+
+// ValidateAssignmentSeller checks that a manually chosen seller is active.
+func (s *ContractService) ValidateAssignmentSeller(ctx context.Context, sellerID uint) (*models.User, error) {
+	if s.assignmentSvc == nil {
+		return nil, ErrAssignmentSellerInactive
+	}
+	return s.assignmentSvc.ValidateSeller(ctx, sellerID)
+}
+
+func normalizeAssignmentOrigin(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case models.AssignmentOriginReferral:
+		return models.AssignmentOriginReferral
+	case models.AssignmentOriginManual:
+		return models.AssignmentOriginManual
+	case models.AssignmentOriginAutomatic:
+		return models.AssignmentOriginAutomatic
+	default:
+		return ""
+	}
+}
+
+// ClearReferralAttribution expires the attribution cookie after a reservation
+// consumes it. It is a no-op when referrals are not wired.
+func (s *ContractService) ClearReferralAttribution(w http.ResponseWriter) {
+	if s.referralSvc == nil || w == nil {
+		return
+	}
+	http.SetCookie(w, s.referralSvc.ClearedAttributionCookie())
 }
 
 // FindByID gets a contract by ID
@@ -112,15 +262,6 @@ func (s *ContractService) Create(ctx context.Context, contract *models.Contract)
 		return errors.New("el lote no está disponible")
 	}
 
-	// Calculate Commission Amount
-	if contract.CommissionAmount == 0 && contract.Amount != nil {
-		// Ensure temporary link to lot/project for calculation is set if not already
-		if contract.Lot.ID == 0 {
-			contract.Lot = *lot
-		}
-		contract.CommissionAmount = contract.CalculateCommission()
-	}
-
 	// Create contract
 	// Calculate balance: Amount - Reserve - DownPayment
 	// Assuming contract.Amount is already set or derived from lot price
@@ -128,6 +269,21 @@ func (s *ContractService) Create(ctx context.Context, contract *models.Contract)
 	if contract.Amount == nil || *contract.Amount == 0 {
 		price := lot.EffectivePrice()
 		contract.Amount = &price
+	}
+
+	// Freeze the commission preview using the seller exception -> project
+	// rate -> global default resolution. The definitive amount is recomputed
+	// when the contract is approved.
+	if contract.Lot.ID == 0 {
+		contract.Lot = *lot
+	}
+	if s.commissionSvc != nil {
+		if err := s.commissionSvc.ApplyToContract(ctx, contract, time.Time{}); err != nil {
+			logIgnoredError("resolve commission on create", err)
+			contract.CommissionAmount = contract.CalculateCommission()
+		}
+	} else if contract.CommissionAmount == 0 {
+		contract.CommissionAmount = contract.CalculateCommission()
 	}
 
 	// Initial balance is the full amount (as debt)
@@ -293,6 +449,20 @@ func (s *ContractService) Approve(ctx context.Context, id uint) (*models.Contrac
 	now := time.Now()
 	contract.ApprovedAt = &now
 	contract.Active = true
+
+	// Freeze the commission at approval: seller exception -> project rate ->
+	// global default (or the unassigned rate). The accrual date is the approval
+	// date for reservations.
+	if s.commissionSvc != nil {
+		if err := s.commissionSvc.ApplyToContract(ctx, contract, now); err != nil {
+			return nil, fmt.Errorf("failed to resolve commission: %w", err)
+		}
+	} else if contract.CommissionAmount == 0 {
+		contract.CommissionAmount = contract.CalculateCommission()
+		contract.CommissionOrigin = models.CommissionOriginForAssignment(contract.AssignmentOrigin)
+		date := dateOnly(now)
+		contract.CommissionAccrualDate = &date
+	}
 
 	// Update contract
 	if err := s.repo.Update(ctx, contract); err != nil {
@@ -597,8 +767,16 @@ func (s *ContractService) MarkCommissionPaid(ctx context.Context, id uint, actor
 		return nil, fmt.Errorf("solo se puede pagar la comisión de contratos aprobados o cerrados")
 	}
 	// Older contracts may not have the commission persisted; freeze the
-	// calculated amount at payout time so the report and the payout agree.
+	// resolved amount at payout time so the report and the payout agree.
 	commission := contract.CommissionAmount
+	if commission <= 0 {
+		if s.commissionSvc != nil {
+			if err := s.commissionSvc.EnsureContractCommission(ctx, contract); err != nil {
+				return nil, err
+			}
+			commission = contract.CommissionAmount
+		}
+	}
 	if commission <= 0 {
 		commission = contract.CalculateCommission()
 	}

@@ -72,6 +72,9 @@ func (h *ContractHandler) Index(c *gin.Context) {
 	}
 	query.UserID = middleware.GetUserID(c)
 	query.IsAdmin = middleware.IsAdmin(c)
+	if middleware.GetUserRole(c) == "seller" {
+		query.FilterBySeller = true
+	}
 
 	contracts, total, err := h.contractService.List(c.Request.Context(), query)
 	if err != nil {
@@ -81,7 +84,11 @@ func (h *ContractHandler) Index(c *gin.Context) {
 
 	var responses []interface{}
 	for _, contract := range contracts {
-		responses = append(responses, contract.ToResponse())
+		resp := contract.ToResponse()
+		if middleware.GetUserRole(c) == "user" {
+			resp = resp.RedactForCustomer()
+		}
+		responses = append(responses, resp)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -154,7 +161,11 @@ func (h *ContractHandler) ShowByGUID(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "No tienes acceso a esta reserva"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"contract": contract.ToResponse()})
+	resp := contract.ToResponse()
+	if role == "user" {
+		resp = resp.RedactForCustomer()
+	}
+	c.JSON(http.StatusOK, gin.H{"contract": resp})
 }
 
 type PrepaymentRequest struct {
@@ -261,6 +272,30 @@ func (h *ContractHandler) create(c *gin.Context, lotID uint, guest bool) {
 	bankCreditStatusStr := strings.TrimSpace(c.Request.FormValue("contract[bank_credit_status]"))
 	note := c.Request.FormValue("contract[note]")
 	applicantUserIDStr := c.Request.FormValue("contract[applicant_user_id]")
+
+	assignmentOrigin := strings.TrimSpace(c.Request.FormValue("contract[assignment_origin]"))
+	if assignmentOrigin == "" {
+		assignmentOrigin = strings.TrimSpace(c.Request.FormValue("assignment_origin"))
+	}
+	sellerIDStr := strings.TrimSpace(c.Request.FormValue("contract[seller_id]"))
+	if sellerIDStr == "" {
+		sellerIDStr = strings.TrimSpace(c.Request.FormValue("seller_id"))
+	}
+	referralGUID := strings.TrimSpace(c.Request.FormValue("contract[referral_guid]"))
+	if referralGUID == "" {
+		referralGUID = strings.TrimSpace(c.Request.FormValue("referral_guid"))
+	}
+	var requestedSellerID *uint
+	if sellerIDStr != "" {
+		parsed, err := strconv.ParseUint(sellerIDStr, 10, 32)
+		if err != nil || parsed == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "seller_id inválido"})
+			return
+		}
+		value := uint(parsed)
+		requestedSellerID = &value
+	}
+	attributionCookie, _ := c.Cookie(services.ReferralAttributionCookieName)
 
 	// Validate and parse max_payment_date. Cash reservations require it because
 	// the buyer controls the transfer; bank reservations do not, because the
@@ -461,13 +496,26 @@ func (h *ContractHandler) create(c *gin.Context, lotID uint, guest bool) {
 	}
 
 	// 7. Call Service
-	if err := h.contractService.Create(c.Request.Context(), contract); err != nil {
+	if err := h.contractService.CreateWithAssignment(c.Request.Context(), contract, services.ContractAssignmentInput{
+		Origin:            assignmentOrigin,
+		SellerID:          requestedSellerID,
+		ReferralGUID:      referralGUID,
+		AttributionCookie: attributionCookie,
+	}); err != nil {
+		if errors.Is(err, services.ErrAssignmentSellerInactive) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "El vendedor seleccionado no está activo"})
+			return
+		}
 		if guest && strings.Contains(strings.ToLower(err.Error()), "no está disponible") {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "El lote ya no está disponible"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if contract.ReferralGUID != nil {
+		h.contractService.ClearReferralAttribution(c.Writer)
 	}
 
 	created, err := h.contractService.FindByIDWithDetails(c.Request.Context(), contract.ID)

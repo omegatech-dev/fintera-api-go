@@ -229,6 +229,13 @@ func (s *userRepoStub) FindByID(context.Context, uint) (*models.User, error) {
 	return s.user, s.err
 }
 
+func (s *userRepoStub) FindByIDs(context.Context, []uint) ([]models.User, error) {
+	if s.user == nil {
+		return nil, s.err
+	}
+	return []models.User{*s.user}, s.err
+}
+
 func (s *userRepoStub) FindByEmail(context.Context, string) (*models.User, error) {
 	return s.user, s.err
 }

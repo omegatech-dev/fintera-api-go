@@ -52,14 +52,47 @@ func NewUserHandler(
 // the model so every endpoint that embeds models.UserResponse stays unchanged.
 type userResponse struct {
 	models.UserResponse
-	ClientsCount *int64 `json:"clients_count"`
+	ClientsCount *int64               `json:"clients_count"`
+	ScoreMetrics *models.ScoreMetrics `json:"score_metrics,omitempty"`
 }
 
-func newUserResponse(user *models.User, clientsCount *int64) userResponse {
+func newUserResponse(user *models.User, clientsCount *int64, scoreMetrics *models.ScoreMetrics) userResponse {
 	return userResponse{
 		UserResponse: user.ToResponse(),
 		ClientsCount: clientsCount,
+		ScoreMetrics: scoreMetrics,
 	}
+}
+
+// scoreMetrics returns the accepted/expired breakdown for the seller rows in
+// the payload. Non-sellers never receive a score_metrics object.
+func (h *UserHandler) scoreMetrics(ctx context.Context, users []models.User) map[uint]models.ScoreMetrics {
+	ids := make([]uint, 0, len(users))
+	for i := range users {
+		if users[i].IsSeller() {
+			ids = append(ids, users[i].ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	metrics, err := h.userService.ScoreMetrics(ctx, ids)
+	if err != nil {
+		logger.Warn("failed to compute seller score metrics", "error", err)
+		return nil
+	}
+	return metrics
+}
+
+func scoreMetricsFor(metrics map[uint]models.ScoreMetrics, user *models.User) *models.ScoreMetrics {
+	if !user.IsSeller() {
+		return nil
+	}
+	value, ok := metrics[user.ID]
+	if !ok {
+		return nil
+	}
+	return &value
 }
 
 // clientsCounts returns nil when the count could not be computed so the API
@@ -161,9 +194,14 @@ func (h *UserHandler) Index(c *gin.Context) {
 	}
 
 	counts := h.clientsCounts(c.Request.Context(), users)
+	metrics := h.scoreMetrics(c.Request.Context(), users)
 	responses := make([]userResponse, 0, len(users))
 	for index := range users {
-		responses = append(responses, newUserResponse(&users[index], clientCountFor(counts, users[index].ID)))
+		responses = append(responses, newUserResponse(
+			&users[index],
+			clientCountFor(counts, users[index].ID),
+			scoreMetricsFor(metrics, &users[index]),
+		))
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -195,7 +233,8 @@ func (h *UserHandler) Show(c *gin.Context) {
 		return
 	}
 	counts := h.clientsCounts(c.Request.Context(), []models.User{*user})
-	c.JSON(http.StatusOK, gin.H{"user": newUserResponse(user, clientCountFor(counts, user.ID))})
+	metrics := h.scoreMetrics(c.Request.Context(), []models.User{*user})
+	c.JSON(http.StatusOK, gin.H{"user": newUserResponse(user, clientCountFor(counts, user.ID), scoreMetricsFor(metrics, user))})
 }
 
 type CreateUserRequest struct {
@@ -581,7 +620,11 @@ func (h *UserHandler) Contracts(c *gin.Context) {
 	}
 	responses := make([]models.ContractResponse, 0, len(contracts))
 	for i := range contracts {
-		responses = append(responses, contracts[i].ToResponse())
+		resp := contracts[i].ToResponse()
+		if middleware.GetUserRole(c) == "user" {
+			resp = resp.RedactForCustomer()
+		}
+		responses = append(responses, resp)
 	}
 	c.JSON(http.StatusOK, gin.H{"contracts": responses})
 }

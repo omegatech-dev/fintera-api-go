@@ -129,6 +129,14 @@ func (m *mockUserRepoForContract) FindByID(ctx context.Context, id uint) (*model
 	return args.Get(0).(*models.User), args.Error(1)
 }
 
+func (m *mockUserRepoForContract) FindByIDs(ctx context.Context, ids []uint) ([]models.User, error) {
+	args := m.Called(ctx, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]models.User), args.Error(1)
+}
+
 func (m *mockUserRepoForContract) FindByEmail(ctx context.Context, email string) (*models.User, error) {
 	args := m.Called(ctx, email)
 	if args.Get(0) == nil {
@@ -399,6 +407,72 @@ func TestContractService_Create(t *testing.T) {
 	mockLotRepo.AssertExpectations(t)
 	mockContractRepo.AssertExpectations(t)
 	mockUserRepo.AssertExpectations(t)
+}
+
+func TestContractService_CreateWithAssignmentUsesReferralGUID(t *testing.T) {
+	logger.Setup("test")
+
+	ctx := context.Background()
+	contractRepo := new(mockContractRepo)
+	lotRepo := new(mockLotRepo)
+	userRepo := new(mockUserRepoForContract)
+	paymentRepo := new(mockPaymentRepo)
+	ledgerRepo := new(mockLedgerRepo)
+
+	gdb, mockSQL := setupMockDB(t)
+	mockSQL.ExpectQuery("INSERT INTO \"audit_logs\"").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	auditSvc := NewAuditService(gdb)
+	worker := jobs.NewWorker(1)
+	t.Cleanup(worker.Shutdown)
+
+	service := NewContractService(
+		contractRepo,
+		lotRepo,
+		userRepo,
+		paymentRepo,
+		ledgerRepo,
+		NewNotificationService(nil, nil),
+		NewEmailService(&config.Config{EnableEmailNotifications: false}),
+		auditSvc,
+		worker,
+	)
+
+	guid := "8f14e45f-ceea-4a67-9c0f-1f2d3e4a5b6c"
+	seller := &models.User{ID: 9, FullName: "Carlos Ruiz", Role: models.RoleSeller, Status: models.StatusActive, ReferralGUID: &guid}
+	referralSvc := NewReferralService(&fakeReferralRepo{}, newFakeSellerRepo(seller), &config.Config{})
+	service.SetAssignmentServices(referralSvc, nil)
+
+	lot := &models.Lot{
+		ID:     1,
+		Status: models.LotStatusAvailable,
+		Price:  10000,
+		Project: models.Project{
+			Name: "Test Project",
+		},
+	}
+	contract := &models.Contract{
+		LotID:           1,
+		ApplicantUserID: 2,
+	}
+	applicant := &models.User{ID: 2, FullName: "Test User"}
+
+	lotRepo.On("FindByID", ctx, uint(1)).Return(lot, nil)
+	lotRepo.On("ReserveIfAvailable", ctx, uint(1)).Return(true, nil)
+	contractRepo.On("Create", ctx, mock.AnythingOfType("*models.Contract")).Return(nil)
+	userRepo.On("FindByID", ctx, uint(2)).Return(applicant, nil)
+
+	err := service.CreateWithAssignment(ctx, contract, ContractAssignmentInput{ReferralGUID: guid})
+
+	assert.NoError(t, err)
+	if contract.ReferralGUID == nil || *contract.ReferralGUID != guid {
+		t.Fatalf("referral_guid = %v, want %q", contract.ReferralGUID, guid)
+	}
+	if contract.SellerID == nil || *contract.SellerID != seller.ID {
+		t.Fatalf("seller_id = %v, want %d", contract.SellerID, seller.ID)
+	}
+	assert.Equal(t, models.AssignmentOriginReferral, contract.AssignmentOrigin)
+	assert.Equal(t, models.AssignmentStatusAccepted, contract.AssignmentStatus)
 }
 
 func TestContractService_Reject(t *testing.T) {

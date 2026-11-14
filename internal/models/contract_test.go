@@ -252,11 +252,32 @@ func TestContractResponseRedactForCustomer(t *testing.T) {
 	}
 
 	redacted := resp.RedactForCustomer()
-	if redacted.CommissionAmount != 0 || redacted.CommissionOrigin != "" || redacted.Seller != "" ||
+	if redacted.CommissionAmount != 0 || redacted.CommissionOrigin != "" ||
 		redacted.SellerID != nil || redacted.AssignmentOrigin != "" || redacted.AssignmentStatus != "" ||
 		redacted.AssignedAt != nil || redacted.AcceptDeadlineAt != nil || redacted.RespondedAt != nil ||
 		redacted.ReferralGUID != nil || redacted.CommissionPaidAt != nil || redacted.CommissionPaidBy != nil ||
 		redacted.CommissionAccrualDate != nil {
 		t.Fatalf("customer payload not fully redacted: %+v", redacted)
+	}
+}
+
+func TestContractResponseSellerContact(t *testing.T) {
+	seller := &User{FullName: "Cristofer Hernández", Phone: "+504 3184-9999", Email: "cristofer@example.com"}
+	contract := &Contract{Seller: seller}
+
+	resp := contract.ToResponse()
+	if resp.SellerContact == nil {
+		t.Fatal("expected seller_contact")
+	}
+	if resp.SellerContact.Name != seller.FullName || resp.SellerContact.Phone != seller.Phone || resp.SellerContact.Email != seller.Email {
+		t.Fatalf("seller_contact = %+v", resp.SellerContact)
+	}
+
+	redacted := resp.RedactForCustomer()
+	if redacted.SellerContact == nil || redacted.SellerContact.Name != seller.FullName {
+		t.Fatalf("customer lost seller_contact: %+v", redacted.SellerContact)
+	}
+	if redacted.SellerID != nil || redacted.CommissionAmount != 0 || redacted.ReferralGUID != nil || redacted.AssignmentStatus != "" {
+		t.Fatalf("internal fields leaked: %+v", redacted)
 	}
 }

@@ -523,6 +523,8 @@ definitions:
         type: string
       seller:
         type: string
+      seller_contact:
+        $ref: '#/definitions/models.SellerContactResponse'
       seller_id:
         type: integer
       status:
@@ -987,6 +989,15 @@ definitions:
         type: string
       visits:
         type: integer
+    type: object
+  models.SellerContactResponse:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      phone:
+        type: string
     type: object
   models.User:
     properties:

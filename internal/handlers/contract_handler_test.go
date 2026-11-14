@@ -752,3 +752,22 @@ func TestContractHandler_IndexStatsLedger(t *testing.T) {
 func floatPtrForTest(value float64) *float64 { return &value }
 
 func stringPtrForHandlerTest(value string) *string { return &value }
+
+func TestCreateGuestRejectsNonCustomerRoles(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := &ContractHandler{}
+
+	for _, role := range []string{models.RoleAdmin, models.RoleSeller} {
+		t.Run(role, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+			c.Set("userID", uint(7))
+			c.Set("userRole", role)
+
+			handler.create(c, 1, true)
+
+			assert.Equal(t, http.StatusForbidden, w.Code)
+		})
+	}
+}

@@ -350,10 +350,11 @@ func (r ProjectCSVRecord) BuildProject() (*models.Project, error) {
 	}
 
 	if date := strings.TrimSpace(r.Values["delivery_date"]); date != "" {
-		if _, err := time.Parse("2006-01-02", date); err != nil {
-			return nil, errors.New("delivery_date debe tener el formato YYYY-MM-DD")
+		normalized, err := parseProjectCSVDate(date)
+		if err != nil {
+			return nil, err
 		}
-		project.DeliveryDate = &date
+		project.DeliveryDate = &normalized
 	}
 
 	rates := []struct {
@@ -438,6 +439,71 @@ func (r ProjectCSVRecord) MergeInto(existing *models.Project) (*models.Project, 
 		merged.CommissionRateCash = incoming.CommissionRateCash
 	}
 	return &merged, nil
+}
+
+var errProjectCSVInvalidDate = errors.New(
+	"delivery_date debe tener formato YYYY-MM-DD (también se acepta DD/MM/YYYY o M/D/YYYY)")
+
+// parseProjectCSVDate accepts delivery_date values in the canonical
+// YYYY-MM-DD format plus the regional formats Excel usually produces when
+// re-saving the template: DD/MM/YYYY, M/D/YYYY, DD-MM-YYYY and YYYY/MM/DD.
+// Ambiguous values are read day-first; a component greater than 12 forces the
+// only possible reading. The result is always normalized to YYYY-MM-DD.
+func parseProjectCSVDate(value string) (string, error) {
+	if date, err := time.Parse("2006-01-02", value); err == nil {
+		return date.Format("2006-01-02"), nil
+	}
+
+	separator := "/"
+	if !strings.ContainsRune(value, '/') && strings.ContainsRune(value, '-') {
+		separator = "-"
+	}
+	parts := strings.Split(value, separator)
+	if len(parts) != 3 {
+		return "", errProjectCSVInvalidDate
+	}
+
+	numbers := make([]int, 3)
+	for index, part := range parts {
+		number, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || number <= 0 {
+			return "", errProjectCSVInvalidDate
+		}
+		numbers[index] = number
+	}
+
+	firstIsYear := len(strings.TrimSpace(parts[0])) == 4
+	year := numbers[2]
+	if firstIsYear {
+		year = numbers[0]
+	}
+	// Require a four-digit year so "30/06/27" is rejected instead of being
+	// read as the year 27.
+	if len(strings.TrimSpace(parts[2])) != 4 && !firstIsYear {
+		return "", errProjectCSVInvalidDate
+	}
+
+	var day, month int
+	switch {
+	case firstIsYear:
+		// Slash year-first form: YYYY/MM/DD (the dash form is canonical).
+		month, day = numbers[1], numbers[2]
+	case numbers[1] > 12:
+		// 6/30/2027: the second component cannot be a month.
+		month, day = numbers[0], numbers[1]
+	case numbers[0] > 12:
+		// 30/06/2027: the first component cannot be a month.
+		day, month = numbers[0], numbers[1]
+	default:
+		// Ambiguous: prefer the day-first regional convention.
+		day, month = numbers[0], numbers[1]
+	}
+
+	normalized := fmt.Sprintf("%04d-%02d-%02d", year, month, day)
+	if _, err := time.Parse("2006-01-02", normalized); err != nil {
+		return "", errProjectCSVInvalidDate
+	}
+	return normalized, nil
 }
 
 func defaultString(value, fallback string) string {

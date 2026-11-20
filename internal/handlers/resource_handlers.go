@@ -234,7 +234,7 @@ func (h *ProjectHandler) Approve(c *gin.Context) {
 }
 
 // @Summary Import Projects
-// @Description Bulk import projects from a CSV file (multipart/form-data field `file`). Duplicates are matched by code or GUID. `skip_duplicates` wins over `update_existing`.
+// @Description Bulk import projects from a CSV file (multipart/form-data field `file`). Duplicates are matched by code or GUID. `skip_duplicates` wins over `update_existing`. delivery_date accepts YYYY-MM-DD plus the common regional formats DD/MM/YYYY, M/D/YYYY, DD-MM-YYYY and YYYY/MM/DD (ambiguous values are read day-first) and is normalized to YYYY-MM-DD.
 // @Tags Projects
 // @Accept multipart/form-data
 // @Produce json

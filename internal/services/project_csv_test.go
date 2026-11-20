@@ -208,7 +208,7 @@ func TestProjectCSVRecordBuildProjectValidatesRows(t *testing.T) {
 		{"negative price", func(r *ProjectCSVRecord) { r.Values["price_per_square_unit"] = "-1" }, "no puede ser negativo"},
 		{"bad lots", func(r *ProjectCSVRecord) { r.Values["lot_count"] = "2.5" }, "lot_count debe ser un número entero"},
 		{"bad unit", func(r *ProjectCSVRecord) { r.Values["measurement_unit"] = "acres" }, "measurement_unit debe ser"},
-		{"bad date", func(r *ProjectCSVRecord) { r.Values["delivery_date"] = "31/01/2027" }, "YYYY-MM-DD"},
+		{"bad date", func(r *ProjectCSVRecord) { r.Values["delivery_date"] = "31/02/2027" }, "YYYY-MM-DD"},
 		{"bad rate", func(r *ProjectCSVRecord) { r.Values["interest_rate"] = "high" }, "interest_rate debe ser un número"},
 	}
 
@@ -221,6 +221,69 @@ func TestProjectCSVRecordBuildProjectValidatesRows(t *testing.T) {
 				t.Fatalf("error = %v, want contains %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestParseProjectCSVDateFormats(t *testing.T) {
+	tests := []struct {
+		value string
+		want  string
+	}{
+		{"2027-06-30", "2027-06-30"},
+		{"30/06/2027", "2027-06-30"},
+		{"6/30/2027", "2027-06-30"},
+		{"10/20/2027", "2027-10-20"},
+		{"30-06-2027", "2027-06-30"},
+		{"10-20-2027", "2027-10-20"},
+		{"2027/06/30", "2027-06-30"},
+		{"05/06/2027", "2027-06-05"},
+		{"6/3/2027", "2027-03-06"},
+	}
+
+	for _, test := range tests {
+		got, err := parseProjectCSVDate(test.value)
+		if err != nil {
+			t.Fatalf("parseProjectCSVDate(%q): %v", test.value, err)
+		}
+		if got != test.want {
+			t.Fatalf("parseProjectCSVDate(%q) = %q, want %q", test.value, got, test.want)
+		}
+	}
+}
+
+func TestParseProjectCSVDateRejectsInvalidValues(t *testing.T) {
+	for _, value := range []string{"31/02/2027", "2027-13-01", "2027-02-30", "próximamente", "1/2", "abc/def/2027", "30/06/27", "0/0/2027"} {
+		if _, err := parseProjectCSVDate(value); err == nil {
+			t.Fatalf("parseProjectCSVDate(%q): expected error", value)
+		} else if !strings.Contains(err.Error(), "YYYY-MM-DD") {
+			t.Fatalf("parseProjectCSVDate(%q) error = %q, want format hint", value, err)
+		}
+	}
+}
+
+func TestParseProjectCSVMixedDeliveryDateFormats(t *testing.T) {
+	body := "nombre,direccion,precio_m2,fecha_entrega\n" +
+		"Altos,Calle 1,1500,2027-06-30\n" +
+		"Bosque,Calle 2,1600,30/06/2027\n" +
+		"Vista,Calle 3,1700,7/15/2027\n"
+
+	records, err := ParseProjectCSV(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("ParseProjectCSV: %v", err)
+	}
+	if len(records) != 3 {
+		t.Fatalf("records = %d, want 3", len(records))
+	}
+
+	want := []string{"2027-06-30", "2027-06-30", "2027-07-15"}
+	for index, record := range records {
+		project, err := record.BuildProject()
+		if err != nil {
+			t.Fatalf("BuildProject(row %d): %v", record.Row, err)
+		}
+		if project.DeliveryDate == nil || *project.DeliveryDate != want[index] {
+			t.Fatalf("row %d delivery date = %v, want %q", record.Row, project.DeliveryDate, want[index])
+		}
 	}
 }
 

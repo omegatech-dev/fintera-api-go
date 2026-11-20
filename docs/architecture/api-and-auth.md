@@ -158,6 +158,28 @@ Claimed authorization errors return `403` with `No tienes acceso a esta sección
 | `GET` | `/dashboard/seller` |
 | `GET` | `/audits` |
 
+#### Historical sales (admin and seller)
+
+Sellers only see and edit the records they created; admins see everything.
+Both `evidence` endpoints serve the seller-uploaded "respaldo" file: `GET` with
+`download=1` forces an attachment, otherwise the file streams inline so the
+admin can view the image in the browser. Legacy records whose `evidence_file`
+is an external `http(s)` URL return `{"evidence_url": "..."}` instead of a file.
+
+| Method | Path |
+| --- | --- |
+| `GET` | `/historical_sales` |
+| `GET` | `/historical_sales/:id` |
+| `POST` | `/historical_sales` |
+| `PUT` | `/historical_sales/:id` |
+| `POST` | `/historical_sales/import` |
+| `GET` | `/historical_sales/import/template` |
+| `POST` | `/historical_sales/:id/evidence` |
+| `GET` | `/historical_sales/:id/evidence` |
+
+Admin-only historical-sale actions: `POST /historical_sales/:id/validate` and
+`POST /historical_sales/:id/reject`.
+
 #### Report export endpoints
 
 All four exports require `format` (`xlsx`, `csv`, or `pdf`) and return a

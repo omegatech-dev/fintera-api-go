@@ -457,3 +457,91 @@ func mustDate(t *testing.T, value string) time.Time {
 	require.NoError(t, err)
 	return parsed
 }
+
+func TestHistoricalSaleSetEvidence(t *testing.T) {
+	repo := newFakeHistoricalSaleRepository()
+	service := NewHistoricalSaleService(repo, nil, nil, nil)
+	ctx := context.Background()
+
+	sale, err := service.Create(ctx, 4, sampleHistoricalInput("444", "2023-04-10"), "", "")
+	require.NoError(t, err)
+
+	updated, err := service.SetEvidence(ctx, sale.ID, 4, false, "evidence/2026/11/abc.jpg", "", "")
+	require.NoError(t, err)
+	require.NotNil(t, updated.EvidenceFile)
+	assert.Equal(t, "evidence/2026/11/abc.jpg", *updated.EvidenceFile)
+}
+
+func TestHistoricalSaleSetEvidenceForbiddenForOtherSeller(t *testing.T) {
+	repo := newFakeHistoricalSaleRepository()
+	service := NewHistoricalSaleService(repo, nil, nil, nil)
+	ctx := context.Background()
+
+	sale, err := service.Create(ctx, 4, sampleHistoricalInput("444", "2023-04-10"), "", "")
+	require.NoError(t, err)
+
+	_, err = service.SetEvidence(ctx, sale.ID, 5, false, "evidence/2026/11/abc.jpg", "", "")
+	assert.ErrorIs(t, err, ErrHistoricalSaleForbidden)
+}
+
+func TestHistoricalSaleSetEvidenceAdminAnyRecord(t *testing.T) {
+	repo := newFakeHistoricalSaleRepository()
+	service := NewHistoricalSaleService(repo, nil, nil, nil)
+	ctx := context.Background()
+
+	sale, err := service.Create(ctx, 4, sampleHistoricalInput("444", "2023-04-10"), "", "")
+	require.NoError(t, err)
+
+	updated, err := service.SetEvidence(ctx, sale.ID, 1, true, "evidence/2026/11/abc.pdf", "", "")
+	require.NoError(t, err)
+	require.NotNil(t, updated.EvidenceFile)
+	assert.Equal(t, "evidence/2026/11/abc.pdf", *updated.EvidenceFile)
+}
+
+func TestHistoricalSaleUpdatePreservesEvidenceWhenOmitted(t *testing.T) {
+	repo := newFakeHistoricalSaleRepository()
+	service := NewHistoricalSaleService(repo, nil, nil, nil)
+	ctx := context.Background()
+
+	created, err := service.Create(ctx, 4, sampleHistoricalInput("444", "2023-04-10"), "", "")
+	require.NoError(t, err)
+
+	existing := "evidence/2026/11/3f8a.png"
+	_, err = service.SetEvidence(ctx, created.ID, 4, false, existing, "", "")
+	require.NoError(t, err)
+
+	// Edit without re-attaching a file: the evidence path must survive.
+	edited, err := service.Update(ctx, created.ID, 4, HistoricalSaleInput{
+		FullName:  stringPtrForTest("Cliente Histórico"),
+		Identity:  stringPtrForTest("444"),
+		SalePrice: floatPtrForTest(200000),
+		SaleDate:  stringPtrForTest("2023-04-10"),
+	}, false, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, edited.EvidenceFile)
+	assert.Equal(t, existing, *edited.EvidenceFile)
+}
+
+func TestHistoricalSaleUpdateReplacesEvidenceWhenProvided(t *testing.T) {
+	repo := newFakeHistoricalSaleRepository()
+	service := NewHistoricalSaleService(repo, nil, nil, nil)
+	ctx := context.Background()
+
+	created, err := service.Create(ctx, 4, sampleHistoricalInput("444", "2023-04-10"), "", "")
+	require.NoError(t, err)
+
+	_, err = service.SetEvidence(ctx, created.ID, 4, false, "evidence/2026/11/vieja.png", "", "")
+	require.NoError(t, err)
+
+	replacement := "evidence/2026/11/nueva.png"
+	edited, err := service.Update(ctx, created.ID, 4, HistoricalSaleInput{
+		FullName:     stringPtrForTest("Cliente Histórico"),
+		Identity:     stringPtrForTest("444"),
+		SalePrice:    floatPtrForTest(200000),
+		SaleDate:     stringPtrForTest("2023-04-10"),
+		EvidenceFile: &replacement,
+	}, false, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, edited.EvidenceFile)
+	assert.Equal(t, replacement, *edited.EvidenceFile)
+}

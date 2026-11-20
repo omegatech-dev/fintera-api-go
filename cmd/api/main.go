@@ -453,6 +453,8 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				sellerAdmin.PUT("/historical_sales/:id", h.HistoricalSale.Update)
 				sellerAdmin.POST("/historical_sales/import", h.HistoricalSale.Import)
 				sellerAdmin.GET("/historical_sales/import/template", h.HistoricalSale.ImportTemplate)
+				sellerAdmin.POST("/historical_sales/:id/evidence", h.HistoricalSale.UploadEvidence)
+				sellerAdmin.GET("/historical_sales/:id/evidence", h.HistoricalSale.DownloadEvidence)
 
 				// Contract viewing (seller can view all contracts)
 				sellerAdmin.GET("/contracts", h.Contract.Index)

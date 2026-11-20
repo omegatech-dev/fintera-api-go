@@ -1905,6 +1905,134 @@ const docTemplate = `{
                 }
             }
         },
+        "/historical_sales/{id}/evidence": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stream the evidence (respaldo) file of a historical sale. Inline by default; pass download=1 for an attachment. Admins access any record, sellers only their own.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "HistoricalSales"
+                ],
+                "summary": "View or download historical sale evidence",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Historical sale ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Set to 1 to force a file download",
+                        "name": "download",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "evidence file",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload the evidence (respaldo) file for a historical sale. PDF/JPEG/PNG up to 10 MB. Sellers may upload to their own records; admins to any.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "HistoricalSales"
+                ],
+                "summary": "Upload historical sale evidence",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Historical sale ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Evidence file (PDF, JPEG or PNG)",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/historical_sales/{id}/reject": {
             "post": {
                 "security": [

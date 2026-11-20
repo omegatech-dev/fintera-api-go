@@ -299,12 +299,32 @@ recovery, and account creation.
 `internal/storage/local.go` stores files under `STORAGE_PATH`:
 
 - Receipts: `receipts/YYYY/MM/<random-id>.<ext>`
+- Historical-sale evidence: `evidence/YYYY/MM/<random-id>.<ext>`
 - Contract documents: `contracts/YYYY/MM/...`
 - Profile pictures: `uploads/...`
 
 Only `application/pdf`, `image/jpeg`, `image/jpg`, and `image/png` are allowed;
 the maximum size is 10 MB. `SafeFullPath` prevents path traversal on download.
 DB rows store relative paths only.
+
+## Historical sales
+
+Migrated sales live outside the contract state machine: they never create
+reservations or block lots. The import (`POST /historical_sales/import`) parses
+the CSV row by row and reports invalid rows; every imported or created sale is
+linked to a customer account (`HistoricalClientService.EnsureLinked`) that is
+created with `rtn`/`identity` stored as NULL when the client has no tax id —
+the partial unique indexes added by migration 000046 let any number of these
+clients coexist, so editing a sale to attach evidence no longer fails with a
+`users_rtn_key` duplicate-key error.
+
+The evidence ("respaldo") flow: the creating seller uploads a PDF/JPEG/PNG to
+`POST /historical_sales/:id/evidence`; the file is stored under
+`evidence/YYYY/MM/` and its relative path is written to `evidence_file` with an
+audit log (`HISTORICAL_EVIDENCE_UPLOAD`). The admin then reviews the sale with
+`GET /historical_sales/:id/evidence`, which streams the file inline for
+viewing or as an attachment with `download=1`. Legacy records whose evidence
+is an external URL return that URL instead of a file stream.
 
 ## Credit score
 

@@ -2,13 +2,19 @@ package repository
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"github.com/sjperalta/fintera-api/internal/models"
 )
 
 func setupMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock) {
@@ -158,4 +164,119 @@ func TestUserRepository_UpdateCreditScoreMissingUser(t *testing.T) {
 
 	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestEmptyUniqueColumns(t *testing.T) {
+	assert.Empty(t, emptyUniqueColumns(&models.User{Identity: "0801-1990-12345", RTN: "08011990123456"}))
+	assert.Equal(t, []string{"RTN"}, emptyUniqueColumns(&models.User{Identity: "0801-1990-12345"}))
+	assert.Equal(t, []string{"Identity"}, emptyUniqueColumns(&models.User{RTN: "08011990123456"}))
+	assert.Equal(t, []string{"RTN", "Identity"}, emptyUniqueColumns(&models.User{}))
+}
+
+// A full save of a user without RTN/identity must not write the empty string
+// into the unique columns; those become NULL after the save instead.
+func TestUserRepository_UpdateStoresEmptyUniqueColumnsAsNull(t *testing.T) {
+	db, mock := setupMockDB(t)
+	repo := NewUserRepository(db)
+
+	user := &models.User{
+		ID:       7,
+		Email:    "historico+x@fintera.local",
+		FullName: "Cliente Histórico",
+		Identity: "",
+		RTN:      "",
+	}
+
+	// First statement: the full Save with the empty unique columns omitted.
+	mock.ExpectExec(`UPDATE "users" SET .+ WHERE "id" = \$[0-9]+`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Second statement: the omitted columns are normalized to NULL (NULL
+	// values arrive as placeholder arguments).
+	mock.ExpectExec(`UPDATE "users" SET "identity"=\$[0-9]+,"rtn"=\$[0-9]+,"updated_at"=\$[0-9]+ WHERE id = \$[0-9]+`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := repo.Update(context.Background(), user)
+
+	assert.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Clearing an RTN in an edit must end as NULL, not as the empty string that
+// would collide with every other client without a tax id.
+func TestUserRepository_UpdateClearsRTNAsNull(t *testing.T) {
+	db, mock := setupMockDB(t)
+	repo := NewUserRepository(db)
+
+	user := &models.User{
+		ID:       8,
+		Email:    "cliente@example.com",
+		FullName: "Cliente",
+		Identity: "0801-1990-12345",
+		RTN:      "",
+	}
+
+	mock.ExpectExec(`UPDATE "users" SET .+ WHERE "id" = \$[0-9]+`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE "users" SET "rtn"=\$[0-9]+,"updated_at"=\$[0-9]+ WHERE id = \$[0-9]+`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := repo.Update(context.Background(), user)
+
+	assert.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUserRepository_CreateDuplicateRTNMessage(t *testing.T) {
+	db, mock := setupMockDB(t)
+	repo := NewUserRepository(db)
+
+	user := &models.User{Email: "a@example.com", FullName: "A", Identity: "1", RTN: "1"}
+	dup := &pgconn.PgError{Code: "23505", ConstraintName: "idx_users_rtn_unique"}
+
+	mock.ExpectQuery(`INSERT INTO "users"`).
+		WillReturnError(dup)
+
+	err := repo.Create(context.Background(), user)
+
+	assert.EqualError(t, err, "ya existe un usuario con este RTN")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// These tests run against a real database when DATABASE_URL is set; they are
+// the regression tests for the historical-client edit flow that used to fail
+// with `duplicate key value violates unique constraint "users_rtn_key"`.
+func TestUserRepositoryTwoClientsWithoutRTNCanBeEdited(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL not set; skipping live unique-empty-columns test")
+	}
+
+	gdb, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	repo := NewUserRepository(gdb)
+	ctx := context.Background()
+
+	for index := range 2 {
+		user := &models.User{
+			Email:    fmt.Sprintf("historico+test%d-%d@fintera.local", time.Now().UnixNano(), index),
+			FullName: fmt.Sprintf("Cliente Histórico %d", index),
+			Identity: fmt.Sprintf("TEST%d-%d", time.Now().UnixNano(), index),
+		}
+		if err := repo.Create(ctx, user); err != nil {
+			t.Fatalf("create user %d: %v", index, err)
+		}
+		user.FullName = fmt.Sprintf("Cliente Histórico %d editado", index)
+		if err := repo.Update(ctx, user); err != nil {
+			t.Fatalf("update user %d: %v", index, err)
+		}
+		var stored models.User
+		if err := gdb.First(&stored, user.ID).Error; err != nil {
+			t.Fatalf("reload user %d: %v", index, err)
+		}
+		if stored.RTN != "" {
+			t.Fatalf("user %d: expected NULL rtn, got %q", index, stored.RTN)
+		}
+	}
 }

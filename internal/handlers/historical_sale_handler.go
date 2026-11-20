@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -11,17 +12,19 @@ import (
 	"github.com/sjperalta/fintera-api/internal/middleware"
 	"github.com/sjperalta/fintera-api/internal/repository"
 	"github.com/sjperalta/fintera-api/internal/services"
+	"github.com/sjperalta/fintera-api/internal/storage"
 )
 
 // HistoricalSaleHandler serves migrated sales. Historical records never create
 // reservations or touch lot availability.
 type HistoricalSaleHandler struct {
 	historical *services.HistoricalSaleService
+	storage    *storage.LocalStorage
 }
 
 // NewHistoricalSaleHandler creates the historical-sale handler.
-func NewHistoricalSaleHandler(historical *services.HistoricalSaleService) *HistoricalSaleHandler {
-	return &HistoricalSaleHandler{historical: historical}
+func NewHistoricalSaleHandler(historical *services.HistoricalSaleService, store *storage.LocalStorage) *HistoricalSaleHandler {
+	return &HistoricalSaleHandler{historical: historical, storage: store}
 }
 
 // Index lists historical sales. Sellers only see the records they created;
@@ -296,6 +299,123 @@ func parseHistoricalSaleID(c *gin.Context) (uint, bool) {
 		return 0, false
 	}
 	return uint(id), true
+}
+
+// isExternalEvidenceURL reports whether the stored evidence value is an
+// external link (legacy data) rather than a local storage path.
+func isExternalEvidenceURL(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
+}
+
+// UploadEvidence stores the seller's evidence ("respaldo") file for a historical
+// sale. PDF, JPEG and PNG up to 10 MB are accepted; the file lands under
+// STORAGE_PATH/evidence/YYYY/MM and its relative path is saved on the record.
+// @Summary Upload historical sale evidence
+// @Description Upload the evidence (respaldo) file for a historical sale. PDF/JPEG/PNG up to 10 MB. Sellers may upload to their own records; admins to any.
+// @Tags HistoricalSales
+// @Accept multipart/form-data
+// @Produce json
+// @Param id path int true "Historical sale ID"
+// @Param file formData file true "Evidence file (PDF, JPEG or PNG)"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Security BearerAuth
+// @Router /historical_sales/{id}/evidence [post]
+func (h *HistoricalSaleHandler) UploadEvidence(c *gin.Context) {
+	id, ok := parseHistoricalSaleID(c)
+	if !ok {
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, storage.MaxFileSize())
+
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No se ha subido ningún archivo o el archivo es demasiado grande (campo file, máx. 10 MB)"})
+		return
+	}
+	defer func() { _ = file.Close() }()
+
+	if !storage.IsValidContentType(header.Header.Get("Content-Type")) {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Solo se aceptan archivos PDF, JPEG o PNG"})
+		return
+	}
+	if header.Size > storage.MaxFileSize() {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "El archivo supera el límite de 10 MB"})
+		return
+	}
+
+	path, err := h.storage.Upload(file, header, "evidence")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al guardar el archivo de evidencia"})
+		return
+	}
+
+	sale, err := h.historical.SetEvidence(c.Request.Context(), id, middleware.GetUserID(c), middleware.IsAdmin(c), path, c.ClientIP(), c.Request.UserAgent())
+	if err != nil {
+		// The file is already on disk; the orphan is acceptable and the retry
+		// simply stores another copy.
+		writeHistoricalSaleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"historical_sale": sale.ToResponse(), "message": "Evidencia subida exitosamente"})
+}
+
+// DownloadEvidence streams the evidence file of a historical sale. The default
+// response renders inline (the admin can view the image in the browser);
+// `download=1` forces an attachment download. Legacy records whose evidence is
+// an external URL get that URL back instead of a file stream.
+// @Summary View or download historical sale evidence
+// @Description Stream the evidence (respaldo) file of a historical sale. Inline by default; pass download=1 for an attachment. Admins access any record, sellers only their own.
+// @Tags HistoricalSales
+// @Produce application/octet-stream
+// @Param id path int true "Historical sale ID"
+// @Param download query bool false "Set to 1 to force a file download"
+// @Success 200 {file} file "evidence file"
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Security BearerAuth
+// @Router /historical_sales/{id}/evidence [get]
+func (h *HistoricalSaleHandler) DownloadEvidence(c *gin.Context) {
+	id, ok := parseHistoricalSaleID(c)
+	if !ok {
+		return
+	}
+	sale, err := h.historical.Get(c.Request.Context(), id, middleware.GetUserID(c), middleware.IsAdmin(c))
+	if err != nil {
+		writeHistoricalSaleError(c, err)
+		return
+	}
+	if sale.EvidenceFile == nil || strings.TrimSpace(*sale.EvidenceFile) == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Esta venta no tiene evidencia subida"})
+		return
+	}
+
+	evidence := strings.TrimSpace(*sale.EvidenceFile)
+	if isExternalEvidenceURL(evidence) {
+		c.JSON(http.StatusOK, gin.H{"evidence_url": evidence})
+		return
+	}
+
+	fullPath, err := h.storage.SafeFullPath(evidence)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Evidencia no encontrada"})
+		return
+	}
+	if !h.storage.Exists(evidence) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Evidencia no encontrada"})
+		return
+	}
+
+	disposition := "inline"
+	if c.Query("download") == "1" {
+		disposition = "attachment"
+	}
+	c.Header("Content-Disposition", disposition+`; filename="`+filepath.Base(fullPath)+`"`)
+	c.File(fullPath)
 }
 
 func writeHistoricalSaleError(c *gin.Context, err error) {

@@ -28,9 +28,15 @@ Accounts and profile data. Soft deletion uses `discarded_at` (no GORM
 
 Key columns: `email` (unique), `encrypted_password`, `role` (`admin`,
 `seller`, `user`), `status` (`active`, `inactive`, `suspended`), `full_name`,
-`phone`, `identity` (unique), `rtn` (unique), `credit_score`, `locale`
-(`es`, `en`), `must_change_password`, `profile_picture`,
-`profile_picture_thumb`, `created_by`, `discarded_at`.
+`phone`, `identity` (unique for non-empty values), `rtn` (unique for non-empty
+values), `credit_score`, `locale` (`es`, `en`), `must_change_password`,
+`profile_picture`, `profile_picture_thumb`, `created_by`, `discarded_at`.
+
+Uniqueness of `identity` and `rtn` is enforced by partial unique indexes
+(`idx_users_identity_unique`, `idx_users_rtn_unique`) that exclude `NULL` and
+empty strings (migration `000046`). Clients without a tax id or identity —
+e.g. historical clients created from CSV imports — are stored as `NULL` and
+never collide with each other.
 
 ### `refresh_tokens`
 

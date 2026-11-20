@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -154,13 +155,32 @@ func (r *userRepository) FindByIdentity(ctx context.Context, identity string) (*
 	return &user, nil
 }
 
+// emptyUniqueColumns lists the GORM field names of the unique columns that are
+// empty. They are omitted from INSERT/UPDATE and stored as NULL (migration
+// 000046 replaced users_rtn_key/users_identity_key with partial unique indexes
+// that exclude empty values), so users without an RTN or identity never
+// collide with each other on save.
+func emptyUniqueColumns(user *models.User) []string {
+	columns := make([]string, 0, 2)
+	if user.RTN == "" {
+		columns = append(columns, "RTN")
+	}
+	if user.Identity == "" {
+		columns = append(columns, "Identity")
+	}
+	return columns
+}
+
 func (r *userRepository) Create(ctx context.Context, user *models.User) error {
-	if err := r.db.WithContext(ctx).Create(user).Error; err != nil {
-		if isDuplicateKeyError(err, "users_identity_key") {
+	if err := r.db.WithContext(ctx).Omit(emptyUniqueColumns(user)...).Create(user).Error; err != nil {
+		if isDuplicateKeyError(err, "users_identity_key", "idx_users_identity_unique") {
 			return errors.New("ya existe un usuario con este documento de identidad")
 		}
 		if isDuplicateKeyError(err, "users_email_key") {
 			return errors.New("ya existe un usuario con este correo electrónico")
+		}
+		if isDuplicateKeyError(err, "users_rtn_key", "idx_users_rtn_unique") {
+			return errors.New("ya existe un usuario con este RTN")
 		}
 		return err
 	}
@@ -168,8 +188,8 @@ func (r *userRepository) Create(ctx context.Context, user *models.User) error {
 }
 
 func (r *userRepository) CreateHistoricalClient(ctx context.Context, user *models.User) error {
-	if err := r.db.WithContext(ctx).Omit("RTN").Create(user).Error; err != nil {
-		if isDuplicateKeyError(err, "users_identity_key") {
+	if err := r.db.WithContext(ctx).Omit(emptyUniqueColumns(user)...).Create(user).Error; err != nil {
+		if isDuplicateKeyError(err, "users_identity_key", "idx_users_identity_unique") {
 			return errors.New("ya existe un usuario con este documento de identidad")
 		}
 		if isDuplicateKeyError(err, "users_email_key") {
@@ -180,16 +200,32 @@ func (r *userRepository) CreateHistoricalClient(ctx context.Context, user *model
 	return nil
 }
 
-func isDuplicateKeyError(err error, constraintName string) bool {
+func isDuplicateKeyError(err error, constraintNames ...string) bool {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505" && pgErr.ConstraintName == constraintName
+		return pgErr.Code == "23505" && slices.Contains(constraintNames, pgErr.ConstraintName)
 	}
 	return false
 }
 
 func (r *userRepository) Update(ctx context.Context, user *models.User) error {
-	return r.db.WithContext(ctx).Save(user).Error
+	empty := emptyUniqueColumns(user)
+	if err := r.db.WithContext(ctx).Omit(empty...).Save(user).Error; err != nil {
+		return err
+	}
+	// Save skips the omitted columns, so a value cleared in this edit must be
+	// written as NULL explicitly.
+	if len(empty) == 0 {
+		return nil
+	}
+	updates := map[string]interface{}{}
+	if user.RTN == "" {
+		updates["rtn"] = nil
+	}
+	if user.Identity == "" {
+		updates["identity"] = nil
+	}
+	return r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", user.ID).Updates(updates).Error
 }
 
 // UpdateCreditScore updates only the credit score and timestamp so background

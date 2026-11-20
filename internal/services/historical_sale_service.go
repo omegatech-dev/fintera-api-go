@@ -182,7 +182,13 @@ func (s *HistoricalSaleService) Update(ctx context.Context, id, actorID uint, in
 	if updated.Rate != nil {
 		sale.Rate = updated.Rate
 	}
-	sale.EvidenceFile = updated.EvidenceFile
+	// The evidence path is only replaced when the payload carries a non-empty
+	// value; an edit that does not re-attach a file must keep the evidence
+	// uploaded earlier. New files always come through the dedicated upload
+	// endpoint, which overwrites the path.
+	if updated.EvidenceFile != nil {
+		sale.EvidenceFile = updated.EvidenceFile
+	}
 
 	if err := s.clients.EnsureLinked(ctx, sale, actorID); err != nil {
 		return nil, err
@@ -218,6 +224,29 @@ func (s *HistoricalSaleService) Update(ctx context.Context, id, actorID uint, in
 	}
 	s.audit(ctx, actorID, "HISTORICAL_UPDATE", sale.ID,
 		fmt.Sprintf("Venta histórica actualizada: %s", sale.ClientName), ip, userAgent)
+	return s.reload(ctx, sale.ID)
+}
+
+// SetEvidence stores the path of an uploaded evidence ("respaldo") file on a
+// historical sale. The creating seller or an admin may attach evidence at any
+// time; the file itself is stored by the handler before this method is called.
+func (s *HistoricalSaleService) SetEvidence(ctx context.Context, id, actorID uint, isAdmin bool, path, ip, userAgent string) (*models.HistoricalSale, error) {
+	sale, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrHistoricalSaleNotFound
+		}
+		return nil, err
+	}
+	if !isAdmin && sale.CreatedBy != actorID {
+		return nil, ErrHistoricalSaleForbidden
+	}
+	sale.EvidenceFile = &path
+	if err := s.repo.Update(ctx, sale); err != nil {
+		return nil, err
+	}
+	s.audit(ctx, actorID, "HISTORICAL_EVIDENCE_UPLOAD", sale.ID,
+		fmt.Sprintf("Evidencia subida para la venta histórica: %s", sale.ClientName), ip, userAgent)
 	return s.reload(ctx, sale.ID)
 }
 

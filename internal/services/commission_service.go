@@ -456,10 +456,6 @@ func dateOnly(value time.Time) time.Time {
 	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-// creditApplicationsPerCredit caps how many applications are embedded in one
-// credit response. applications_total still reports the full count.
-const creditApplicationsPerCredit = 20
-
 // creditResponses converts credits to API responses and attaches their active
 // applications. The applications are loaded with one query for the whole page.
 func creditResponses(ctx context.Context, repo repository.CommissionRepository, credits []models.SellerCommissionCredit) ([]models.SellerCommissionCreditResponse, error) {

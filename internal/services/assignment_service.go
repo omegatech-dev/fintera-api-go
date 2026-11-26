@@ -150,8 +150,10 @@ func (s *AssignmentService) ApplyOnCreate(ctx context.Context, contract *models.
 		return err
 	}
 	if seller == nil {
-		s.auditContract(ctx, "ASSIGN_NONE",
-			fmt.Sprintf("No hay vendedores activos para el contrato %d", contract.ID), contract.ID)
+		if err := s.auditContract(ctx, "ASSIGN_NONE",
+			fmt.Sprintf("No hay vendedores activos para el contrato %d", contract.ID), contract.ID); err != nil {
+			return err
+		}
 		return s.repo.UpdateContractAssignment(ctx, contract.ID, repository.ContractAssignmentUpdate{
 			Origin:     models.AssignmentOriginAutomatic,
 			Status:     models.AssignmentStatusNone,
@@ -159,9 +161,11 @@ func (s *AssignmentService) ApplyOnCreate(ctx context.Context, contract *models.
 		})
 	}
 	if usedFallback {
-		s.auditContract(ctx, "ASSIGN_FALLBACK",
+		if err := s.auditContract(ctx, "ASSIGN_FALLBACK",
 			fmt.Sprintf("Sin vendedores high/medium disponibles; se ofrece el contrato %d al vendedor %s (nivel %s)",
-				contract.ID, seller.FullName, seller.ScoreLevel), contract.ID)
+				contract.ID, seller.FullName, seller.ScoreLevel), contract.ID); err != nil {
+			return err
+		}
 	}
 	return s.Offer(ctx, contract, seller, models.AssignmentOriginAutomatic, now, nil)
 }
@@ -578,8 +582,12 @@ func (s *AssignmentService) Reject(ctx context.Context, assignmentID, actorID ui
 
 	assignment.Status = models.AssignmentStatusExpired
 	assignment.RespondedAt = &now
-	s.audit(ctx, actorID, "REJECT", fmt.Sprintf("Asignación rechazada para el contrato %d", assignment.ID), assignment.ID)
-	s.notifyAssignmentExpired(ctx, assignment)
+	if err := s.audit(ctx, actorID, "REJECT", fmt.Sprintf("Asignación rechazada para el contrato %d", assignment.ID), assignment.ID); err != nil {
+		return assignment, err
+	}
+	if err := s.notifyAssignmentExpired(ctx, assignment); err != nil {
+		return assignment, err
+	}
 	if err := s.reassign(ctx, assignment, now); err != nil {
 		return assignment, err
 	}
@@ -611,8 +619,12 @@ func (s *AssignmentService) expire(ctx context.Context, assignment *models.Assig
 	}
 	assignment.Status = models.AssignmentStatusExpired
 	assignment.RespondedAt = &now
-	s.audit(ctx, assignment.SellerID, "EXPIRE", fmt.Sprintf("Asignación expirada para el contrato %d", assignment.ID), assignment.ID)
-	s.notifyAssignmentExpired(ctx, assignment)
+	if err := s.audit(ctx, assignment.SellerID, "EXPIRE", fmt.Sprintf("Asignación expirada para el contrato %d", assignment.ID), assignment.ID); err != nil {
+		return err
+	}
+	if err := s.notifyAssignmentExpired(ctx, assignment); err != nil {
+		return err
+	}
 	return s.reassign(ctx, assignment, now)
 }
 
@@ -657,14 +669,18 @@ func (s *AssignmentService) reassign(ctx context.Context, assignment *models.Ass
 		return err
 	}
 	if seller == nil {
-		s.auditContract(ctx, "ASSIGN_NONE",
-			fmt.Sprintf("Sin vendedores activos para reasignar el contrato %d", contract.ID), contract.ID)
+		if err := s.auditContract(ctx, "ASSIGN_NONE",
+			fmt.Sprintf("Sin vendedores activos para reasignar el contrato %d", contract.ID), contract.ID); err != nil {
+			return err
+		}
 		return nil
 	}
 	if usedFallback {
-		s.auditContract(ctx, "ASSIGN_FALLBACK",
+		if err := s.auditContract(ctx, "ASSIGN_FALLBACK",
 			fmt.Sprintf("Sin vendedores high/medium disponibles; se reasigna el contrato %d al vendedor %s (nivel %s)",
-				contract.ID, seller.FullName, seller.ScoreLevel), contract.ID)
+				contract.ID, seller.FullName, seller.ScoreLevel), contract.ID); err != nil {
+			return err
+		}
 	}
 	return s.Offer(ctx, &contract, seller, models.AssignmentOriginAutomatic, now, nil)
 }
@@ -693,14 +709,18 @@ func (s *AssignmentService) BackfillUnassigned(ctx context.Context, limit int) (
 			return assigned, err
 		}
 		if seller == nil {
-			s.auditContract(ctx, "ASSIGN_NONE",
-				fmt.Sprintf("Sin vendedores activos en backfill para el contrato %d", contract.ID), contract.ID)
+			if err := s.auditContract(ctx, "ASSIGN_NONE",
+				fmt.Sprintf("Sin vendedores activos en backfill para el contrato %d", contract.ID), contract.ID); err != nil {
+				return assigned, err
+			}
 			continue
 		}
 		if usedFallback {
-			s.auditContract(ctx, "ASSIGN_FALLBACK",
+			if err := s.auditContract(ctx, "ASSIGN_FALLBACK",
 				fmt.Sprintf("Backfill con fallback: contrato %d al vendedor %s (nivel %s)",
-					contract.ID, seller.FullName, seller.ScoreLevel), contract.ID)
+					contract.ID, seller.FullName, seller.ScoreLevel), contract.ID); err != nil {
+				return assigned, err
+			}
 		}
 		if err := s.Offer(ctx, contract, seller, models.AssignmentOriginAutomatic, now, nil); err != nil {
 			return assigned, err

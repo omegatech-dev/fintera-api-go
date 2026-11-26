@@ -191,6 +191,8 @@ func writeCommissionError(c *gin.Context, err error) {
 		status = http.StatusNotFound
 	case errors.Is(err, services.ErrCommissionCreditSettled):
 		status = http.StatusConflict
+	case errors.Is(err, services.ErrCommissionCreditHasBalance):
+		status = http.StatusUnprocessableEntity
 	case errors.Is(err, services.ErrInvalidCommissionRate),
 		errors.Is(err, services.ErrInvalidCommissionRules),
 		errors.Is(err, services.ErrAssignmentSellerInactive):

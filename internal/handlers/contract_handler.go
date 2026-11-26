@@ -771,11 +771,11 @@ func (h *ContractHandler) Approve(c *gin.Context) {
 }
 
 // @Summary Pay Contract Commission
-// @Description Mark the seller commission of an approved/closed contract as paid (Admin)
+// @Description Mark the seller commission of an approved/closed contract as paid (Admin). When credit netting is enabled, pending seller credits are consumed FIFO and the response includes the payout breakdown.
 // @Tags Contracts
 // @Produce json
 // @Param guid path string true "Contract GUID"
-// @Success 200 {object} models.ContractResponse
+// @Success 200 {object} models.ContractCommissionPaidResponse
 // @Security BearerAuth
 // @Router /contracts/{guid}/commission/pay [patch]
 func (h *ContractHandler) PayCommission(c *gin.Context) {
@@ -785,13 +785,43 @@ func (h *ContractHandler) PayCommission(c *gin.Context) {
 		return
 	}
 
-	updated, err := h.contractService.MarkCommissionPaid(c.Request.Context(), contract.ID, middleware.GetUserID(c))
+	updated, payout, err := h.contractService.MarkCommissionPaid(c.Request.Context(), contract.ID, middleware.GetUserID(c))
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"contract": updated.ToResponse(), "message": "Comisión marcada como pagada"})
+	response := gin.H{"contract": updated.ToResponse(), "message": "Comisión marcada como pagada"}
+	if payout != nil {
+		response["payout"] = payout
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// @Summary Preview Contract Commission Payout
+// @Description Explain how a commission payout would be settled: gross commission, available credit, applied credit, net cash, and remaining credit. Returns enabled=false when automatic credit netting is disabled (Admin).
+// @Tags Contracts
+// @Produce json
+// @Param guid path string true "Contract GUID"
+// @Success 200 {object} models.CommissionPayoutPreview
+// @Failure 404 {object} map[string]string
+// @Failure 422 {object} map[string]string
+// @Security BearerAuth
+// @Router /contracts/{guid}/commission/payout-preview [get]
+func (h *ContractHandler) PreviewCommissionPayout(c *gin.Context) {
+	contract, err := h.contractService.FindByGUIDWithDetails(c.Request.Context(), c.Param("guid"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Contrato no encontrado"})
+		return
+	}
+
+	preview, err := h.contractService.PreviewCommissionPayout(c.Request.Context(), contract)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, preview)
 }
 
 type RejectContractRequest struct {

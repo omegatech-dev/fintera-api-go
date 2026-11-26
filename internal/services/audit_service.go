@@ -20,6 +20,16 @@ func NewAuditService(db *gorm.DB) *AuditService {
 	return &AuditService{db: db}
 }
 
+// WithTx returns an audit service whose writes share tx with the caller.
+func (s *AuditService) WithTx(tx *gorm.DB) *AuditService {
+	if s == nil {
+		return nil
+	}
+	clone := *s
+	clone.db = tx
+	return &clone
+}
+
 // Log records an audit entry. A userID of SystemAuditActor is stored as NULL.
 func (s *AuditService) Log(ctx context.Context, userID uint, action, entity string, entityID uint, details, ip, userAgent string) error {
 	logEntry := &models.AuditLog{

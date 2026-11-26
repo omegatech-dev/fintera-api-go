@@ -67,9 +67,18 @@ func (s *commissionRepoStub) SettleCredit(_ context.Context, _, actorID uint, se
 	}
 	s.settled = true
 	s.credit.Status = models.CommissionCreditStatusSettled
+	s.credit.AppliedAmount = s.credit.Amount
 	s.credit.SettledAt = &settledAt
 	s.credit.SettledBy = &actorID
 	return true, nil
+}
+
+func (s *commissionRepoStub) ListAppliedTotalByContractIDs(context.Context, []uint) (map[uint]float64, error) {
+	return map[uint]float64{}, nil
+}
+
+func (s *commissionRepoStub) ListApplicationsByCredits(_ context.Context, creditIDs []uint) (map[uint][]models.CreditApplication, error) {
+	return map[uint][]models.CreditApplication{}, nil
 }
 
 func newCommissionTestRouter(handler *CommissionHandler, role string, userID uint) *gin.Engine {
@@ -119,6 +128,22 @@ func TestCommissionHandler_ApplyCredit(t *testing.T) {
 	assert.Equal(t, "Ana Vendedora", body.Credit.Seller)
 	assert.Equal(t, "contract-guid", body.Credit.ContractGUID)
 	assert.NotEmpty(t, body.Message)
+}
+
+func TestCommissionHandler_ApplyCreditWithNettingEnabledReturns422(t *testing.T) {
+	repo := &commissionRepoStub{credit: pendingCommissionCredit()}
+	service := services.NewCommissionService(repo, nil, nil)
+	service.SetCreditNettingEnabled(true)
+	handler := NewCommissionHandler(service)
+	router := newCommissionTestRouter(handler, "admin", 3)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/commissions/credits/5/apply", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	assert.False(t, repo.settled)
+	assert.Equal(t, 0.0, repo.credit.AppliedAmount)
 }
 
 func TestCommissionHandler_ApplyCredit_NotFound(t *testing.T) {

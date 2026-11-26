@@ -12,16 +12,43 @@ import (
 )
 
 // CommissionService resolves commission rates, freezes them on contracts and
-// manages the global rules and per-seller exceptions.
+// manages the global rules, per-seller exceptions and recoverable credits.
 type CommissionService struct {
-	repo     repository.CommissionRepository
-	userRepo repository.UserRepository
-	auditSvc *AuditService
+	repo           repository.CommissionRepository
+	userRepo       repository.UserRepository
+	auditSvc       *AuditService
+	nettingEnabled bool
+	strictWrites   bool
 }
 
 // NewCommissionService creates the commission service.
 func NewCommissionService(repo repository.CommissionRepository, userRepo repository.UserRepository, auditSvc *AuditService) *CommissionService {
 	return &CommissionService{repo: repo, userRepo: userRepo, auditSvc: auditSvc}
+}
+
+// SetCreditNettingEnabled toggles automatic credit consumption at payout time.
+// It is a setter so focused tests can keep the existing constructor.
+func (s *CommissionService) SetCreditNettingEnabled(enabled bool) {
+	if s != nil {
+		s.nettingEnabled = enabled
+	}
+}
+
+// CreditNettingEnabled reports whether payouts consume pending credits.
+func (s *CommissionService) CreditNettingEnabled() bool {
+	return s != nil && s.nettingEnabled
+}
+
+// WithRepository returns a clone bound to a transaction-scoped repository.
+func (s *CommissionService) WithRepository(repo repository.CommissionRepository, auditSvc *AuditService) *CommissionService {
+	if s == nil {
+		return nil
+	}
+	clone := *s
+	clone.repo = repo
+	clone.auditSvc = auditSvc
+	clone.strictWrites = true
+	return &clone
 }
 
 // CommissionRulesInput is the writable part of the rules form. Pointer fields
@@ -246,20 +273,25 @@ func (s *CommissionService) CreateCancellationCredit(ctx context.Context, contra
 	if amount <= 0 {
 		amount = contract.CalculateCommission()
 	}
-	return s.CreateCommissionCredit(ctx, contract, *contract.SellerID, amount)
+	return s.createCredit(ctx, contract, *contract.SellerID, amount, models.CommissionCreditSourceCancellation)
 }
 
 // CreateCommissionCredit registers a pending recoverable credit for a seller.
 // It is reused when a paid commission must be recovered after a reassignment.
 func (s *CommissionService) CreateCommissionCredit(ctx context.Context, contract *models.Contract, sellerID uint, amount float64) (*models.SellerCommissionCredit, error) {
+	return s.createCredit(ctx, contract, sellerID, amount, models.CommissionCreditSourceReassignment)
+}
+
+func (s *CommissionService) createCredit(ctx context.Context, contract *models.Contract, sellerID uint, amount float64, source string) (*models.SellerCommissionCredit, error) {
 	if s == nil || s.repo == nil || contract == nil || sellerID == 0 || amount <= 0 {
 		return nil, nil
 	}
 	credit := &models.SellerCommissionCredit{
 		SellerID:   sellerID,
 		ContractID: contract.ID,
-		Amount:     amount,
+		Amount:     models.RoundMoney(amount),
 		Status:     models.CommissionCreditStatusPending,
+		Source:     source,
 	}
 	if err := s.repo.CreateCredit(ctx, credit); err != nil {
 		return nil, err
@@ -268,7 +300,7 @@ func (s *CommissionService) CreateCommissionCredit(ctx context.Context, contract
 }
 
 // ListCredits returns the seller commission credits, filtered to one seller when
-// sellerID is greater than zero.
+// sellerID is greater than zero. Each credit includes its active applications.
 func (s *CommissionService) ListCredits(ctx context.Context, sellerID uint) ([]models.SellerCommissionCreditResponse, error) {
 	if s == nil || s.repo == nil {
 		return []models.SellerCommissionCreditResponse{}, nil
@@ -277,14 +309,12 @@ func (s *CommissionService) ListCredits(ctx context.Context, sellerID uint) ([]m
 	if err != nil {
 		return nil, err
 	}
-	responses := make([]models.SellerCommissionCreditResponse, 0, len(credits))
-	for i := range credits {
-		responses = append(responses, credits[i].ToResponse())
-	}
-	return responses, nil
+	return creditResponses(ctx, s.repo, credits)
 }
 
 // ApplyCredit settles a pending credit and records the admin who applied it.
+// With automatic netting enabled a credit with a balance must be consumed by a
+// commission payout instead, so the manual path is rejected.
 func (s *CommissionService) ApplyCredit(ctx context.Context, actorID, id uint) (*models.SellerCommissionCreditResponse, error) {
 	if s == nil || s.repo == nil {
 		return nil, ErrCommissionCreditMissing
@@ -299,6 +329,9 @@ func (s *CommissionService) ApplyCredit(ctx context.Context, actorID, id uint) (
 	if credit.Status == models.CommissionCreditStatusSettled {
 		return nil, ErrCommissionCreditSettled
 	}
+	if s.nettingEnabled && credit.RemainingAmount() > models.MoneyEpsilon {
+		return nil, ErrCommissionCreditHasBalance
+	}
 
 	now := time.Now()
 	applied, err := s.repo.SettleCredit(ctx, id, actorID, now)
@@ -309,6 +342,7 @@ func (s *CommissionService) ApplyCredit(ctx context.Context, actorID, id uint) (
 		return nil, ErrCommissionCreditSettled
 	}
 	credit.Status = models.CommissionCreditStatusSettled
+	credit.AppliedAmount = credit.Amount
 	credit.SettledAt = &now
 	credit.SettledBy = &actorID
 
@@ -420,4 +454,100 @@ func validRate(rate float64) bool {
 
 func dateOnly(value time.Time) time.Time {
 	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// creditApplicationsPerCredit caps how many applications are embedded in one
+// credit response. applications_total still reports the full count.
+const creditApplicationsPerCredit = 20
+
+// creditResponses converts credits to API responses and attaches their active
+// applications. The applications are loaded with one query for the whole page.
+func creditResponses(ctx context.Context, repo repository.CommissionRepository, credits []models.SellerCommissionCredit) ([]models.SellerCommissionCreditResponse, error) {
+	responses := make([]models.SellerCommissionCreditResponse, 0, len(credits))
+	if len(credits) == 0 {
+		return responses, nil
+	}
+	ids := make([]uint, 0, len(credits))
+	for i := range credits {
+		ids = append(ids, credits[i].ID)
+	}
+	applications, err := repo.ListApplicationsByCredits(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range credits {
+		credit := &credits[i]
+		all := applications[credit.ID]
+		total := len(all)
+		if total > 0 && all[0].ApplicationsTotal > 0 {
+			total = all[0].ApplicationsTotal
+		}
+		responses = append(responses, credit.ToResponseWithApplications(all, total))
+	}
+	return responses, nil
+}
+
+// PayCommission marks the contract commission paid and consumes the seller's
+// pending credits. It returns the gross/applied/cash breakdown for the admin.
+func (s *CommissionService) PayCommission(ctx context.Context, contract *models.Contract, actorID uint, commission float64) (*models.CommissionPayout, error) {
+	if s == nil || s.repo == nil || contract == nil {
+		return nil, ErrNotFound
+	}
+	payout, err := s.repo.PayCommissionWithCredits(ctx, contract.ID, actorID, commission)
+	if err != nil {
+		return nil, err
+	}
+	if s.auditSvc != nil {
+		for _, application := range payout.Applications {
+			logIgnoredError("audit commission credit applied", s.auditSvc.Log(ctx, actorID,
+				"COMMISSION_CREDIT_APPLIED", "CreditApplication", application.ID,
+				fmt.Sprintf("Crédito #%d aplicado al contrato #%d: L%.2f",
+					application.CreditID, application.AppliedContractID, application.Amount), "", ""))
+		}
+	}
+	return payout, nil
+}
+
+// PreviewCommissionPayout explains the allocation without writing anything.
+// With netting disabled it still returns the gross commission so clients can
+// render a gross-only confirmation.
+func (s *CommissionService) PreviewCommissionPayout(ctx context.Context, contract *models.Contract, commission float64) (*models.CommissionPayoutPreview, error) {
+	preview := &models.CommissionPayoutPreview{
+		Enabled:    s.CreditNettingEnabled(),
+		Commission: models.RoundMoney(commission),
+	}
+	if !preview.Enabled || s == nil || s.repo == nil || contract == nil {
+		preview.NetCash = preview.Commission
+		return preview, nil
+	}
+	return s.repo.PreviewCommissionPayout(ctx, contract.SellerID, commission)
+}
+
+// RestoreAndCreateCredit reverses the credit applications of a paid commission
+// and creates the recoverable credit for the cash that was actually paid.
+func (s *CommissionService) RestoreAndCreateCredit(ctx context.Context, contract *models.Contract, sellerID uint, gross float64, source string, actorID uint, clearPaid bool) (*models.CommissionCompensation, error) {
+	if s == nil || s.repo == nil || contract == nil || sellerID == 0 || gross <= models.MoneyEpsilon {
+		return &models.CommissionCompensation{}, nil
+	}
+	result, err := s.repo.RestoreAndCreateCredit(ctx, repository.CommissionCompensationInput{
+		ContractID: contract.ID,
+		SellerID:   sellerID,
+		Gross:      models.RoundMoney(gross),
+		Source:     source,
+		ActorID:    actorID,
+		ClearPaid:  clearPaid,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if result.Restored > models.MoneyEpsilon && s.auditSvc != nil {
+		err := s.auditSvc.Log(ctx, actorID,
+			"COMMISSION_CREDIT_REVERSED", "Contract", contract.ID,
+			fmt.Sprintf("Crédito aplicado restaurado: L%.2f (vendedor #%d)", result.Restored, sellerID), "", "")
+		if s.strictWrites && err != nil {
+			return nil, err
+		}
+		logIgnoredError("audit commission credit reversed", err)
+	}
+	return result, nil
 }

@@ -22,6 +22,8 @@ type AssignmentService struct {
 	auditSvc        *AuditService
 	now             func() time.Time
 	randIntn        func(int) int
+	runInTx         repository.TransactionRunner
+	strictWrites    bool
 }
 
 // NewAssignmentService creates the assignment service.
@@ -54,6 +56,28 @@ func (s *AssignmentService) SetClock(now func() time.Time) {
 // window. Keeping it as a setter preserves the constructor used by tests.
 func (s *AssignmentService) SetCommissionRepo(repo repository.CommissionRepository) {
 	s.commissionRepo = repo
+}
+
+// SetTransactionRunner wires the runner used by acceptance transactions.
+func (s *AssignmentService) SetTransactionRunner(runner repository.TransactionRunner) {
+	s.runInTx = runner
+}
+
+// WithRepositories returns a clone whose persistence and assignment side
+// effects use the same transaction-scoped repository bundle.
+func (s *AssignmentService) WithRepositories(repos *repository.Repositories) *AssignmentService {
+	if s == nil || repos == nil {
+		return nil
+	}
+	clone := *s
+	clone.repo = repos.Assignment
+	clone.contractRepo = repos.Contract
+	clone.userRepo = repos.User
+	clone.commissionRepo = repos.Commission
+	clone.auditSvc = s.auditSvc.WithTx(repos.DB())
+	clone.notificationSvc = s.notificationSvc.WithRepositories(repos)
+	clone.strictWrites = true
+	return &clone
 }
 
 // acceptanceWindow returns the configured answer window, falling back to the
@@ -315,8 +339,12 @@ func (s *AssignmentService) recordPending(ctx context.Context, contract *models.
 	contract.AcceptDeadlineAt = deadline
 	contract.RespondedAt = nil
 
-	s.audit(ctx, sellerID, "ASSIGN", fmt.Sprintf("Asignación creada para el contrato %d", assignment.ID), assignment.ID)
-	s.notifyAssignmentCreated(ctx, contract, assignment)
+	if err := s.audit(ctx, sellerID, "ASSIGN", fmt.Sprintf("Asignación creada para el contrato %d", assignment.ID), assignment.ID); err != nil {
+		return err
+	}
+	if err := s.notifyAssignmentCreated(ctx, contract, assignment); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -342,8 +370,12 @@ func (s *AssignmentService) recordAccepted(ctx context.Context, contract *models
 	contract.RespondedAt = &respondedAt
 	contract.AcceptDeadlineAt = nil
 
-	s.audit(ctx, sellerID, "ASSIGN", fmt.Sprintf("Asignación aceptada automáticamente para el contrato %d", assignment.ID), assignment.ID)
-	s.notifyAssignmentAccepted(ctx, contract, assignment)
+	if err := s.audit(ctx, sellerID, "ASSIGN", fmt.Sprintf("Asignación aceptada automáticamente para el contrato %d", assignment.ID), assignment.ID); err != nil {
+		return nil, err
+	}
+	if err := s.notifyAssignmentAccepted(ctx, contract, assignment); err != nil {
+		return nil, err
+	}
 	return assignment, nil
 }
 
@@ -366,7 +398,9 @@ func (s *AssignmentService) SupersedePending(ctx context.Context, contractID, ac
 			return err
 		}
 		if updated {
-			s.audit(ctx, actorID, "SUPERSEDE", fmt.Sprintf("Asignación reemplazada para el contrato %d", contractID), pending[i].ID)
+			if err := s.audit(ctx, actorID, "SUPERSEDE", fmt.Sprintf("Asignación reemplazada para el contrato %d", contractID), pending[i].ID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -390,46 +424,89 @@ func (s *AssignmentService) PendingAll(ctx context.Context) ([]models.Assignment
 // Accept commits a pending assignment to its seller. Repeating the same call
 // is a no-op; acting on an expired offer is rejected.
 func (s *AssignmentService) Accept(ctx context.Context, assignmentID, actorID uint, isAdmin bool) (*models.Assignment, error) {
-	assignment, err := s.repo.FindByIDWithDetails(ctx, assignmentID)
+	initial, err := s.repo.FindByIDWithDetails(ctx, assignmentID)
 	if err != nil {
 		return nil, ErrAssignmentNotFound
 	}
-	if !isAdmin && assignment.SellerID != actorID {
-		return nil, ErrAssignmentNotOwned
-	}
-	if assignment.Contract.ID != 0 &&
-		assignment.Contract.Status != models.ContractStatusPending &&
-		assignment.Contract.Status != models.ContractStatusSubmitted {
-		return assignment, ErrAssignmentNotPending
+	now := s.now()
+	if s.runInTx == nil {
+		return nil, ErrAssignmentTransactionUnavailable
 	}
 
-	now := s.now()
+	var accepted *models.Assignment
+	var expired bool
+	err = s.runInTx(ctx, func(repos *repository.Repositories) error {
+		txService := s.WithRepositories(repos)
+		return txService.acceptLocked(ctx, initial.ContractID, assignmentID, actorID, isAdmin, now, &accepted, &expired)
+	})
+	if err != nil {
+		return accepted, err
+	}
+	if expired {
+		// Expiration/reassignment remains its existing follow-up flow. The
+		// conditional status update makes this safe if the offer was superseded
+		// immediately after the transaction released the contract lock.
+		if err := s.expire(ctx, initial, now); err != nil {
+			return initial, err
+		}
+		return initial, ErrAssignmentExpired
+	}
+	return accepted, nil
+}
+
+func (s *AssignmentService) acceptLocked(
+	ctx context.Context,
+	contractID, assignmentID, actorID uint,
+	isAdmin bool,
+	now time.Time,
+	accepted **models.Assignment,
+	expired *bool,
+) error {
+	contract, err := s.contractRepo.FindByIDWithDetailsForUpdate(ctx, contractID)
+	if err != nil {
+		return ErrAssignmentNotFound
+	}
+	assignment, err := s.repo.FindByIDWithDetailsForUpdate(ctx, assignmentID)
+	if err != nil || assignment.ContractID != contract.ID {
+		return ErrAssignmentNotFound
+	}
+	assignment.Contract = *contract
+	if !isAdmin && assignment.SellerID != actorID {
+		return ErrAssignmentNotOwned
+	}
+	if contract.Status != models.ContractStatusPending && contract.Status != models.ContractStatusSubmitted {
+		return ErrAssignmentNotPending
+	}
+
 	switch assignment.Status {
 	case models.AssignmentStatusAccepted:
-		return assignment, nil
+		*accepted = assignment
+		return nil
 	case models.AssignmentStatusExpired:
-		return assignment, ErrAssignmentExpired
+		return ErrAssignmentExpired
+	case models.AssignmentStatusSuperseded:
+		return ErrAssignmentNotPending
 	}
 	if assignment.IsOverdue(now) {
-		if err := s.expire(ctx, assignment, now); err != nil {
-			return assignment, err
-		}
-		return assignment, ErrAssignmentExpired
+		*accepted = assignment
+		*expired = true
+		return nil
 	}
 
 	updated, err := s.repo.UpdateStatusIfPending(ctx, assignment.ID, models.AssignmentStatusAccepted, now)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !updated {
-		current, reloadErr := s.repo.FindByIDWithDetails(ctx, assignment.ID)
+		current, reloadErr := s.repo.FindByIDWithDetailsForUpdate(ctx, assignment.ID)
 		if reloadErr != nil {
-			return nil, ErrAssignmentNotPending
+			return ErrAssignmentNotPending
 		}
 		if current.Status == models.AssignmentStatusAccepted {
-			return current, nil
+			*accepted = current
+			return nil
 		}
-		return current, ErrAssignmentNotPending
+		return ErrAssignmentNotPending
 	}
 
 	if err := s.repo.UpdateContractAssignment(ctx, assignment.ContractID, repository.ContractAssignmentUpdate{
@@ -440,18 +517,30 @@ func (s *AssignmentService) Accept(ctx context.Context, assignmentID, actorID ui
 		AcceptDeadlineAt: nil,
 		RespondedAt:      &now,
 	}); err != nil {
-		return nil, err
+		return err
 	}
 
 	assignment.Status = models.AssignmentStatusAccepted
 	assignment.RespondedAt = &now
 	assignment.AcceptDeadlineAt = nil
-	s.audit(ctx, actorID, "ACCEPT", fmt.Sprintf("Asignación aceptada para el contrato %d", assignment.ID), assignment.ID)
-	s.notifyAdmins(ctx, "Asignación aceptada", fmt.Sprintf(
+	contract.SellerID = &assignment.SellerID
+	contract.AssignmentOrigin = assignment.Origin
+	contract.AssignmentStatus = models.AssignmentStatusAccepted
+	contract.AssignedAt = &assignment.AssignedAt
+	contract.AcceptDeadlineAt = nil
+	contract.RespondedAt = &now
+	assignment.Contract = *contract
+	if err := s.audit(ctx, actorID, "ACCEPT", fmt.Sprintf("Asignación aceptada para el contrato %d", assignment.ID), assignment.ID); err != nil {
+		return err
+	}
+	if err := s.notifyAdmins(ctx, "Asignación aceptada", fmt.Sprintf(
 		"%s aceptó la reserva del proyecto %s, lote %s.",
 		s.sellerName(assignment), assignment.Contract.Lot.Project.Name, assignment.Contract.Lot.Name,
-	), models.NotificationTypeAssignmentAccepted)
-	return assignment, nil
+	), models.NotificationTypeAssignmentAccepted); err != nil {
+		return err
+	}
+	*accepted = assignment
+	return nil
 }
 
 // Reject expires a pending offer and immediately reassigns it. Repeating the
@@ -635,64 +724,79 @@ func (s *AssignmentService) sellerName(assignment *models.Assignment) string {
 	return "El vendedor"
 }
 
-func (s *AssignmentService) audit(ctx context.Context, actorID uint, action, details string, assignmentID uint) {
-	if s.auditSvc == nil {
-		return
+func (s *AssignmentService) sideEffect(action string, err error) error {
+	if err == nil {
+		return nil
 	}
-	logIgnoredError("write assignment audit log", s.auditSvc.Log(ctx, actorID, action, "Assignment", assignmentID, details, "", ""))
+	if s.strictWrites {
+		return err
+	}
+	logIgnoredError(action, err)
+	return nil
+}
+
+func (s *AssignmentService) audit(ctx context.Context, actorID uint, action, details string, assignmentID uint) error {
+	if s.auditSvc == nil {
+		return nil
+	}
+	return s.sideEffect("write assignment audit log", s.auditSvc.Log(ctx, actorID, action, "Assignment", assignmentID, details, "", ""))
 }
 
 // auditContract records assignment events that belong to the reservation
 // itself (no assignment row exists yet), using the system actor.
-func (s *AssignmentService) auditContract(ctx context.Context, action, details string, contractID uint) {
+func (s *AssignmentService) auditContract(ctx context.Context, action, details string, contractID uint) error {
 	if s.auditSvc == nil {
-		return
+		return nil
 	}
-	logIgnoredError("write contract assignment audit log", s.auditSvc.Log(ctx, SystemAuditActor, action, "Contract", contractID, details, "", ""))
+	return s.sideEffect("write contract assignment audit log", s.auditSvc.Log(ctx, SystemAuditActor, action, "Contract", contractID, details, "", ""))
 }
 
-func (s *AssignmentService) notifyAssignmentCreated(ctx context.Context, contract *models.Contract, assignment *models.Assignment) {
+func (s *AssignmentService) notifyAssignmentCreated(ctx context.Context, contract *models.Contract, assignment *models.Assignment) error {
 	if s.notificationSvc == nil {
-		return
+		return nil
 	}
 	message := fmt.Sprintf(
 		"Se te asignó una reserva en %s, lote %s. Tienes hasta %s para aceptarla.",
 		contract.Lot.Project.Name, contract.Lot.Name,
 		formatDeadline(assignment.AcceptDeadlineAt),
 	)
-	logIgnoredError("notify assignment created", s.notificationSvc.NotifyUser(
+	return s.sideEffect("notify assignment created", s.notificationSvc.NotifyUser(
 		ctx, assignment.SellerID, "Nueva reserva asignada", message, models.NotificationTypeAssignmentCreated))
 }
 
-func (s *AssignmentService) notifyAssignmentAccepted(ctx context.Context, contract *models.Contract, assignment *models.Assignment) {
+func (s *AssignmentService) notifyAssignmentAccepted(ctx context.Context, contract *models.Contract, assignment *models.Assignment) error {
 	if s.notificationSvc == nil {
-		return
+		return nil
 	}
 	message := fmt.Sprintf(
 		"Se te asignó la reserva en %s, lote %s.",
 		contract.Lot.Project.Name, contract.Lot.Name,
 	)
-	logIgnoredError("notify assignment accepted", s.notificationSvc.NotifyUser(
+	return s.sideEffect("notify assignment accepted", s.notificationSvc.NotifyUser(
 		ctx, assignment.SellerID, "Reserva asignada", message, models.NotificationTypeAssignmentAccepted))
 }
 
-func (s *AssignmentService) notifyAssignmentExpired(ctx context.Context, assignment *models.Assignment) {
+func (s *AssignmentService) notifyAssignmentExpired(ctx context.Context, assignment *models.Assignment) error {
 	if s.notificationSvc == nil {
-		return
+		return nil
 	}
 	message := fmt.Sprintf(
 		"La asignación de la reserva del proyecto %s, lote %s expiró.",
 		assignment.Contract.Lot.Project.Name, assignment.Contract.Lot.Name,
 	)
-	logIgnoredError("notify assignment expired", s.notificationSvc.NotifyUser(
+	return s.sideEffect("notify assignment expired", s.notificationSvc.NotifyUser(
 		ctx, assignment.SellerID, "Asignación expirada", message, models.NotificationTypeAssignmentExpired))
 }
 
-func (s *AssignmentService) notifyAdmins(ctx context.Context, title, message, notifType string) {
+func (s *AssignmentService) notifyAdmins(ctx context.Context, title, message, notifType string) error {
 	if s.notificationSvc == nil {
-		return
+		return nil
+	}
+	if s.strictWrites {
+		return s.notificationSvc.NotifyAdminsStrict(ctx, title, message, notifType)
 	}
 	logIgnoredError("notify admins", s.notificationSvc.NotifyAdmins(ctx, title, message, notifType))
+	return nil
 }
 
 func formatDeadline(deadline *time.Time) string {

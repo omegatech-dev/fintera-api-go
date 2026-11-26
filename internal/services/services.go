@@ -56,12 +56,15 @@ func NewServices(repos *repository.Repositories, worker *jobs.Worker, storage *s
 	referralSvc := NewReferralService(repos.Referral, repos.Seller, cfg)
 	assignmentSvc := NewAssignmentService(repos.Assignment, repos.Contract, repos.User, notificationSvc, auditSvc)
 	assignmentSvc.SetCommissionRepo(repos.Commission)
+	assignmentSvc.SetTransactionRunner(repos.RunInTx)
 	scoreSvc := NewScoreService(repos.Seller, repos.Assignment, auditSvc)
 	contractSvc.SetAssignmentServices(referralSvc, assignmentSvc)
 
 	commissionSvc := NewCommissionService(repos.Commission, repos.User, auditSvc)
+	commissionSvc.SetCreditNettingEnabled(cfg.CommissionCreditNettingEnabled)
 	referralSvc.SetCommissionService(commissionSvc)
 	contractSvc.SetCommissionService(commissionSvc)
+	contractSvc.SetTransactionRunner(repos.RunInTx)
 	historicalClientSvc := NewHistoricalClientService(repos.User, repos.HistoricalSale)
 	historicalSvc := NewHistoricalSaleService(repos.HistoricalSale, commissionSvc, auditSvc, historicalClientSvc)
 

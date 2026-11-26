@@ -30,6 +30,7 @@ type ContractService struct {
 	referralSvc     *ReferralService
 	assignmentSvc   *AssignmentService
 	commissionSvc   *CommissionService
+	runInTx         repository.TransactionRunner
 }
 
 func NewContractService(
@@ -69,6 +70,35 @@ func (s *ContractService) SetAssignmentServices(referral *ReferralService, assig
 // setter preserves the constructor used by focused unit tests.
 func (s *ContractService) SetCommissionService(commission *CommissionService) {
 	s.commissionSvc = commission
+}
+
+// SetTransactionRunner wires the database transaction runner used by
+// reassignment. It is a setter to preserve the existing constructor.
+func (s *ContractService) SetTransactionRunner(runner repository.TransactionRunner) {
+	s.runInTx = runner
+}
+
+// WithRepositories returns a service clone backed entirely by one
+// transaction-scoped repository bundle.
+func (s *ContractService) WithRepositories(repos *repository.Repositories) *ContractService {
+	if s == nil || repos == nil {
+		return nil
+	}
+	clone := *s
+	clone.repo = repos.Contract
+	clone.lotRepo = repos.Lot
+	clone.userRepo = repos.User
+	clone.paymentRepo = repos.Payment
+	clone.ledgerRepo = repos.Ledger
+	clone.notificationSvc = s.notificationSvc.WithRepositories(repos)
+	clone.auditSvc = s.auditSvc.WithTx(repos.DB())
+	if s.commissionSvc != nil {
+		clone.commissionSvc = s.commissionSvc.WithRepository(repos.Commission, clone.auditSvc)
+	}
+	if s.assignmentSvc != nil {
+		clone.assignmentSvc = s.assignmentSvc.WithRepositories(repos)
+	}
+	return &clone
 }
 
 // ContractAssignmentInput carries the assignment-related reservation fields
@@ -205,11 +235,50 @@ func (s *ContractService) Reassign(ctx context.Context, guid string, input Contr
 	if s.assignmentSvc == nil {
 		return nil, nil, ErrAssignmentSellerInactive
 	}
-	contract, err := s.repo.FindByGUIDWithDetails(ctx, guid)
+	if s.runInTx == nil {
+		return nil, nil, ErrAssignmentTransactionUnavailable
+	}
+	var updated *models.Contract
+	var previous string
+	var sellerName string
+	var origin string
+	var creditNote string
+	err := s.runInTx(ctx, func(repos *repository.Repositories) error {
+		txService := s.WithRepositories(repos)
+		var txErr error
+		updated, previous, sellerName, origin, creditNote, txErr = txService.reassignLocked(ctx, guid, input)
+		return txErr
+	})
 	if err != nil {
-		return nil, nil, ErrNotFound
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, ErrNotFound
+		}
+		return nil, nil, err
+	}
+	if s.auditSvc != nil {
+		detail := fmt.Sprintf("Reasignación manual: %s → %s (%s)%s", previous, sellerName, origin, creditNote)
+		logIgnoredError("write reassignment audit log", s.auditSvc.Log(ctx, input.ActorID, "REASSIGN", "Contract", updated.ID, detail, "", ""))
 	}
 
+	history, err := s.assignmentSvc.History(ctx, updated.ID)
+	if err != nil || len(history) == 0 {
+		return updated, nil, err
+	}
+	assignment := history[0]
+	return updated, &assignment, nil
+}
+
+// reassignLocked applies every reassignment write through the tx-scoped service
+// clone. Its contract state and seller selection come from the locked reread.
+func (s *ContractService) reassignLocked(
+	ctx context.Context,
+	guid string,
+	input ContractReassignInput,
+) (*models.Contract, string, string, string, string, error) {
+	contract, err := s.repo.FindByGUIDWithDetailsForUpdate(ctx, guid)
+	if err != nil {
+		return nil, "", "", "", "", err
+	}
 	now := time.Now()
 	mode := strings.ToLower(strings.TrimSpace(input.Mode))
 	origin := models.AssignmentOriginManual
@@ -224,46 +293,42 @@ func (s *ContractService) Reassign(ctx context.Context, guid string, input Contr
 		}
 		seller, _, err = s.assignmentSvc.chooseAutomaticSeller(ctx, contract.ID, exclude)
 		if err != nil {
-			return nil, nil, err
+			return nil, "", "", "", "", err
 		}
 		if seller == nil && len(exclude) > 0 {
 			seller, _, err = s.assignmentSvc.chooseAutomaticSeller(ctx, contract.ID, nil)
 			if err != nil {
-				return nil, nil, err
+				return nil, "", "", "", "", err
 			}
 		}
 		if seller == nil {
-			return nil, nil, ErrNoAssignableSeller
+			return nil, "", "", "", "", ErrNoAssignableSeller
 		}
 	case ReassignModeSeller:
 		if input.SellerID == nil || *input.SellerID == 0 {
-			return nil, nil, ErrAssignmentSellerInactive
+			return nil, "", "", "", "", ErrAssignmentSellerInactive
 		}
 		seller, err = s.assignmentSvc.ValidateSeller(ctx, *input.SellerID)
 		if err != nil {
-			return nil, nil, err
+			return nil, "", "", "", "", err
 		}
 	default:
-		return nil, nil, ErrAssignmentSellerInactive
+		return nil, "", "", "", "", ErrAssignmentSellerInactive
 	}
 
+	previous := "sin vendedor"
+	if contract.SellerID != nil {
+		previous = fmt.Sprintf("vendedor #%d", *contract.SellerID)
+		if contract.Seller != nil && contract.Seller.FullName != "" {
+			previous = contract.Seller.FullName
+		}
+	}
 	previousSellerID := contract.SellerID
-	previousOrigin := contract.AssignmentOrigin
-	previousStatus := contract.AssignmentStatus
-	previousAssignedAt := contract.AssignedAt
-	previousDeadline := contract.AcceptDeadlineAt
-	previousRespondedAt := contract.RespondedAt
-	previousPaidAt := contract.CommissionPaidAt
-	previousPaidBy := contract.CommissionPaidBy
-
 	paidAmount := contract.CommissionAmount
 	if paidAmount <= 0 {
 		paidAmount = contract.CalculateCommission()
 	}
 	sameSeller := previousSellerID != nil && *previousSellerID == seller.ID
-	// Cancelled and rejected contracts already settled their commission (a
-	// cancellation may have created a recoverable credit). Reassigning them
-	// must not duplicate the credit or resurrect a commission.
 	skipCommission := contract.Status == models.ContractStatusCancelled ||
 		contract.Status == models.ContractStatusRejected
 
@@ -271,73 +336,48 @@ func (s *ContractService) Reassign(ctx context.Context, guid string, input Contr
 	contract.AssignmentOrigin = origin
 	if s.commissionSvc != nil && !skipCommission && (contract.CommissionPaidAt == nil || !sameSeller) {
 		if err := s.commissionSvc.ApplyToContract(ctx, contract, time.Time{}); err != nil {
-			contract.SellerID = previousSellerID
-			contract.AssignmentOrigin = previousOrigin
-			return nil, nil, err
+			return nil, "", "", "", "", err
 		}
 	}
 
 	creditNote := ""
-	if !skipCommission && contract.CommissionPaidAt != nil && previousSellerID != nil && !sameSeller && s.commissionSvc != nil {
-		credit, creditErr := s.commissionSvc.CreateCommissionCredit(ctx, contract, *previousSellerID, paidAmount)
-		if creditErr != nil {
-			contract.SellerID = previousSellerID
-			contract.AssignmentOrigin = previousOrigin
-			return nil, nil, creditErr
+	if !skipCommission && contract.CommissionPaidAt != nil && !sameSeller && s.commissionSvc != nil {
+		if previousSellerID != nil {
+			compensation, creditErr := s.commissionSvc.RestoreAndCreateCredit(
+				ctx, contract, *previousSellerID, paidAmount, models.CommissionCreditSourceReassignment, input.ActorID, true,
+			)
+			if creditErr != nil {
+				return nil, "", "", "", "", creditErr
+			}
+			if compensation != nil {
+				if compensation.Restored > models.MoneyEpsilon {
+					creditNote += fmt.Sprintf(". Crédito aplicado restaurado: L%.2f", compensation.Restored)
+				}
+				if compensation.Credit != nil {
+					creditNote += fmt.Sprintf(". Crédito de comisión al vendedor anterior: L%.2f", compensation.Credit.Amount)
+				}
+			}
 		}
-		if credit != nil {
-			creditNote = fmt.Sprintf(". Crédito de comisión al vendedor anterior: L%.2f", credit.Amount)
-			contract.CommissionPaidAt = nil
-			contract.CommissionPaidBy = nil
-		}
+		contract.CommissionPaidAt = nil
+		contract.CommissionPaidBy = nil
 	}
 
 	if err := s.assignmentSvc.SupersedePending(ctx, contract.ID, input.ActorID, now); err != nil {
-		contract.SellerID = previousSellerID
-		contract.AssignmentOrigin = previousOrigin
-		contract.AssignmentStatus = previousStatus
-		contract.AssignedAt = previousAssignedAt
-		contract.AcceptDeadlineAt = previousDeadline
-		contract.RespondedAt = previousRespondedAt
-		contract.CommissionPaidAt = previousPaidAt
-		contract.CommissionPaidBy = previousPaidBy
-		return nil, nil, err
+		return nil, "", "", "", "", err
 	}
-
 	accept := input.Accept || (contract.Status != models.ContractStatusPending && contract.Status != models.ContractStatusSubmitted)
 	if accept {
 		if _, err := s.assignmentSvc.AssignNow(ctx, contract, seller.ID, origin, now); err != nil {
-			contract.CommissionPaidAt = previousPaidAt
-			contract.CommissionPaidBy = previousPaidBy
-			return nil, nil, err
+			return nil, "", "", "", "", err
 		}
 	} else if err := s.assignmentSvc.Offer(ctx, contract, seller, origin, now, nil); err != nil {
-		contract.CommissionPaidAt = previousPaidAt
-		contract.CommissionPaidBy = previousPaidBy
-		return nil, nil, err
+		return nil, "", "", "", "", err
 	}
-
 	contract.Seller = seller
-
 	if err := s.repo.Update(ctx, contract); err != nil {
-		return nil, nil, err
+		return nil, "", "", "", "", err
 	}
-
-	if s.auditSvc != nil {
-		previous := "sin vendedor"
-		if previousSellerID != nil {
-			previous = fmt.Sprintf("vendedor #%d", *previousSellerID)
-		}
-		detail := fmt.Sprintf("Reasignación manual: %s → %s (%s)%s", previous, seller.FullName, origin, creditNote)
-		logIgnoredError("write reassignment audit log", s.auditSvc.Log(ctx, input.ActorID, "REASSIGN", "Contract", contract.ID, detail, "", ""))
-	}
-
-	history, err := s.assignmentSvc.History(ctx, contract.ID)
-	if err != nil || len(history) == 0 {
-		return contract, nil, err
-	}
-	assignment := history[0]
-	return contract, &assignment, nil
+	return contract, previous, seller.FullName, origin, creditNote, nil
 }
 
 // AssignmentHistory returns every seller offer attempted for a contract.
@@ -857,7 +897,7 @@ func (s *ContractService) Cancel(ctx context.Context, id uint, note string, acto
 	// The cancellation settles the ledger, so the cached balance is zero.
 	zero := 0.0
 	contract.Balance = &zero
-	if err := s.repo.Update(ctx, contract); err != nil {
+	if err := s.repo.UpdateCancellation(ctx, contract); err != nil {
 		return nil, err
 	}
 
@@ -927,13 +967,29 @@ func (s *ContractService) Cancel(ctx context.Context, id uint, note string, acto
 	}
 
 	// Commission credit: a commission already paid to the seller becomes a
-	// recoverable pending credit. The hook is optional so focused tests can
-	// build the service without a commission dependency.
-	var commissionCredit *models.SellerCommissionCredit
-	if s.commissionSvc != nil && contract.CommissionPaidAt != nil {
-		commissionCredit, err = s.commissionSvc.CreateCancellationCredit(ctx, contract)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create commission credit: %w", err)
+	// recoverable pending credit. If the payout consumed earlier credits, those
+	// are restored first and the new credit only covers the cash that was paid.
+	// The hook is optional so focused tests can build the service without a
+	// commission dependency.
+	creditNote := ""
+	if s.commissionSvc != nil && contract.CommissionPaidAt != nil && contract.SellerID != nil {
+		gross := contract.CommissionAmount
+		if gross <= 0 {
+			gross = contract.CalculateCommission()
+		}
+		compensation, creditErr := s.commissionSvc.RestoreAndCreateCredit(
+			ctx, contract, *contract.SellerID, gross, models.CommissionCreditSourceCancellation, actorID, false,
+		)
+		if creditErr != nil {
+			return nil, fmt.Errorf("failed to create commission credit: %w", creditErr)
+		}
+		if compensation != nil {
+			if compensation.Restored > models.MoneyEpsilon {
+				creditNote += fmt.Sprintf(". Crédito aplicado restaurado: L%.2f", compensation.Restored)
+			}
+			if compensation.Credit != nil {
+				creditNote += fmt.Sprintf(". Crédito de comisión: L%.2f", compensation.Credit.Amount)
+			}
 		}
 	}
 
@@ -942,10 +998,6 @@ func (s *ContractService) Cancel(ctx context.Context, id uint, note string, acto
 	auditActorID := actorID
 	if auditActorID == SystemActorID {
 		auditActorID = contract.ApplicantUserID
-	}
-	creditNote := ""
-	if commissionCredit != nil {
-		creditNote = fmt.Sprintf(". Crédito de comisión: L%.2f", commissionCredit.Amount)
 	}
 	logIgnoredError("write contract cancel audit log", s.auditSvc.Log(ctx, auditActorID, "CANCEL", "Contract", contract.ID,
 		fmt.Sprintf("Contrato cancelado. Nota: %s. Reembolso: L%.2f%s", note, paidTotal, creditNote), "", ""))
@@ -1008,15 +1060,16 @@ func (s *ContractService) Close(ctx context.Context, id uint) (*models.Contract,
 }
 
 // MarkCommissionPaid records that the seller commission for an approved or
-// closed contract has been paid out. The amount itself stays frozen.
-func (s *ContractService) MarkCommissionPaid(ctx context.Context, id uint, actorID uint) (*models.Contract, error) {
+// closed contract has been paid out. When credit netting is enabled the pending
+// seller credits are consumed first and the breakdown is returned.
+func (s *ContractService) MarkCommissionPaid(ctx context.Context, id uint, actorID uint) (*models.Contract, *models.CommissionPayout, error) {
 	contract, err := s.repo.FindByIDWithDetails(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if contract.Status != models.ContractStatusApproved && contract.Status != models.ContractStatusClosed {
-		return nil, fmt.Errorf("solo se puede pagar la comisión de contratos aprobados o cerrados")
+		return nil, nil, fmt.Errorf("solo se puede pagar la comisión de contratos aprobados o cerrados")
 	}
 	// Older contracts may not have the commission persisted; freeze the
 	// resolved amount at payout time so the report and the payout agree.
@@ -1024,7 +1077,7 @@ func (s *ContractService) MarkCommissionPaid(ctx context.Context, id uint, actor
 	if commission <= 0 {
 		if s.commissionSvc != nil {
 			if err := s.commissionSvc.EnsureContractCommission(ctx, contract); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			commission = contract.CommissionAmount
 		}
@@ -1032,15 +1085,39 @@ func (s *ContractService) MarkCommissionPaid(ctx context.Context, id uint, actor
 	if commission <= 0 {
 		commission = contract.CalculateCommission()
 	}
+	commission = models.RoundMoney(commission)
 	if commission <= 0 {
-		return nil, fmt.Errorf("el contrato no tiene comisión calculada")
+		return nil, nil, fmt.Errorf("el contrato no tiene comisión calculada")
 	}
 	if contract.CommissionPaidAt != nil {
-		return nil, fmt.Errorf("la comisión ya fue marcada como pagada")
+		return nil, nil, fmt.Errorf("la comisión ya fue marcada como pagada")
 	}
 
-	if err := s.repo.MarkCommissionPaid(ctx, contract.ID, actorID, commission); err != nil {
-		return nil, err
+	var payout *models.CommissionPayout
+	var paidSellerID *uint
+	if s.commissionSvc != nil && s.commissionSvc.CreditNettingEnabled() {
+		payout, err = s.commissionSvc.PayCommission(ctx, contract, actorID, commission)
+		if payout != nil {
+			paidSellerID = payout.SellerID
+			commission = payout.Commission
+		}
+	} else {
+		commission, paidSellerID, err = s.repo.MarkCommissionPaid(ctx, contract.ID, actorID, commission)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if payout != nil {
+		commission = payout.Commission
+	}
+	contract.SellerID = paidSellerID
+	if paidSellerID == nil {
+		contract.Seller = nil
+	} else if contract.Seller == nil || contract.Seller.ID != *paidSellerID {
+		contract.Seller = nil
+		if s.userRepo != nil {
+			contract.Seller, _ = s.userRepo.FindByID(ctx, *paidSellerID)
+		}
 	}
 
 	now := time.Now()
@@ -1048,10 +1125,52 @@ func (s *ContractService) MarkCommissionPaid(ctx context.Context, id uint, actor
 	contract.CommissionPaidAt = &now
 	contract.CommissionPaidBy = &actorID
 
+	detail := fmt.Sprintf("Comisión pagada: %.2f", contract.CommissionAmount)
+	if payout != nil {
+		detail = fmt.Sprintf("Comisión pagada: bruto L%.2f, crédito aplicado L%.2f, efectivo L%.2f",
+			payout.Commission, payout.AppliedTotal, payout.NetCash)
+	}
 	logIgnoredError("write commission paid audit log", s.auditSvc.Log(ctx, actorID, "COMMISSION_PAID", "Contract", contract.ID,
-		fmt.Sprintf("Comisión pagada: %.2f", contract.CommissionAmount), "", ""))
+		detail, "", ""))
 
-	return contract, nil
+	return contract, payout, nil
+}
+
+// PreviewCommissionPayout returns the gross/applied/cash breakdown that paying
+// this contract's commission would produce, without changing anything.
+func (s *ContractService) PreviewCommissionPayout(ctx context.Context, contract *models.Contract) (*models.CommissionPayoutPreview, error) {
+	if contract == nil {
+		return nil, ErrNotFound
+	}
+	if contract.Status != models.ContractStatusApproved && contract.Status != models.ContractStatusClosed {
+		return nil, fmt.Errorf("solo se puede pagar la comisión de contratos aprobados o cerrados")
+	}
+	if contract.CommissionPaidAt != nil {
+		return nil, fmt.Errorf("la comisión ya fue marcada como pagada")
+	}
+
+	commission := contract.CommissionAmount
+	if commission <= 0 && s.commissionSvc != nil {
+		if err := s.commissionSvc.EnsureContractCommission(ctx, contract); err != nil {
+			return nil, err
+		}
+		commission = contract.CommissionAmount
+	}
+	if commission <= 0 {
+		commission = contract.CalculateCommission()
+	}
+	commission = models.RoundMoney(commission)
+	if commission <= 0 {
+		return nil, fmt.Errorf("el contrato no tiene comisión calculada")
+	}
+	if s.commissionSvc == nil {
+		return &models.CommissionPayoutPreview{
+			Enabled:    false,
+			Commission: models.RoundMoney(commission),
+			NetCash:    models.RoundMoney(commission),
+		}, nil
+	}
+	return s.commissionSvc.PreviewCommissionPayout(ctx, contract, commission)
 }
 
 // CreatePrepaymentRequest records a customer request to pay part (or all) of

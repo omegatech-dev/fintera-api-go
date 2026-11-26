@@ -19,6 +19,7 @@ import (
 	"github.com/sjperalta/fintera-api/internal/repository"
 	"github.com/sjperalta/fintera-api/internal/services"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -38,6 +39,15 @@ type contractRepoStub struct {
 	awaiting []models.Contract
 }
 
+type commissionPayoutRepoStub struct {
+	repository.CommissionRepository
+	payout *models.CommissionPayout
+}
+
+func (s *commissionPayoutRepoStub) PayCommissionWithCredits(context.Context, uint, uint, float64) (*models.CommissionPayout, error) {
+	return s.payout, nil
+}
+
 func (s *contractRepoStub) FindByID(context.Context, uint) (*models.Contract, error) {
 	return s.byID, s.err
 }
@@ -46,8 +56,16 @@ func (s *contractRepoStub) FindByIDWithDetails(context.Context, uint) (*models.C
 	return s.byID, s.err
 }
 
+func (s *contractRepoStub) FindByIDWithDetailsForUpdate(ctx context.Context, id uint) (*models.Contract, error) {
+	return s.FindByIDWithDetails(ctx, id)
+}
+
 func (s *contractRepoStub) FindByGUIDWithDetails(context.Context, string) (*models.Contract, error) {
 	return s.byGUID, s.err
+}
+
+func (s *contractRepoStub) FindByGUIDWithDetailsForUpdate(ctx context.Context, guid string) (*models.Contract, error) {
+	return s.FindByGUIDWithDetails(ctx, guid)
 }
 
 func (s *contractRepoStub) FindByLot(context.Context, uint) ([]models.Contract, error) {
@@ -68,6 +86,10 @@ func (s *contractRepoStub) Create(_ context.Context, contract *models.Contract) 
 func (s *contractRepoStub) Update(_ context.Context, contract *models.Contract) error {
 	s.updated = append(s.updated, contract)
 	return s.err
+}
+
+func (s *contractRepoStub) UpdateCancellation(ctx context.Context, contract *models.Contract) error {
+	return s.Update(ctx, contract)
 }
 
 func (s *contractRepoStub) Delete(_ context.Context, id uint) error {
@@ -104,8 +126,11 @@ func (s *contractRepoStub) MarkReservationReminderSent(context.Context, uint) er
 	return s.err
 }
 
-func (s *contractRepoStub) MarkCommissionPaid(context.Context, uint, uint, float64) error {
-	return s.err
+func (s *contractRepoStub) MarkCommissionPaid(_ context.Context, _ uint, _ uint, amount float64) (float64, *uint, error) {
+	if s.byID != nil {
+		return amount, s.byID.SellerID, s.err
+	}
+	return amount, nil, s.err
 }
 
 func (s *contractRepoStub) GetStats(context.Context) (*repository.ContractStats, error) {
@@ -430,6 +455,76 @@ func TestContractHandler_ShowByGUID(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestContractHandler_PreviewCommissionPayoutWithNettingDisabled(t *testing.T) {
+	handler, contractRepo, _, _, _, _ := newContractHandlerForTest(t)
+	amount := 200000.0
+	contractRepo.byGUID = &models.Contract{
+		ID:            19,
+		GUID:          "commission-preview-guid",
+		Status:        models.ContractStatusApproved,
+		Amount:        &amount,
+		FinancingType: models.FinancingTypeDirect,
+		Lot: models.Lot{
+			Project: models.Project{ID: 1, CommissionRateDirect: 4},
+		},
+	}
+
+	router := gin.New()
+	router.GET("/contracts/:guid/commission/payout-preview", handler.PreviewCommissionPayout)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/contracts/commission-preview-guid/commission/payout-preview", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var response models.CommissionPayoutPreview
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.False(t, response.Enabled)
+	assert.Equal(t, 8000.0, response.Commission)
+	assert.Equal(t, 8000.0, response.NetCash)
+}
+
+func TestContractHandler_PayCommissionIncludesPayoutBreakdown(t *testing.T) {
+	handler, contractRepo, _, _, _, mockSQL := newContractHandlerForTest(t)
+	contract := &models.Contract{
+		ID:               19,
+		GUID:             "commission-pay-guid",
+		Status:           models.ContractStatusApproved,
+		CommissionAmount: 8000,
+	}
+	contractRepo.byGUID = contract
+	contractRepo.byID = contract
+	mockSQL.ExpectQuery("INSERT INTO \"audit_logs\"").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+
+	payoutRepo := &commissionPayoutRepoStub{payout: &models.CommissionPayout{
+		Commission: 8000, AppliedTotal: 8000, NetCash: 0, RemainingCredit: 2000,
+		Applications: []models.CreditApplicationResponse{{
+			ID: 41, CreditID: 12, AppliedContractID: 19,
+			AppliedContractGUID: "commission-pay-guid", Amount: 8000,
+		}},
+	}}
+	commissionSvc := services.NewCommissionService(payoutRepo, nil, nil)
+	commissionSvc.SetCreditNettingEnabled(true)
+	handler.contractService.SetCommissionService(commissionSvc)
+
+	router := gin.New()
+	router.PATCH("/contracts/:guid/commission/pay", handler.PayCommission)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/contracts/commission-pay-guid/commission/pay", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body struct {
+		Payout models.CommissionPayout `json:"payout"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, 8000.0, body.Payout.Commission)
+	assert.Equal(t, 8000.0, body.Payout.AppliedTotal)
+	assert.Equal(t, 0.0, body.Payout.NetCash)
+	require.Len(t, body.Payout.Applications, 1)
+	assert.Equal(t, "commission-pay-guid", body.Payout.Applications[0].AppliedContractGUID)
+	require.NoError(t, mockSQL.ExpectationsWereMet())
 }
 
 func TestContractHandler_RequestPrepayment(t *testing.T) {

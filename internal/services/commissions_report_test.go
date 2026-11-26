@@ -30,6 +30,14 @@ func (r *commissionsTestCreditRepo) ListPendingCreditsBySeller(context.Context) 
 	return r.pending, nil
 }
 
+func (r *commissionsTestCreditRepo) ListAppliedTotalByContractIDs(context.Context, []uint) (map[uint]float64, error) {
+	return map[uint]float64{}, nil
+}
+
+func (r *commissionsTestCreditRepo) ListApplicationsByCredits(context.Context, []uint) (map[uint][]models.CreditApplication, error) {
+	return map[uint][]models.CreditApplication{}, nil
+}
+
 // commissionsTestContract builds an approved contract for the commissions
 // fixtures with the seller, client, lot and commission data the report needs.
 func commissionsTestContract(
@@ -388,4 +396,86 @@ func TestGenerateCommissionsSpansMultipleBatches(t *testing.T) {
 	for i := range items {
 		assert.Equal(t, uint(1000+i), items[i].ContractID)
 	}
+}
+
+// TestCommissionsDetailRowMarksCancelledContract checks the export state column
+// for cancelled contracts: a paid commission stays visible with an explicit
+// note, and an unpaid one is rendered as cancelled without payment.
+func TestCommissionsDetailRowMarksCancelledContract(t *testing.T) {
+	paidAt := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
+
+	cancelledPaid := commissionsDetailRow(CommissionReportItem{
+		ContractID: 1, Commission: 3000, CommissionPaidAt: &paidAt,
+		CommissionStatus: "paid", ContractStatus: models.ContractStatusCancelled,
+	})
+	last := len(cancelledPaid.Cells) - 1
+	assert.Equal(t, "Pagada el 20/03/2026 (contrato cancelado)", cancelledPaid.Cells[last].Text)
+	assert.Equal(t, ReportRowPaid, cancelledPaid.Kind)
+
+	cancelledUnpaid := commissionsDetailRow(CommissionReportItem{
+		ContractID: 2, Commission: 3000,
+		CommissionStatus: "pending", ContractStatus: models.ContractStatusCancelled,
+	})
+	assert.Equal(t, "Cancelada (sin pago)", cancelledUnpaid.Cells[last].Text)
+	assert.Equal(t, ReportRowMuted, cancelledUnpaid.Kind)
+
+	active := commissionsDetailRow(CommissionReportItem{
+		ContractID: 3, Commission: 3000, CommissionPaidAt: &paidAt,
+		CommissionStatus: "paid", ContractStatus: models.ContractStatusApproved,
+	})
+	assert.Equal(t, "Pagada el 20/03/2026", active.Cells[last].Text)
+	assert.Equal(t, ReportRowPaid, active.Kind)
+}
+
+func TestCommissionsDetailRowStatesCreditAdjustment(t *testing.T) {
+	paidAt := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
+
+	netted := commissionsDetailRow(CommissionReportItem{
+		ContractID: 1, Commission: 16800, CommissionPaidAt: &paidAt,
+		CommissionStatus: "paid", CreditApplied: 13800,
+	})
+	last := len(netted.Cells) - 1
+	assert.Equal(t, "Pagada el 20/03/2026 · Reajuste por crédito: L 13,800.00 (efectivo L 3,000.00)", netted.Cells[last].Text)
+	assert.Equal(t, ReportRowPaid, netted.Kind)
+
+	unnetted := commissionsDetailRow(CommissionReportItem{
+		ContractID: 2, Commission: 3000, CommissionPaidAt: &paidAt,
+		CommissionStatus: "paid",
+	})
+	assert.Equal(t, "Pagada el 20/03/2026", unnetted.Cells[last].Text)
+}
+
+// TestBuildCommissionsReportIncludesCancelledContracts verifies the export
+// keeps cancelled contracts in the per-seller tables so a paid commission
+// survives the cancellation.
+func TestBuildCommissionsReportIncludesCancelledContracts(t *testing.T) {
+	seller := uint(7)
+	paidAt := time.Date(2026, 10, 25, 0, 0, 0, 0, time.UTC)
+	accrual := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+
+	approved := commissionsTestContract(101, &seller, "Ana Vendedora", "Cliente Uno", "Lote 1", "Proyecto Norte",
+		100000, 3000, accrual, nil)
+	cancelledPaid := commissionsTestContract(102, &seller, "Ana Vendedora", "Cliente Dos", "Lote 2", "Proyecto Norte",
+		100000, 3000, accrual, &paidAt)
+	cancelledPaid.Status = models.ContractStatusCancelled
+
+	contracts := []models.Contract{approved, cancelledPaid}
+	reportSvc := NewReportService(nil, commissionsTestContractRepo(contracts, nil), nil, nil)
+	exportSvc := NewReportExportService(nil, nil, nil, reportSvc, nil)
+
+	filters := ReportExportFilters{}
+	doc, err := exportSvc.BuildCommissionsReport(context.Background(), filters)
+	require.NoError(t, err)
+
+	section := commissionsTestSection(t, doc, "Comisiones de Ana Vendedora")
+	require.Len(t, section.Rows, 2)
+
+	cancelledRow := section.Rows[1]
+	assert.Equal(t, "Pagada el 25/10/2026 (contrato cancelado)",
+		cancelledRow.Cells[len(cancelledRow.Cells)-1].Text)
+
+	summary := commissionsTestSection(t, doc, "Resumen de Ana Vendedora")
+	assert.InDelta(t, 6000.0, commissionsTestMoney(t, summary.Rows[0].Cells[1]), 0.01)
+	assert.InDelta(t, 3000.0, commissionsTestMoney(t, summary.Rows[1].Cells[1]), 0.01)
+	assert.InDelta(t, 3000.0, commissionsTestMoney(t, summary.Rows[2].Cells[1]), 0.01)
 }

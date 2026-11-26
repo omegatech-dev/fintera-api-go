@@ -221,7 +221,9 @@ func commissionsDetailHeaders() []string {
 }
 
 // commissionsDetailRow renders one commission line, marking paid and pending
-// rows with their own visual style and Spanish state text.
+// rows with their own visual style and Spanish state text. Cancelled contracts
+// keep their commission visible with an explicit note, because the payout (or
+// the recoverable credit) already happened.
 func commissionsDetailRow(item CommissionReportItem) ReportRow {
 	kind := ReportRowPending
 	state := "Pendiente"
@@ -230,6 +232,25 @@ func commissionsDetailRow(item CommissionReportItem) ReportRow {
 		state = "Pagada"
 		if !item.CommissionPaidAt.IsZero() {
 			state = "Pagada el " + FormatReportDate(*item.CommissionPaidAt)
+		}
+	}
+	// A payout can settle part of the commission with the seller's credits of
+	// cancelled contracts. State the adjustment so the row never reads as a
+	// fresh full cash payment.
+	if item.CreditApplied > models.MoneyEpsilon && item.CommissionPaidAt != nil {
+		cash := models.RoundMoney(item.Commission - item.CreditApplied)
+		if cash < 0 {
+			cash = 0
+		}
+		state += fmt.Sprintf(" · Reajuste por crédito: %s (efectivo %s)",
+			FormatReportMoney("HNL", item.CreditApplied), FormatReportMoney("HNL", cash))
+	}
+	if item.ContractStatus == models.ContractStatusCancelled {
+		if item.CommissionPaidAt != nil {
+			state += " (contrato cancelado)"
+		} else {
+			state = "Cancelada (sin pago)"
+			kind = ReportRowMuted
 		}
 	}
 
@@ -283,10 +304,10 @@ func commissionsCountLabel(count int) string {
 	return fmt.Sprintf("%d comisiones", count)
 }
 
-// commissionsPendingCredits loads the pending credits per seller. A failed
-// lookup must not hide the commissions already computed, so the export falls
-// back to zero credits and the net pending amount equals the pending
-// commissions for every seller.
+// commissionsPendingCredits loads each seller's remaining pending credit
+// balance (amount - applied_amount). A failed lookup must not hide the
+// commissions already computed, so the export falls back to zero credits and
+// the net pending amount equals the pending commissions for every seller.
 func (s *ReportExportService) commissionsPendingCredits(ctx context.Context) map[uint]float64 {
 	if s.commissionRepo == nil {
 		return map[uint]float64{}

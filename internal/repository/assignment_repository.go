@@ -6,6 +6,7 @@ import (
 
 	"github.com/sjperalta/fintera-api/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // AssignmentRepository stores the assignment history and keeps the mirrored
@@ -14,6 +15,7 @@ type AssignmentRepository interface {
 	Create(ctx context.Context, assignment *models.Assignment) error
 	FindByID(ctx context.Context, id uint) (*models.Assignment, error)
 	FindByIDWithDetails(ctx context.Context, id uint) (*models.Assignment, error)
+	FindByIDWithDetailsForUpdate(ctx context.Context, id uint) (*models.Assignment, error)
 	FindPendingBySeller(ctx context.Context, sellerID uint) ([]models.Assignment, error)
 	FindPendingAll(ctx context.Context) ([]models.Assignment, error)
 	FindPendingByContract(ctx context.Context, contractID uint) ([]models.Assignment, error)
@@ -74,6 +76,19 @@ func (r *assignmentRepository) FindByIDWithDetails(ctx context.Context, id uint)
 		return nil, err
 	}
 	return &assignment, nil
+}
+
+// FindByIDWithDetailsForUpdate locks the assignment row after the caller has
+// acquired the contract lock, preserving the shared contract-first lock order.
+func (r *assignmentRepository) FindByIDWithDetailsForUpdate(ctx context.Context, id uint) (*models.Assignment, error) {
+	var locked models.Assignment
+	if err := r.db.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("id").
+		First(&locked, id).Error; err != nil {
+		return nil, err
+	}
+	return r.FindByIDWithDetails(ctx, locked.ID)
 }
 
 func (r *assignmentRepository) FindPendingBySeller(ctx context.Context, sellerID uint) ([]models.Assignment, error) {

@@ -1293,7 +1293,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Mark the seller commission of an approved/closed contract as paid (Admin)",
+                "description": "Mark the seller commission of an approved/closed contract as paid (Admin). When credit netting is enabled, pending seller credits are consumed FIFO and the response includes the payout breakdown.",
                 "produces": [
                     "application/json"
                 ],
@@ -1314,7 +1314,59 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.ContractResponse"
+                            "$ref": "#/definitions/models.ContractCommissionPaidResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/contracts/{guid}/commission/payout-preview": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Explain how a commission payout would be settled: gross commission, available credit, applied credit, net cash, and remaining credit. Returns enabled=false when automatic credit netting is disabled (Admin).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Contracts"
+                ],
+                "summary": "Preview Contract Commission Payout",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Contract GUID",
+                        "name": "guid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.CommissionPayoutPreview"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -5453,7 +5505,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "commissions, pagination (with period_total), totals, sellers, credits, credits_pagination, pending_credits, net_pending",
+                        "description": "commissions, pagination (with period_total), totals, sellers, credits, credits_pagination, pending_credits, seller_balance, net_pending",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -7524,6 +7576,52 @@
                 }
             }
         },
+        "models.CommissionPayout": {
+            "type": "object",
+            "properties": {
+                "applications": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.CreditApplicationResponse"
+                    }
+                },
+                "applied_total": {
+                    "type": "number"
+                },
+                "commission": {
+                    "type": "number"
+                },
+                "net_cash": {
+                    "type": "number"
+                },
+                "remaining_credit": {
+                    "type": "number"
+                }
+            }
+        },
+        "models.CommissionPayoutPreview": {
+            "type": "object",
+            "properties": {
+                "applicable": {
+                    "type": "number"
+                },
+                "available_credit": {
+                    "type": "number"
+                },
+                "commission": {
+                    "type": "number"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "net_cash": {
+                    "type": "number"
+                },
+                "remaining_credit": {
+                    "type": "number"
+                }
+            }
+        },
         "models.Contract": {
             "type": "object",
             "properties": {
@@ -7686,6 +7784,20 @@
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "models.ContractCommissionPaidResponse": {
+            "type": "object",
+            "properties": {
+                "contract": {
+                    "$ref": "#/definitions/models.ContractResponse"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "payout": {
+                    "$ref": "#/definitions/models.CommissionPayout"
                 }
             }
         },
@@ -7978,6 +8090,29 @@
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "models.CreditApplicationResponse": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "number"
+                },
+                "applied_contract_guid": {
+                    "type": "string"
+                },
+                "applied_contract_id": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "credit_id": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
                 }
             }
         },

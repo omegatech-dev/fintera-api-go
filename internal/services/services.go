@@ -37,6 +37,8 @@ type Services struct {
 	Seller         *SellerService
 	Commission     *CommissionService
 	HistoricalSale *HistoricalSaleService
+	// IdentityDocument serves the DNI and the RTN of a person.
+	IdentityDocument *IdentityDocumentService
 }
 
 // NewServices creates all service instances
@@ -78,31 +80,40 @@ func NewServices(repos *repository.Repositories, worker *jobs.Worker, storage *s
 	// Load the configured hold duration into the process-wide default.
 	_, _ = settingsSvc.Get(context.Background())
 
+	// Identity documents: the DNI and the RTN of a person. The requirement is
+	// enforced only when the flag is on, so the API can be deployed before
+	// the two frontends.
+	identityDocumentSvc := NewIdentityDocumentService(
+		repos.IdentityDocument, repos.Contract, storage, auditSvc, cfg.IdentityDocumentsRequired,
+	)
+	contractSvc.SetIdentityDocumentService(identityDocumentSvc)
+
 	return &Services{
-		Auth:           NewAuthService(repos.User, repos.RefreshToken, cfg),
-		User:           userSvc,
-		Project:        NewProjectService(repos.Project, repos.Lot, auditSvc),
-		Lot:            NewLotService(repos.Lot, repos.Project, auditSvc),
-		Contract:       contractSvc,
-		Payment:        NewPaymentService(repos.Payment, repos.Contract, repos.Lot, repos.Ledger, contractSvc, notificationSvc, emailSvc, auditSvc, storage, worker),
-		Notification:   notificationSvc,
-		Report:         reportSvc,
-		Audit:          auditSvc, // Assign AuditService
-		CreditScore:    NewCreditScoreService(repos.User, repos.Contract, repos.Payment),
-		Email:          emailSvc,
-		Analytics:      analyticsSvc,
-		ReportExport:   NewReportExportService(repos.Analytics, repos.Overdue, repos.Payment, reportSvc, repos.Commission),
-		Job:            jobSvc,
-		Branding:       NewBrandingService(repos.Branding, storage, auditSvc),
-		Settings:       settingsSvc,
-		Public:         NewPublicCatalogService(repos.Project, repos.Lot, repos.Instructions),
-		Media:          NewMediaService(repos.Drawings, repos.ProjectPhoto, repos.LotPhoto, repos.Project, repos.Lot, storage, auditSvc),
-		Instructions:   NewProjectPaymentInstructionService(repos.Instructions, repos.Project, auditSvc),
-		Referral:       referralSvc,
-		Assignment:     assignmentSvc,
-		Score:          scoreSvc,
-		Seller:         sellerSvc,
-		Commission:     commissionSvc,
-		HistoricalSale: historicalSvc,
+		Auth:             NewAuthService(repos.User, repos.RefreshToken, cfg),
+		User:             userSvc,
+		Project:          NewProjectService(repos.Project, repos.Lot, auditSvc),
+		Lot:              NewLotService(repos.Lot, repos.Project, auditSvc),
+		Contract:         contractSvc,
+		Payment:          NewPaymentService(repos.Payment, repos.Contract, repos.Lot, repos.Ledger, contractSvc, notificationSvc, emailSvc, auditSvc, storage, worker),
+		Notification:     notificationSvc,
+		Report:           reportSvc,
+		Audit:            auditSvc, // Assign AuditService
+		CreditScore:      NewCreditScoreService(repos.User, repos.Contract, repos.Payment),
+		Email:            emailSvc,
+		Analytics:        analyticsSvc,
+		ReportExport:     NewReportExportService(repos.Analytics, repos.Overdue, repos.Payment, reportSvc, repos.Commission),
+		Job:              jobSvc,
+		Branding:         NewBrandingService(repos.Branding, storage, auditSvc),
+		Settings:         settingsSvc,
+		Public:           NewPublicCatalogService(repos.Project, repos.Lot, repos.Instructions),
+		Media:            NewMediaService(repos.Drawings, repos.ProjectPhoto, repos.LotPhoto, repos.Project, repos.Lot, storage, auditSvc),
+		Instructions:     NewProjectPaymentInstructionService(repos.Instructions, repos.Project, auditSvc),
+		Referral:         referralSvc,
+		Assignment:       assignmentSvc,
+		Score:            scoreSvc,
+		Seller:           sellerSvc,
+		Commission:       commissionSvc,
+		HistoricalSale:   historicalSvc,
+		IdentityDocument: identityDocumentSvc,
 	}
 }

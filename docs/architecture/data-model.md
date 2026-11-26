@@ -17,6 +17,9 @@ erDiagram
     CONTRACTS ||--o{ PAYMENTS : schedules
     CONTRACTS ||--o{ CONTRACT_LEDGER_ENTRIES : ledger
     PAYMENTS ||--o{ CONTRACT_LEDGER_ENTRIES : references
+    USERS ||--o{ IDENTITY_DOCUMENTS : owns
+    CONTRACTS ||--o{ CONTRACT_IDENTITY_DOCUMENTS : links
+    IDENTITY_DOCUMENTS ||--o{ CONTRACT_IDENTITY_DOCUMENTS : attached_as
 ```
 
 ## Tables
@@ -138,6 +141,38 @@ Key columns: `contract_id`, `payment_id`, `amount`, `description`,
 > sign convention. Trust the implementation: negative increases debt,
 > positive reduces it.
 
+### `identity_documents`
+
+A person's identity documents: at most one row per `(user_id, kind)`, with
+`kind` in (`dni`, `rtn`). This is the single place a DNI or RTN file path
+lives, so every contract of that applicant shows the same two documents.
+
+Key columns: `user_id`, `kind`, `file_path`, `preview_path`,
+`original_filename`, `mime_type`, `size_bytes`, `uploaded_by`, timestamps.
+
+Unique: `(user_id, kind)`. A new upload of a kind replaces the row and deletes
+the replaced `file_path` and `preview_path`; there is no version history.
+`preview_path` is a downscaled WebP copy and is `NULL` for `application/pdf`,
+`image/heic` and `image/heif`, which the API does not decode.
+
+### `contract_identity_documents`
+
+Links a contract to the identity documents of its applicant, and carries the
+files that were attached to a contract before this feature existed.
+
+Key columns: `contract_id`, `identity_document_id`, `kind`, `source`,
+`file_path`, `original_filename`, `mime_type`, `size_bytes`, `created_at`.
+
+`source` is `upload` for a link to a person-level document and `legacy` for a
+migrated file taken from `contracts.document_paths`. Legacy rows have
+`kind = NULL` and `identity_document_id = NULL` because nothing says which file
+was the DNI, so they are read-only, contract-scoped, and never promoted to a
+person-level document.
+
+Unique: `(contract_id, kind)`. PostgreSQL treats `NULL` as distinct, so several
+legacy rows coexist in one contract while two rows claiming the same kind do
+not.
+
 ### `seller_commission_credits`
 
 Recoverable commission credit created when a contract whose commission was
@@ -203,6 +238,9 @@ Read publicly via `GET /api/v1/settings`; updated only by admins via
 | `payments.status` | `pending`, `submitted`, `paid`, `rejected`, `readjustment`, `cancelled` |
 | `payments.payment_type` | `reservation`, `down_payment`, `installment`, `full`, `advance`, `capital_repayment` |
 | ledger `entry_type` | `initial`, `payment`, `interest`, `prepayment`, `refund`, `adjustment` |
+| `identity_documents.kind` | `dni`, `rtn` |
+| `contract_identity_documents.kind` | `dni`, `rtn`, or `NULL` for a legacy file |
+| `contract_identity_documents.source` | `upload`, `legacy` |
 
 `contracts.status` includes `signed` in the model constants, but no transition
 currently produces it.
@@ -234,6 +272,7 @@ with golang-migrate:
 | 000026 | `payments.amount`, `payments.interest_amount` widened to `NUMERIC(15,2)` |
 | 000041 | Analytics indexes and cache uniqueness |
 | 000042 | `payments(contract_id, due_date)` index |
+| 000047 | `identity_documents` and `contract_identity_documents` |
 
 Applied migrations are immutable. Add a new numbered pair instead of editing
 history.

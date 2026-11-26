@@ -65,6 +65,10 @@ func (s *contractRepoStub) Create(_ context.Context, contract *models.Contract) 
 	return s.err
 }
 
+func (s *contractRepoStub) CreateWithIdentityDocuments(ctx context.Context, contract *models.Contract, _ []models.ContractIdentityDocument) error {
+	return s.Create(ctx, contract)
+}
+
 func (s *contractRepoStub) Update(_ context.Context, contract *models.Contract) error {
 	s.updated = append(s.updated, contract)
 	return s.err

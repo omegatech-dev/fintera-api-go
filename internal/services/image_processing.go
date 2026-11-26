@@ -32,12 +32,16 @@ const (
 	BrandingLogoMaxDimension = 1024
 	// ReceiptMaxDimension caps the long edge of image receipts.
 	ReceiptMaxDimension = 2048
+	// IdentityDocumentMaxDimension caps the long edge of the identity
+	// document previews.
+	IdentityDocumentMaxDimension = 1600
 
 	photoWebPQuality        = 80
 	drawingWebPQuality      = 90
 	profileWebPQuality      = 85
 	brandingLogoWebPQuality = 90
 	receiptWebPQuality      = 80
+	identityDocumentQuality = 85
 )
 
 // ErrUnsupportedRaster is returned when an uploaded image cannot be decoded as
@@ -96,6 +100,14 @@ func LogoToWebP(data []byte) ([]byte, error) {
 // ReceiptToWebP returns an image receipt encoded as WebP.
 func ReceiptToWebP(data []byte) ([]byte, error) {
 	return ResizeToWebP(data, ReceiptMaxDimension, receiptWebPQuality)
+}
+
+// IdentityDocumentToWebP returns the preview variant of an identity
+// document. The formats the Go decoders cannot read (PDF, HEIC, HEIF) return
+// an error, and the caller stores the document without a preview instead of
+// rejecting it.
+func IdentityDocumentToWebP(data []byte) ([]byte, error) {
+	return ResizeToWebP(data, IdentityDocumentMaxDimension, identityDocumentQuality)
 }
 
 func decodeRaster(data []byte) (image.Image, error) {

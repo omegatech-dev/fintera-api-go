@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/sjperalta/fintera-api/pkg/logger"
 )
@@ -36,6 +38,43 @@ var (
 	ErrHistoricalSaleInvalid      = errors.New("datos de la venta histórica inválidos")
 	ErrHistoricalSaleDuplicate    = errors.New("ya existe una venta histórica con esa identidad y fecha")
 )
+
+// ErrIdentityDocumentsRequired is returned when a contract is created for an
+// applicant that is missing a DNI or an RTN. The missing kinds are named so
+// the caller can ask for exactly what is missing.
+type ErrIdentityDocumentsRequired struct {
+	Missing []string
+}
+
+func (e ErrIdentityDocumentsRequired) Error() string {
+	return "faltan documentos de identificación: " + strings.Join(e.Missing, ", ")
+}
+
+// ErrIdentityDocumentType is returned when an upload has a type the API does
+// not accept. It names the offending file.
+type ErrIdentityDocumentType struct {
+	Filename    string
+	ContentType string
+}
+
+func (e ErrIdentityDocumentType) Error() string {
+	if e.ContentType == "" {
+		return fmt.Sprintf("el archivo %q no tiene un tipo permitido", e.Filename)
+	}
+	return fmt.Sprintf("el archivo %q no tiene un tipo permitido (%s)", e.Filename, e.ContentType)
+}
+
+// ErrIdentityDocumentSize is returned when an upload is larger than the
+// limit. It names the offending file.
+type ErrIdentityDocumentSize struct {
+	Filename string
+	Size     int64
+	Max      int64
+}
+
+func (e ErrIdentityDocumentSize) Error() string {
+	return fmt.Sprintf("el archivo %q supera el tamaño máximo de %d MB", e.Filename, e.Max/(1024*1024))
+}
 
 // lookupError classifies a failed repository lookup. A missing row is
 // ErrNotFound, but an aborted caller is not: context.Canceled must keep

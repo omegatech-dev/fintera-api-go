@@ -118,7 +118,8 @@ func main() {
 
 	// Registered data backfills. Pending tasks run asynchronously at startup.
 	backfillRegistry := backfills.DefaultRegistry(backfills.Dependencies{
-		HistoricalSale: svcs.HistoricalSale,
+		HistoricalSale:   svcs.HistoricalSale,
+		IdentityDocument: svcs.IdentityDocument,
 	})
 	backfillRunner := backfills.NewRunner(repos.Backfill)
 
@@ -318,6 +319,11 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 			protected.GET("/contracts/:guid", h.Contract.ShowByGUID)
 			// Customer-requested early payment (partial or full capital payment).
 			protected.POST("/contracts/:guid/prepayments", h.Contract.RequestPrepayment)
+			// Identity document files. They are private: no static route serves
+			// them, and the handler checks the admin/seller scope of the
+			// document before streaming it.
+			protected.GET("/identity_documents/:id/content", h.IdentityDocument.Content)
+			protected.GET("/identity_documents/:id/preview", h.IdentityDocument.Preview)
 
 			// Admin-only routes
 			admin := protected.Group("")
@@ -329,6 +335,12 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				admin.PUT("/users/:user_id/toggle_status", h.User.ToggleStatus)
 				admin.POST("/users/:user_id/restore", h.User.Restore)
 				admin.PATCH("/users/:user_id/score", h.Score.Override)
+
+				// Identity documents of a person. The upload is admin-only
+				// because it replaces the document; the listing is also open
+				// to a seller with a contract in scope, so it is registered in
+				// the sellerAdmin group below.
+				admin.POST("/users/:user_id/identity_documents", h.IdentityDocument.UploadForUser)
 
 				// Contract approval/rejection/cancellation/delete (admin only)
 				admin.DELETE("/projects/:project_id/lots/:lot_id/contracts/:contract_id", h.Contract.Delete)
@@ -473,6 +485,17 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				sellerAdmin.GET("/contracts/stats", h.Contract.GetStats)
 				sellerAdmin.GET("/projects/:project_id/lots/:lot_id/contracts/:contract_id", h.Contract.Show)
 				sellerAdmin.GET("/projects/:project_id/lots/:lot_id/contracts/:contract_id/ledger", h.Contract.Ledger)
+
+				// Identity documents of the applicant (admin and seller). The
+				// seller reaches them only for the contracts it created or
+				// that are assigned to it and accepted; the check happens in
+				// the handler with the same predicate the contract listing
+				// uses. The contract is addressed by GUID because the
+				// /contracts/:guid tree already exists.
+				sellerAdmin.GET("/users/:user_id/identity_documents", h.IdentityDocument.ListByUser)
+				sellerAdmin.GET("/contracts/:guid/identity_documents", h.IdentityDocument.ListByContract)
+				sellerAdmin.POST("/contracts/:guid/identity_documents", h.IdentityDocument.UploadForContract)
+				sellerAdmin.GET("/contracts/:guid/legacy_documents/:document_id/content", h.IdentityDocument.LegacyContent)
 
 				// Payment viewing (seller can view all payments)
 				sellerAdmin.GET("/payments", h.Payment.Index)

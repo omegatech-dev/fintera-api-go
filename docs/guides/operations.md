@@ -92,6 +92,8 @@ Files are written under `STORAGE_PATH`:
 ```
 storage/
 ├── contracts/YYYY/MM/...
+├── identity_documents/YYYY/MM/...
+├── identity_documents/previews/YYYY/MM/...
 ├── receipts/YYYY/MM/...
 └── uploads/...
 ```
@@ -99,6 +101,10 @@ storage/
 Uploads are served publicly from `/uploads`. Use a persistent volume; otherwise
 files are lost on redeploy. The 10 MB upload limit and allowed MIME types are
 enforced in `internal/storage/local.go` and the payment handler.
+
+`identity_documents/` is **not** served statically: DNI and RTN files are
+private and are streamed by the authorized `content` and `preview` endpoints.
+Back them up together with the rest of `STORAGE_PATH`.
 
 Multipart request bodies are buffered with a small in-memory cap
 (`router.MaxMultipartMemory`, 8 MiB; 16 MiB for project drawings) and the rest

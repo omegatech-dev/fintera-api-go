@@ -85,6 +85,8 @@ Claimed authorization errors return `403` with `No tienes acceso a esta sección
 | `DELETE` | `/users/:user_id` |
 | `PUT` | `/users/:user_id/toggle_status` |
 | `POST` | `/users/:user_id/restore` |
+| `GET` | `/users/:user_id/identity_documents` |
+| `POST` | `/users/:user_id/identity_documents` |
 | `DELETE` | `/projects/:project_id/lots/:lot_id/contracts/:contract_id` |
 | `POST` | `/projects/:project_id/lots/:lot_id/contracts/:contract_id/approve` |
 | `POST` | `/projects/:project_id/lots/:lot_id/contracts/:contract_id/reject` |
@@ -131,6 +133,10 @@ Claimed authorization errors return `403` with `No tienes acceso a esta sección
 | `GET` | `/contracts/stats` |
 | `GET` | `/projects/:project_id/lots/:lot_id/contracts/:contract_id` |
 | `GET` | `/projects/:project_id/lots/:lot_id/contracts/:contract_id/ledger` |
+| `GET` | `/users/:user_id/identity_documents` |
+| `GET` | `/contracts/:guid/identity_documents` |
+| `POST` | `/contracts/:guid/identity_documents` |
+| `GET` | `/contracts/:guid/legacy_documents/:document_id/content` |
 | `GET` | `/payments` |
 | `GET` | `/payments/statistics` |
 | `GET` | `/payments/stats` |
@@ -262,11 +268,36 @@ must migrate to the `*_export` equivalents.
 | `POST` | `/payments/:payment_id/upload_receipt` | authenticated |
 | `POST` | `/projects/:project_id/lots/:lot_id/contracts/:contract_id/payments/:payment_id/upload_receipt` | authenticated |
 | `GET` | `/payments/:payment_id/download_receipt` | authenticated |
+| `GET` | `/identity_documents/:id/content` | admin or seller in scope |
+| `GET` | `/identity_documents/:id/preview` | admin or seller in scope |
 | `GET` | `/notifications` | authenticated |
 | `POST` | `/notifications/mark_all_as_read` | authenticated |
 | `POST` | `/notifications/:notification_id/mark_as_read` | authenticated |
 | `GET` | `/notifications/:notification_id` | authenticated |
 | `DELETE` | `/notifications/:notification_id` | authenticated |
+
+### Identity documents (DNI and RTN)
+
+A person has at most two identity documents, one per kind (`dni`, `rtn`), and
+they live at the person level: every contract of that applicant shows the same
+two. Uploading a document replaces the previous one of that kind and deletes
+the replaced file; there is no version history.
+
+| Behaviour | Rule |
+| --- | --- |
+| Who reads them | `admin`, and a `seller` only for contracts it created or that are assigned to it and `accepted` |
+| Who never reads them | the contract owner, even for its own documents |
+| Upload | replaces the document of that kind |
+| Contract creation | fills the empty slots and never replaces a document already on file; the response reports the kept kinds in `already_present` |
+| Requirement | enforced only when `IDENTITY_DOCUMENTS_REQUIRED=true`; a missing document answers `422` with `code: IDENTITY_DOCUMENTS_REQUIRED` and a `missing` array |
+| Storage | under `STORAGE_PATH/identity_documents/`, with no static route; the files are only reachable through the authorized `content` and `preview` endpoints |
+| Formats | `application/pdf`, `image/jpeg`, `image/jpg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, up to 10 MB |
+| Preview | a WebP downscaled copy served inline; PDF, HEIC and HEIF have no preview and fall back to the original inline |
+
+Migrated legacy attachments (`contracts.document_paths`) are exposed as
+read-only entries of the contract under `legacy` in
+`GET /contracts/:guid/identity_documents`. They have no kind and are not
+promoted to a person-level document.
 
 ## Request and response conventions
 
@@ -298,7 +329,10 @@ must migrate to the `*_export` equivalents.
   Multipart uploads are exempt from this cap and enforce their own
   per-endpoint body and per-file limits.
 - Contract creation uses `multipart/form-data` with a JSON `contract` field,
-  optional JSON `user` field, and optional `documents` files.
+  optional JSON `user` field, the applicant's `identity_document` (DNI) and
+  `rtn_document` files, and optional `documents[N]` attachments. The two typed
+  fields are person-level documents; the `documents[N]` fields stay free-form
+  contract attachments.
 - CSV/PDF endpoints set `Content-Disposition: attachment` and stream the file.
 
 ## Swagger

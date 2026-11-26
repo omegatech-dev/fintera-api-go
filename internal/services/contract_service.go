@@ -30,6 +30,7 @@ type ContractService struct {
 	referralSvc     *ReferralService
 	assignmentSvc   *AssignmentService
 	commissionSvc   *CommissionService
+	identityDocSvc  *IdentityDocumentService
 }
 
 func NewContractService(
@@ -71,6 +72,12 @@ func (s *ContractService) SetCommissionService(commission *CommissionService) {
 	s.commissionSvc = commission
 }
 
+// SetIdentityDocumentService wires the identity document service. Keeping it
+// as a setter preserves the constructor used by focused unit tests.
+func (s *ContractService) SetIdentityDocumentService(identity *IdentityDocumentService) {
+	s.identityDocSvc = identity
+}
+
 // ContractAssignmentInput carries the assignment-related reservation fields
 // parsed from the create request.
 type ContractAssignmentInput struct {
@@ -86,7 +93,7 @@ type ContractAssignmentInput struct {
 
 // CreateWithAssignment resolves the referral attribution and the requested
 // seller, persists the contract and then materializes the assignment.
-func (s *ContractService) CreateWithAssignment(ctx context.Context, contract *models.Contract, input ContractAssignmentInput) error {
+func (s *ContractService) CreateWithAssignment(ctx context.Context, contract *models.Contract, input ContractAssignmentInput, links ...models.ContractIdentityDocument) error {
 	now := time.Now()
 	origin := normalizeAssignmentOrigin(input.Origin)
 
@@ -141,7 +148,7 @@ func (s *ContractService) CreateWithAssignment(ctx context.Context, contract *mo
 		contract.AssignmentStatus = models.AssignmentStatusNone
 	}
 
-	if err := s.Create(ctx, contract); err != nil {
+	if err := s.Create(ctx, contract, links...); err != nil {
 		return err
 	}
 	if s.assignmentSvc != nil {
@@ -419,7 +426,7 @@ func (s *ContractService) GetStats(ctx context.Context) (*repository.ContractSta
 	return s.repo.GetStats(ctx)
 }
 
-func (s *ContractService) Create(ctx context.Context, contract *models.Contract) error {
+func (s *ContractService) Create(ctx context.Context, contract *models.Contract, links ...models.ContractIdentityDocument) error {
 	// Verify lot is available
 	lot, err := s.lotRepo.FindByID(ctx, contract.LotID)
 	if err != nil {
@@ -474,7 +481,12 @@ func (s *ContractService) Create(ctx context.Context, contract *models.Contract)
 		return errors.New("el lote no está disponible")
 	}
 
-	if err := s.repo.Create(ctx, contract); err != nil {
+	if len(links) > 0 {
+		err = s.repo.CreateWithIdentityDocuments(ctx, contract, links)
+	} else {
+		err = s.repo.Create(ctx, contract)
+	}
+	if err != nil {
 		lot.Status = models.LotStatusAvailable
 		logIgnoredError("release lot after create failure", s.lotRepo.Update(ctx, lot))
 		return err
@@ -534,6 +546,100 @@ func (s *ContractService) Create(ctx context.Context, contract *models.Contract)
 		fmt.Sprintf("Solicitud de contrato creada para el lote %s del proyecto %s. Precio: %.2f", lot.Name, lot.Project.Name, *contract.Amount), "", ""))
 
 	return nil
+}
+
+// ContractIdentityResult reports what happened with the identity documents of
+// a contract creation.
+type ContractIdentityResult struct {
+	// Filled are the kinds that were stored by this request.
+	Filled []string
+	// AlreadyPresent are the kinds the applicant already had on file. The
+	// uploaded file of those kinds was not written.
+	AlreadyPresent []string
+}
+
+// CheckIdentityRequirement returns an error when the applicant is missing a
+// document and the requirement is enforced. The caller uses it to answer
+// before it writes anything.
+func (s *ContractService) CheckIdentityRequirement(ctx context.Context, applicantUserID uint, uploads []IdentityDocumentUpload) error {
+	if s.identityDocSvc == nil {
+		return nil
+	}
+	return s.identityDocSvc.CheckRequirement(ctx, applicantUserID, uploads)
+}
+
+// CreateWithIdentityDocuments persists a contract together with the identity
+// documents of its applicant.
+//
+// The requirement is checked before anything is written, so a rejected request
+// leaves no half-uploaded document behind. The typed uploads only fill the
+// empty slots: a document that is already on file is kept and reported as
+// already present, because replacing it is a deliberate act of the staff.
+func (s *ContractService) CreateWithIdentityDocuments(ctx context.Context, contract *models.Contract, input ContractAssignmentInput, uploads []IdentityDocumentUpload, attachmentPaths []string) (ContractIdentityResult, error) {
+	var result ContractIdentityResult
+
+	if s.identityDocSvc == nil {
+		if err := s.CreateWithAssignment(ctx, contract, input); err != nil {
+			return result, err
+		}
+		return result, nil
+	}
+
+	applicantID := contract.ApplicantUserID
+
+	if err := s.identityDocSvc.CheckRequirement(ctx, applicantID, uploads); err != nil {
+		return result, err
+	}
+
+	actorID := uint(0)
+	if contract.CreatorID != nil {
+		actorID = *contract.CreatorID
+	}
+
+	filled, alreadyPresent, err := s.identityDocSvc.FillMissing(ctx, applicantID, uploads, actorID)
+	if err != nil {
+		return result, err
+	}
+	result.Filled = filled
+	result.AlreadyPresent = alreadyPresent
+
+	links, err := s.identityLinks(ctx, applicantID)
+	if err != nil {
+		return result, err
+	}
+
+	if err := s.CreateWithAssignment(ctx, contract, input, links...); err != nil {
+		return result, err
+	}
+
+	// The free-form attachments of the request become read-only entries of the
+	// contract, so the staff sees what the customer attached without waiting
+	// for the one-off migration task. A failure is not fatal: the paths stay in
+	// document_paths and the migration task picks them up later.
+	logIgnoredError("attach contract legacy files", s.identityDocSvc.AttachLegacyFiles(ctx, contract.ID, attachmentPaths))
+
+	return result, nil
+}
+
+// identityLinks builds the links of a contract for the documents the
+// applicant has on file after the fill.
+func (s *ContractService) identityLinks(ctx context.Context, applicantID uint) ([]models.ContractIdentityDocument, error) {
+	docs, err := s.identityDocSvc.DocumentsByUser(ctx, applicantID)
+	if err != nil {
+		return nil, err
+	}
+	links := make([]models.ContractIdentityDocument, 0, len(docs))
+	for i := range docs {
+		doc := docs[i]
+		kind := doc.Kind
+		docID := doc.ID
+		links = append(links, models.ContractIdentityDocument{
+			IdentityDocumentID: &docID,
+			Kind:               &kind,
+			Source:             models.IdentityDocumentSourceUpload,
+		})
+	}
+	return links, nil
 }
 
 func (s *ContractService) Update(ctx context.Context, contract *models.Contract) error {

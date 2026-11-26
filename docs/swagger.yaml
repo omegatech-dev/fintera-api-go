@@ -540,6 +540,60 @@ definitions:
       updated_at:
         type: string
     type: object
+  models.IdentityDocumentContractResponse:
+    properties:
+      contract_id:
+        type: integer
+      legacy:
+        items:
+          $ref: '#/definitions/models.IdentityDocumentSlot'
+        type: array
+      slots:
+        items:
+          $ref: '#/definitions/models.IdentityDocumentSlot'
+        type: array
+      user_id:
+        type: integer
+    type: object
+  models.IdentityDocumentFile:
+    properties:
+      download_url:
+        type: string
+      id:
+        type: integer
+      kind:
+        type: string
+      mime_type:
+        type: string
+      original_filename:
+        type: string
+      preview_url:
+        type: string
+      size_bytes:
+        type: integer
+      uploaded_at:
+        type: string
+    type: object
+  models.IdentityDocumentSlot:
+    properties:
+      document:
+        $ref: '#/definitions/models.IdentityDocumentFile'
+      kind:
+        type: string
+      read_only:
+        type: boolean
+      source:
+        type: string
+    type: object
+  models.IdentityDocumentUserResponse:
+    properties:
+      slots:
+        items:
+          $ref: '#/definitions/models.IdentityDocumentSlot'
+        type: array
+      user_id:
+        type: integer
+    type: object
   models.Lot:
     properties:
       address:
@@ -2180,6 +2234,112 @@ paths:
       summary: Pay Contract Commission
       tags:
       - Contracts
+  /contracts/{guid}/identity_documents:
+    get:
+      consumes:
+      - application/json
+      description: Return the DNI and the RTN slots of the applicant of a contract,
+        plus the files that were attached to it before the identity documents existed.
+      parameters:
+      - description: Contract GUID
+        in: path
+        name: guid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.IdentityDocumentContractResponse'
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the identity documents of a contract
+      tags:
+      - IdentityDocuments
+    post:
+      consumes:
+      - multipart/form-data
+      description: Store the DNI or the RTN of the applicant of a contract. The upload
+        replaces the previous document of that kind.
+      parameters:
+      - description: Contract GUID
+        in: path
+        name: guid
+        required: true
+        type: string
+      - description: Document kind
+        enum:
+        - dni
+        - rtn
+        in: formData
+        name: kind
+        required: true
+        type: string
+      - description: Document file
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.IdentityDocumentFile'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Upload an identity document for a contract
+      tags:
+      - IdentityDocuments
+  /contracts/{guid}/legacy_documents/{document_id}/content:
+    get:
+      consumes:
+      - application/json
+      description: Serve a file that was attached to a contract before the identity
+        documents existed. It is read-only.
+      parameters:
+      - description: Contract GUID
+        in: path
+        name: guid
+        required: true
+        type: string
+      - description: Legacy document ID
+        in: path
+        name: document_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Download a legacy contract attachment
+      tags:
+      - IdentityDocuments
   /contracts/{guid}/prepayments:
     post:
       consumes:
@@ -2729,6 +2889,65 @@ paths:
       summary: Download historical sales template
       tags:
       - HistoricalSales
+  /identity_documents/{id}/content:
+    get:
+      consumes:
+      - application/json
+      description: Serve the stored original of an identity document.
+      parameters:
+      - description: Identity document ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Download an identity document
+      tags:
+      - IdentityDocuments
+  /identity_documents/{id}/preview:
+    get:
+      consumes:
+      - application/json
+      description: Serve the inline WebP preview of an identity document. Documents
+        the server cannot rasterize are served inline as the original.
+      parameters:
+      - description: Identity document ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Preview an identity document
+      tags:
+      - IdentityDocuments
   /jobs/status:
     get:
       description: Get statistics about background jobs (active, completed, failed,
@@ -5573,6 +5792,77 @@ paths:
       summary: Download Customer Record PDF
       tags:
       - Users
+  /users/{user_id}/identity_documents:
+    get:
+      consumes:
+      - application/json
+      description: Return the DNI and the RTN slots of a person. A slot without a
+        document on file is reported as empty.
+      parameters:
+      - description: User ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.IdentityDocumentUserResponse'
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the identity documents of a person
+      tags:
+      - IdentityDocuments
+    post:
+      consumes:
+      - multipart/form-data
+      description: Store the DNI or the RTN of a person. The upload replaces the previous
+        document of that kind.
+      parameters:
+      - description: User ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      - description: Document kind
+        enum:
+        - dni
+        - rtn
+        in: formData
+        name: kind
+        required: true
+        type: string
+      - description: Document file
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.IdentityDocumentFile'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Upload an identity document for a person
+      tags:
+      - IdentityDocuments
   /users/{user_id}/payment_history:
     get:
       consumes:

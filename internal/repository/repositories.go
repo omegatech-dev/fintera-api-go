@@ -29,32 +29,36 @@ type Repositories struct {
 	Backfill       BackfillRepository
 	// Overdue serves the overdue payments export with the report-only query.
 	Overdue OverdueReportRepository
+	// IdentityDocument serves the DNI/RTN documents of a person and their
+	// contract links.
+	IdentityDocument IdentityDocumentRepository
 }
 
 // NewRepositories creates all repository instances
 func NewRepositories(db *gorm.DB) *Repositories {
 	return &Repositories{
-		User:           NewUserRepository(db),
-		Project:        NewProjectRepository(db),
-		Lot:            NewLotRepository(db),
-		Contract:       NewContractRepository(db),
-		Payment:        NewPaymentRepository(db),
-		Notification:   NewNotificationRepository(db),
-		RefreshToken:   NewRefreshTokenRepository(db),
-		Ledger:         NewLedgerRepository(db),
-		Analytics:      NewAnalyticsRepository(db),
-		Branding:       NewBrandingRepository(db),
-		Settings:       NewGeneralSettingsRepository(db),
-		Drawings:       NewProjectDrawingRepository(db),
-		ProjectPhoto:   NewProjectPhotoRepository(db),
-		LotPhoto:       NewLotPhotoRepository(db),
-		Instructions:   NewProjectPaymentInstructionRepository(db),
-		Assignment:     NewAssignmentRepository(db),
-		Referral:       NewReferralRepository(db),
-		Seller:         NewSellerRepository(db),
-		Commission:     NewCommissionRepository(db),
-		HistoricalSale: NewHistoricalSaleRepository(db),
-		Backfill:       NewBackfillRepository(db),
-		Overdue:        NewOverdueReportRepository(db),
+		User:             NewUserRepository(db),
+		Project:          NewProjectRepository(db),
+		Lot:              NewLotRepository(db),
+		Contract:         NewContractRepository(db),
+		Payment:          NewPaymentRepository(db),
+		Notification:     NewNotificationRepository(db),
+		RefreshToken:     NewRefreshTokenRepository(db),
+		Ledger:           NewLedgerRepository(db),
+		Analytics:        NewAnalyticsRepository(db),
+		Branding:         NewBrandingRepository(db),
+		Settings:         NewGeneralSettingsRepository(db),
+		Drawings:         NewProjectDrawingRepository(db),
+		ProjectPhoto:     NewProjectPhotoRepository(db),
+		LotPhoto:         NewLotPhotoRepository(db),
+		Instructions:     NewProjectPaymentInstructionRepository(db),
+		Assignment:       NewAssignmentRepository(db),
+		Referral:         NewReferralRepository(db),
+		Seller:           NewSellerRepository(db),
+		Commission:       NewCommissionRepository(db),
+		HistoricalSale:   NewHistoricalSaleRepository(db),
+		Backfill:         NewBackfillRepository(db),
+		Overdue:          NewOverdueReportRepository(db),
+		IdentityDocument: NewIdentityDocumentRepository(db),
 	}
 }

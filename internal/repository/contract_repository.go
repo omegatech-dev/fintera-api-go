@@ -18,6 +18,10 @@ type ContractRepository interface {
 	FindByLot(ctx context.Context, lotID uint) ([]models.Contract, error)
 	FindByUser(ctx context.Context, userID uint) ([]models.Contract, error)
 	Create(ctx context.Context, contract *models.Contract) error
+	// CreateWithIdentityDocuments persists the contract and its identity
+	// document links in a single transaction, so a contract never exists
+	// without the links of its applicant.
+	CreateWithIdentityDocuments(ctx context.Context, contract *models.Contract, links []models.ContractIdentityDocument) error
 	Update(ctx context.Context, contract *models.Contract) error
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, query *ContractQuery) ([]models.Contract, int64, error)
@@ -136,6 +140,25 @@ func (r *contractRepository) FindByUser(ctx context.Context, userID uint) ([]mod
 
 func (r *contractRepository) Create(ctx context.Context, contract *models.Contract) error {
 	return r.db.WithContext(ctx).Create(contract).Error
+}
+
+// CreateWithIdentityDocuments writes the contract and its identity document
+// links in one transaction. The contract id is stamped on the links after the
+// contract is inserted: GORM does not fill a plain foreign key from a detached
+// slice.
+func (r *contractRepository) CreateWithIdentityDocuments(ctx context.Context, contract *models.Contract, links []models.ContractIdentityDocument) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(contract).Error; err != nil {
+			return err
+		}
+		if len(links) == 0 {
+			return nil
+		}
+		for i := range links {
+			links[i].ContractID = contract.ID
+		}
+		return tx.Create(&links).Error
+	})
 }
 
 func (r *contractRepository) Update(ctx context.Context, contract *models.Contract) error {

@@ -22,6 +22,8 @@ import (
 
 type mockContractRepo struct {
 	mock.Mock
+	// identityLinks records the links of the last transactional creation.
+	identityLinks []models.ContractIdentityDocument
 }
 
 func (m *mockContractRepo) FindByID(ctx context.Context, id uint) (*models.Contract, error) {
@@ -60,7 +62,26 @@ func (m *mockContractRepo) FindByUser(ctx context.Context, userID uint) ([]model
 
 func (m *mockContractRepo) Create(ctx context.Context, contract *models.Contract) error {
 	args := m.Called(ctx, contract)
+	// Mirror what GORM does on insert so the tests can assert the links carry
+	// a real contract id.
+	if contract.ID == 0 {
+		contract.ID = 1
+	}
 	return args.Error(0)
+}
+
+// CreateWithIdentityDocuments delegates to Create so the existing expectations
+// of the tests that create contracts keep working, and stamps the contract id
+// on the links the way the real repository does inside its transaction.
+func (m *mockContractRepo) CreateWithIdentityDocuments(ctx context.Context, contract *models.Contract, links []models.ContractIdentityDocument) error {
+	if err := m.Create(ctx, contract); err != nil {
+		return err
+	}
+	for i := range links {
+		links[i].ContractID = contract.ID
+	}
+	m.identityLinks = links
+	return nil
 }
 
 func (m *mockContractRepo) Update(ctx context.Context, contract *models.Contract) error {

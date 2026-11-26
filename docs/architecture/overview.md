@@ -142,7 +142,10 @@ cmd/api → handlers → services → repository → models
 - **Compression:** gzip middleware is global.
 - **Static files:** `/uploads` is served from `${STORAGE_PATH}/uploads` and
   `/receipts` from `${STORAGE_PATH}/receipts`, so payment `receipt_url` values
-  resolve for anonymous tracking visitors.
+  resolve for anonymous tracking visitors. Identity documents (DNI and RTN) are
+  stored under `${STORAGE_PATH}/identity_documents` with **no** static route:
+  they are private and only the authorized `identity_documents` endpoints
+  stream them.
 - **Observability:** Rollbar captures panics and errors when configured; the
   worker exposes stats through `GET /api/v1/jobs/status` (admin only).
 - **Analytics refresh:** `AnalyticsService.RefreshCache` runs every 15 minutes.

@@ -122,6 +122,26 @@ rows with `client_user_id IS NULL`. The task records linked, skipped and error
 counts in `details`. See the `link-historical-clients-to-users` OpenSpec change
 and [data model](data-model.md).
 
+## Reference task: legacy identity documents
+
+`legacy_identity_documents` exposes the files that were attached to a contract
+before the identity documents existed, so the staff can open them from the
+contract view. It uses `IdentityDocumentService.MigrateLegacyDocuments`.
+
+- It counts first. With no contract carrying a non-empty
+  `contracts.document_paths` it returns `rows_affected = 0` and the detail
+  `nothing to migrate: no contract carries legacy document paths`, and it
+  creates nothing.
+- Each stored file becomes one `contract_identity_documents` row with
+  `source = 'legacy'`, `kind = NULL` and the metadata read from the file. The
+  row points at the path that is already on disk; no file is copied or moved.
+- It is idempotent: a contract that already has a legacy row for a path is
+  skipped. The `details` string reports `contracts`, `created`, `skipped`,
+  `missing_files` and `errors`.
+- A missing file still gets a row (`missing_files` is incremented), so the loss
+  is visible instead of silent. The entries are read-only and are never
+  promoted to a person-level document.
+
 ## Related
 
 - [Operations guide](../guides/operations.md#backfills)

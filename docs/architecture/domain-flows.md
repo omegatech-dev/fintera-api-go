@@ -27,6 +27,29 @@ FSM source: `internal/statemachine/contract_fsm.go`.
 Model guards: `Contract.MaySubmit`, `MayApprove`, `MayReject`, `MayCancel`,
 `MayClose`.
 
+### Creation and the identity documents
+
+`ContractService.CreateWithIdentityDocuments` is the single entry point of both
+the staff endpoint (`POST /projects/:project_id/lots/:lot_id/contracts`) and the
+public reservation endpoint
+(`POST /public/projects/:guid/lots/:lot_guid/contracts`). Before anything is
+written it:
+
+1. validates every uploaded file (10 MB, allowed type) and answers `422`
+   naming the offending file instead of dropping it silently;
+2. when `IDENTITY_DOCUMENTS_REQUIRED=true`, computes the kinds missing from the
+   applicant's `identity_documents` plus the ones in the request, and answers
+   `422` with `code: IDENTITY_DOCUMENTS_REQUIRED` and a `missing` array;
+3. fills only the empty slots, keeping a document that is already on file and
+   reporting its kind in `already_present`;
+4. creates the contract and its `contract_identity_documents` links in one
+   transaction, and exposes each free-form `documents[N]` attachment of the
+   request as a read-only legacy entry, so the staff sees what the customer
+   attached without waiting for the one-off migration task.
+
+Replacing a document is an explicit act: it only happens through the upload
+endpoint, never as a side effect of creating a contract.
+
 ### Approve (`ContractService.Approve`)
 
 1. Load contract with lot, project, applicant, payments, ledger.
@@ -365,11 +388,21 @@ recovery, and account creation.
 - Receipts: `receipts/YYYY/MM/<random-id>.<ext>`
 - Historical-sale evidence: `evidence/YYYY/MM/<random-id>.<ext>`
 - Contract documents: `contracts/YYYY/MM/...`
+- Identity documents (DNI and RTN): `identity_documents/YYYY/MM/<random-id>.<ext>`
+  and their previews under `identity_documents/previews/YYYY/MM/...`
 - Profile pictures: `uploads/...`
 
-Only `application/pdf`, `image/jpeg`, `image/jpg`, and `image/png` are allowed;
-the maximum size is 10 MB. `SafeFullPath` prevents path traversal on download.
-DB rows store relative paths only.
+Only `application/pdf`, `image/jpeg`, `image/jpg`, and `image/png` are allowed
+for receipts and contract attachments; the maximum size is 10 MB. Identity
+documents use their own allow-list in `ValidIdentityContentTypes` that also
+accepts `image/webp`, `image/heic` and `image/heif`, because the browser may
+send the raw photo. `SafeFullPath` prevents path traversal on download. DB rows
+store relative paths only.
+
+Unlike `/uploads` and `/receipts`, `identity_documents/` has no static route:
+the files are served only by `GET /identity_documents/:id/content` and
+`GET /identity_documents/:id/preview`, which check the caller's role and
+assignment scope.
 
 ## Historical sales
 

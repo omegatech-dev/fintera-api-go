@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -28,6 +29,9 @@ func NewPublicHandler(catalog *services.PublicCatalogService, media *services.Me
 func (h *PublicHandler) ListProjects(c *gin.Context) {
 	projects, err := h.catalog.ListProjects(c.Request.Context())
 	if err != nil {
+		if AbortIfCanceled(c, err) {
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudieron cargar los proyectos"})
 		return
 	}
@@ -45,6 +49,9 @@ func (h *PublicHandler) ListProjects(c *gin.Context) {
 func (h *PublicHandler) ShowProject(c *gin.Context) {
 	project, err := h.catalog.GetProject(c.Request.Context(), c.Param("guid"))
 	if err != nil {
+		if AbortIfCanceled(c, err) {
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "Proyecto no encontrado"})
 		return
 	}
@@ -64,6 +71,9 @@ func (h *PublicHandler) ListLots(c *gin.Context) {
 	onlyAvailable := c.Query("available") == "true"
 	lots, err := h.catalog.ListLots(c.Request.Context(), c.Param("guid"), onlyAvailable)
 	if err != nil {
+		if AbortIfCanceled(c, err) {
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "Proyecto no encontrado"})
 		return
 	}
@@ -82,6 +92,9 @@ func (h *PublicHandler) ListLots(c *gin.Context) {
 func (h *PublicHandler) ShowLot(c *gin.Context) {
 	lot, err := h.catalog.GetLot(c.Request.Context(), c.Param("guid"), c.Param("lot_guid"))
 	if err != nil {
+		if AbortIfCanceled(c, err) {
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "Lote no encontrado"})
 		return
 	}
@@ -98,6 +111,9 @@ func (h *PublicHandler) ShowLot(c *gin.Context) {
 func (h *PublicHandler) PaymentInstructions(c *gin.Context) {
 	instructions, err := h.catalog.ListPaymentInstructions(c.Request.Context(), c.Param("guid"))
 	if err != nil {
+		if AbortIfCanceled(c, err) {
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "Proyecto no encontrado"})
 		return
 	}
@@ -114,6 +130,9 @@ func (h *PublicHandler) PaymentInstructions(c *gin.Context) {
 func (h *PublicHandler) ListDrawings(c *gin.Context) {
 	drawings, err := h.media.ListPublicDrawings(c.Request.Context(), c.Param("guid"))
 	if err != nil {
+		if AbortIfCanceled(c, err) {
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "Proyecto no encontrado"})
 		return
 	}
@@ -130,6 +149,9 @@ func (h *PublicHandler) ListDrawings(c *gin.Context) {
 func (h *PublicHandler) ListProjectPhotos(c *gin.Context) {
 	photos, err := h.media.ListPublicProjectPhotos(c.Request.Context(), c.Param("guid"))
 	if err != nil {
+		if AbortIfCanceled(c, err) {
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "Proyecto no encontrado"})
 		return
 	}
@@ -147,6 +169,9 @@ func (h *PublicHandler) ListProjectPhotos(c *gin.Context) {
 func (h *PublicHandler) ListLotPhotos(c *gin.Context) {
 	photos, err := h.media.ListPublicLotPhotos(c.Request.Context(), c.Param("guid"), c.Param("lot_guid"))
 	if err != nil {
+		if AbortIfCanceled(c, err) {
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "Lote no encontrado"})
 		return
 	}
@@ -156,6 +181,8 @@ func (h *PublicHandler) ListLotPhotos(c *gin.Context) {
 // mapMediaError translates media service errors into HTTP responses.
 func mapMediaError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, context.Canceled):
+		c.Status(statusClientClosedRequest)
 	case errors.Is(err, services.ErrNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "Recurso no encontrado"})
 	case errors.Is(err, services.ErrUnsupportedMedia):

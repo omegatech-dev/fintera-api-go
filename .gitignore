@@ -30,6 +30,8 @@ go.work.sum
 /log/*
 !/log/.keep
 *.log
+/trace.log
+/logs/
 *.json
 !opencode.json
 !docs/swagger.json

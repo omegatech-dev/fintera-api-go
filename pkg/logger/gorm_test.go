@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -95,6 +96,29 @@ func TestGormLoggerErrorIncludesQuery(t *testing.T) {
 	}
 	if entries[0]["error"] != "boom" {
 		t.Fatalf("error attribute = %v, want boom", entries[0]["error"])
+	}
+}
+
+func TestGormLoggerClientCanceledIsNotAnError(t *testing.T) {
+	l := NewGormLogger(logger.Error, 200*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	entries := captureLogs(t, func() {
+		l.Trace(ctx, time.Now(), func() (string, int64) {
+			return `SELECT * FROM "projects" WHERE guid = $1`, 0
+		}, fmt.Errorf("query failed: %w", context.Canceled))
+	})
+
+	if len(entries) != 1 {
+		t.Fatalf("expected one log entry, got %v", entries)
+	}
+	if entries[0]["level"] != "DEBUG" {
+		t.Fatalf("an aborted client must not log at %v", entries[0]["level"])
+	}
+	if msg, _ := entries[0]["msg"].(string); msg != "SQL client canceled" {
+		t.Fatalf("msg = %q, want no SQL Error label for a canceled request", msg)
 	}
 }
 

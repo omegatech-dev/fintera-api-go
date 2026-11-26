@@ -55,6 +55,14 @@ func isRecordNotFound(err error) bool {
 	return errors.Is(err, gorm.ErrRecordNotFound)
 }
 
+// isClientCanceled reports whether a query stopped because the caller hung up:
+// an aborted browser request or a proxy that gave up upstream. Like a cache miss
+// it is normal control flow, and no client is left to observe a failure, so it
+// must not be reported as an SQL error either.
+func isClientCanceled(err error) bool {
+	return errors.Is(err, context.Canceled)
+}
+
 // ParamsFilter stops GORM from interpolating bind values into the statement it
 // logs. Values such as emails or names must never reach the log; the logged SQL
 // keeps its $n placeholders instead.
@@ -98,6 +106,10 @@ func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 	}
 
 	if err != nil {
+		if isClientCanceled(err) {
+			Debug("SQL client canceled", fields...)
+			return
+		}
 		if isRecordNotFound(err) {
 			Debug("SQL record not found", fields...)
 			return

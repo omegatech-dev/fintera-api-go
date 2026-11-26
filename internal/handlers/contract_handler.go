@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/mail"
 	"strconv"
@@ -464,33 +465,28 @@ func (h *ContractHandler) create(c *gin.Context, lotID uint, guest bool) {
 	}
 
 	// 5. Handle Document Uploads
-	var documentPaths []string
-	if form, err := c.MultipartForm(); err == nil && form != nil {
-		// The frontend sends documents[0], documents[1], etc. Order is not
-		// preserved by the map, but it is not critical for the stored paths.
-		for key, fileHeaders := range form.File {
-			if len(key) < 9 || key[:9] != "documents" {
-				continue
-			}
-			for _, fileHeader := range fileHeaders {
-				file, err := fileHeader.Open()
-				if err != nil {
-					continue
-				}
+	//
+	// The typed identity fields are the DNI and the RTN of the applicant. The
+	// anonymous documents[N] fields keep working as free-form attachments.
+	// Both are validated before anything is written: a file the API cannot
+	// store is reported instead of being silently dropped.
+	identityUploads, attachments, err := collectContractUploads(c)
+	if err != nil {
+		writeIdentityDocumentError(c, err)
+		return
+	}
 
-				if !storage.IsValidContentType(fileHeader.Header.Get("Content-Type")) {
-					_ = file.Close()
-					continue
-				}
+	// The requirement is checked before the attachments are written, so a
+	// rejected request leaves no orphan file behind.
+	if err := h.contractService.CheckIdentityRequirement(c.Request.Context(), applicantID, identityUploads); err != nil {
+		writeIdentityDocumentError(c, err)
+		return
+	}
 
-				path, uploadErr := h.storage.Upload(file, fileHeader, "contracts")
-				_ = file.Close()
-				if uploadErr != nil {
-					continue
-				}
-				documentPaths = append(documentPaths, path)
-			}
-		}
+	documentPaths, err := h.storeContractAttachments(c, attachments)
+	if err != nil {
+		writeIdentityDocumentError(c, err)
+		return
 	}
 
 	// 6. Create Contract Object
@@ -521,13 +517,14 @@ func (h *ContractHandler) create(c *gin.Context, lotID uint, guest bool) {
 	}
 
 	// 7. Call Service
-	if err := h.contractService.CreateWithAssignment(c.Request.Context(), contract, services.ContractAssignmentInput{
+	identityResult, err := h.contractService.CreateWithIdentityDocuments(c.Request.Context(), contract, services.ContractAssignmentInput{
 		Origin:            assignmentOrigin,
 		SellerID:          requestedSellerID,
 		ReferralGUID:      referralGUID,
 		AttributionCookie: attributionCookie,
 		AutoAccept:        autoAcceptAssignment,
-	}); err != nil {
+	}, identityUploads, documentPaths)
+	if err != nil {
 		if errors.Is(err, services.ErrAssignmentSellerInactive) {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "El vendedor seleccionado no está activo", "code": "SELLER_INACTIVE"})
 			return
@@ -536,7 +533,7 @@ func (h *ContractHandler) create(c *gin.Context, lotID uint, guest bool) {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "El lote ya no está disponible", "code": "LOT_UNAVAILABLE"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeIdentityDocumentError(c, err)
 		return
 	}
 
@@ -563,7 +560,92 @@ func (h *ContractHandler) create(c *gin.Context, lotID uint, guest bool) {
 		"contract_id":         contract.ID,
 		"contract":            created.ToResponse(),
 		"reservation_payment": reservationPayment,
+		// The kinds the applicant already had on file: their uploaded file was
+		// not written, on purpose.
+		"already_present": identityResult.AlreadyPresent,
 	})
+}
+
+// collectContractUploads reads the files of a contract creation request and
+// validates them. The typed identity fields are the DNI and the RTN of the
+// applicant; the anonymous documents[N] fields are free-form attachments.
+//
+// A file the API cannot store is an error that names the file, not a file
+// that is silently dropped.
+func collectContractUploads(c *gin.Context) ([]services.IdentityDocumentUpload, []*multipart.FileHeader, error) {
+	form, err := c.MultipartForm()
+	if err != nil || form == nil {
+		return nil, nil, nil
+	}
+
+	var identityUploads []services.IdentityDocumentUpload
+	for field, kind := range map[string]string{
+		"identity_document": models.IdentityDocumentKindDNI,
+		"rtn_document":      models.IdentityDocumentKindRTN,
+	} {
+		headers, ok := form.File[field]
+		if !ok || len(headers) == 0 {
+			continue
+		}
+		upload := services.IdentityDocumentUpload{Kind: kind, Header: headers[0]}
+		if err := services.ValidateUpload(upload); err != nil {
+			return nil, nil, err
+		}
+		identityUploads = append(identityUploads, upload)
+	}
+
+	var attachments []*multipart.FileHeader
+	for key, headers := range form.File {
+		if len(key) < 9 || key[:9] != "documents" {
+			continue
+		}
+		for _, header := range headers {
+			if err := validateContractAttachment(header); err != nil {
+				return nil, nil, err
+			}
+			attachments = append(attachments, header)
+		}
+	}
+
+	return identityUploads, attachments, nil
+}
+
+// validateContractAttachment checks one free-form attachment.
+func validateContractAttachment(header *multipart.FileHeader) error {
+	if header == nil {
+		return nil
+	}
+	contentType := strings.ToLower(strings.TrimSpace(header.Header.Get("Content-Type")))
+	if !storage.IsValidContentType(contentType) {
+		return &services.ErrIdentityDocumentType{Filename: header.Filename, ContentType: contentType}
+	}
+	if header.Size > storage.MaxFileSize() {
+		return &services.ErrIdentityDocumentSize{
+			Filename: header.Filename,
+			Size:     header.Size,
+			Max:      storage.MaxFileSize(),
+		}
+	}
+	return nil
+}
+
+// storeContractAttachments writes the free-form attachments of a contract
+// creation and returns their stored paths.
+func (h *ContractHandler) storeContractAttachments(c *gin.Context, attachments []*multipart.FileHeader) ([]string, error) {
+	var paths []string
+	for _, header := range attachments {
+		file, err := header.Open()
+		if err != nil {
+			return nil, err
+		}
+		path, uploadErr := h.storage.Upload(file, header, "contracts")
+		_ = file.Close()
+		if uploadErr != nil {
+			return nil, uploadErr
+		}
+		paths = append(paths, path)
+	}
+	return paths, nil
 }
 
 // UpdateContractRequest is the body for PATCH contract

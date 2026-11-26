@@ -46,7 +46,7 @@ func (s *PublicCatalogService) ListProjects(ctx context.Context) ([]models.Publi
 func (s *PublicCatalogService) GetProject(ctx context.Context, guid string) (*models.PublicProjectResponse, error) {
 	project, err := s.projects.FindPublishedByGUID(ctx, guid)
 	if err != nil {
-		return nil, ErrNotFound
+		return nil, lookupError(err)
 	}
 	resp := publicProjectResponse(project)
 	return &resp, nil
@@ -56,7 +56,7 @@ func (s *PublicCatalogService) GetProject(ctx context.Context, guid string) (*mo
 func (s *PublicCatalogService) ListLots(ctx context.Context, projectGUID string, onlyAvailable bool) ([]models.PublicLotResponse, error) {
 	project, err := s.projects.FindPublishedByGUID(ctx, projectGUID)
 	if err != nil {
-		return nil, ErrNotFound
+		return nil, lookupError(err)
 	}
 
 	responses := make([]models.PublicLotResponse, 0, len(project.Lots))
@@ -77,10 +77,13 @@ func (s *PublicCatalogService) ListLots(ctx context.Context, projectGUID string,
 func (s *PublicCatalogService) GetLot(ctx context.Context, projectGUID, lotGUID string) (*models.PublicLotResponse, error) {
 	project, err := s.projects.FindPublishedByGUID(ctx, projectGUID)
 	if err != nil {
-		return nil, ErrNotFound
+		return nil, lookupError(err)
 	}
 	lot, err := s.lots.FindByProjectAndGUID(ctx, project.ID, lotGUID)
-	if err != nil || lot.Status == models.LotStatusActive {
+	if err != nil {
+		return nil, lookupError(err)
+	}
+	if lot.Status == models.LotStatusActive {
 		return nil, ErrNotFound
 	}
 	resp := publicLotResponse(lot, project.MeasurementUnit)
@@ -91,7 +94,7 @@ func (s *PublicCatalogService) GetLot(ctx context.Context, projectGUID, lotGUID 
 func (s *PublicCatalogService) ListPaymentInstructions(ctx context.Context, projectGUID string) ([]models.PublicPaymentInstructionResponse, error) {
 	project, err := s.projects.FindPublishedByGUID(ctx, projectGUID)
 	if err != nil {
-		return nil, ErrNotFound
+		return nil, lookupError(err)
 	}
 	instructions, err := s.instructions.ListByProject(ctx, project.ID)
 	if err != nil {

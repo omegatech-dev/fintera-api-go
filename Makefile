@@ -7,6 +7,11 @@
 # 'include' might have overridden it depending on 'make' version.
 export DATABASE_URL
 
+# Keep a file copy of every log record, e.g. LOG_FILE=trace.log make dev. The
+# logger writes to stdout and this file at the same time, so terminal output is
+# unchanged and the file stays greppable after the screen scrolls past.
+export LOG_FILE
+
 # Allow using a specific Go binary, e.g.:
 #   make GO=/usr/local/go/bin/go test
 GO ?= go
@@ -63,9 +68,15 @@ backfill-historical-clients:
 run: build
 	./bin/api
 
-# Run in development mode with hot reload (installs air when missing)
+# Run in development mode with hot reload (installs air when missing).
+# Set LOG_FILE to also keep a greppable file copy of every record:
+#   LOG_FILE=trace.log make dev
 dev:
 	@test -x $(AIR) || { echo "Installing air..."; $(GO) install github.com/air-verse/air@latest; }
+	@if [ -n "$(LOG_FILE)" ]; then \
+		dir=`dirname "$(LOG_FILE)"`; mkdir -p "$$dir"; \
+		echo "Writing log file: $(LOG_FILE)"; \
+	fi
 	$(AIR)
 
 # Run tests

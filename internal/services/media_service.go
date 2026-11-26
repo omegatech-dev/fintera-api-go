@@ -138,7 +138,7 @@ func (s *MediaService) ListLotPhotos(ctx context.Context, lotID uint) ([]models.
 func (s *MediaService) ListPublicDrawings(ctx context.Context, projectGUID string) ([]models.ProjectDrawingResponse, error) {
 	project, err := s.projects.FindPublishedByGUID(ctx, projectGUID)
 	if err != nil {
-		return nil, ErrNotFound
+		return nil, lookupError(err)
 	}
 	drawings, err := s.drawings.ListByProject(ctx, project.ID)
 	if err != nil {
@@ -155,7 +155,7 @@ func (s *MediaService) ListPublicDrawings(ctx context.Context, projectGUID strin
 func (s *MediaService) ListPublicProjectPhotos(ctx context.Context, projectGUID string) ([]models.PhotoResponse, error) {
 	project, err := s.projects.FindPublishedByGUID(ctx, projectGUID)
 	if err != nil {
-		return nil, ErrNotFound
+		return nil, lookupError(err)
 	}
 	photos, err := s.projectPhoto.ListByProject(ctx, project.ID)
 	if err != nil {
@@ -172,11 +172,11 @@ func (s *MediaService) ListPublicProjectPhotos(ctx context.Context, projectGUID 
 func (s *MediaService) ListPublicLotPhotos(ctx context.Context, projectGUID, lotGUID string) ([]models.PhotoResponse, error) {
 	project, err := s.projects.FindPublishedByGUID(ctx, projectGUID)
 	if err != nil {
-		return nil, ErrNotFound
+		return nil, lookupError(err)
 	}
 	lot, err := s.lots.FindByProjectAndGUID(ctx, project.ID, lotGUID)
 	if err != nil {
-		return nil, ErrNotFound
+		return nil, lookupError(err)
 	}
 	photos, err := s.lotPhoto.ListByLot(ctx, lot.ID)
 	if err != nil {

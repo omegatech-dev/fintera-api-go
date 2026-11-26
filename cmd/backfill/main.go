@@ -13,6 +13,7 @@ import (
 	"github.com/sjperalta/fintera-api/internal/database"
 	"github.com/sjperalta/fintera-api/internal/repository"
 	"github.com/sjperalta/fintera-api/internal/services"
+	"github.com/sjperalta/fintera-api/internal/storage"
 )
 
 // Generic backfill runner. The API runs pending tasks at startup; this binary
@@ -37,9 +38,19 @@ func main() {
 	}
 
 	repos := repository.NewRepositories(db)
+	store, err := storage.NewLocalStorage(cfg.StoragePath)
+	if err != nil {
+		fatal("failed to initialize storage: %v", err)
+	}
 	historicalClientSvc := services.NewHistoricalClientService(repos.User, repos.HistoricalSale)
 	historicalSaleSvc := services.NewHistoricalSaleService(repos.HistoricalSale, nil, nil, historicalClientSvc)
-	registry := backfills.DefaultRegistry(backfills.Dependencies{HistoricalSale: historicalSaleSvc})
+	identityDocumentSvc := services.NewIdentityDocumentService(
+		repos.IdentityDocument, repos.Contract, store, nil, cfg.IdentityDocumentsRequired,
+	)
+	registry := backfills.DefaultRegistry(backfills.Dependencies{
+		HistoricalSale:   historicalSaleSvc,
+		IdentityDocument: identityDocumentSvc,
+	})
 	runner := backfills.NewRunner(repos.Backfill)
 	ctx := context.Background()
 

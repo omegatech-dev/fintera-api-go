@@ -25,7 +25,7 @@ make deps          # go mod download + tidy
 make tools         # install air, swag, migrate, golangci-lint, gosec
 make build         # build bin/api
 make run           # build and run
-make dev           # hot reload with air
+make dev           # hot reload with air (LOG_FILE=trace.log make dev keeps a file copy)
 make test          # go test -v ./...
 make test-cover    # coverage report
 make fmt           # go fmt ./...

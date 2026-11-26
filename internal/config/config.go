@@ -23,6 +23,11 @@ type Config struct {
 	// Storage
 	StoragePath string
 
+	// IdentityDocumentsRequired enforces that a contract is created only when
+	// the applicant has a DNI and an RTN on file. It is off during the
+	// rollout, while the two frontends are still being deployed.
+	IdentityDocumentsRequired bool
+
 	// CommissionCreditNettingEnabled makes commission payouts consume the
 	// seller's pending cancellation/reassignment credits. It is off by default
 	// so the schema and reporting changes can ship before money behavior moves.
@@ -72,6 +77,7 @@ func Load() (*Config, error) {
 		JWTSecret:                      getEnv("JWT_SECRET", ""),
 		JWTExpirationHours:             getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
 		StoragePath:                    getEnv("STORAGE_PATH", "./storage"),
+		IdentityDocumentsRequired:      getEnvAsBool("IDENTITY_DOCUMENTS_REQUIRED", false),
 		CommissionCreditNettingEnabled: getEnvAsBool("COMMISSION_CREDIT_NETTING_ENABLED", false),
 		MaxJSONBodyBytes:               getEnvAsInt64("MAX_JSON_BODY_BYTES", 2097152), // 2 MiB
 		WorkerCount:                    getEnvAsInt("WORKER_COUNT", 5),

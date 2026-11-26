@@ -159,3 +159,25 @@ func MaxFileSize() int64 {
 func IsValidContentType(contentType string) bool {
 	return ValidContentTypes()[contentType]
 }
+
+// ValidIdentityContentTypes returns the MIME types allowed for identity
+// documents. It is a separate list on purpose: the receipt flow converts its
+// uploads to WebP with a decoder that cannot read HEIC, so widening the
+// shared list would accept receipts that can never be previewed.
+func ValidIdentityContentTypes() map[string]bool {
+	return map[string]bool{
+		"application/pdf": true,
+		"image/jpeg":      true,
+		"image/jpg":       true,
+		"image/png":       true,
+		"image/webp":      true,
+		"image/heic":      true,
+		"image/heif":      true,
+	}
+}
+
+// IsValidIdentityContentType checks if the content type is allowed for an
+// identity document.
+func IsValidIdentityContentType(contentType string) bool {
+	return ValidIdentityContentTypes()[contentType]
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -200,6 +201,19 @@ func TestPublicCatalogService_GetProjectNotFound(t *testing.T) {
 
 	if _, err := service.GetProject(context.Background(), "missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestPublicCatalogService_GetProjectCanceledIsNotFound(t *testing.T) {
+	projectRepo := new(mockProjectRepo)
+	projectRepo.On("FindPublishedByGUID", mock.Anything, "project-1").
+		Return(nil, fmt.Errorf("query failed: %w", context.Canceled))
+	service := NewPublicCatalogService(projectRepo, new(mockLotRepo), &stubInstructionRepo{})
+
+	// An aborted client must not be reported as a missing project: the handler
+	// needs the cancellation to answer 499 instead of 404.
+	if _, err := service.GetProject(context.Background(), "project-1"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled to reach the handler", err)
 	}
 }
 

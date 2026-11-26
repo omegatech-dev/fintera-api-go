@@ -71,6 +71,10 @@ func (m *mockDocContractRepo) FindByUser(context.Context, uint) ([]models.Contra
 
 func (m *mockDocContractRepo) Create(context.Context, *models.Contract) error { return nil }
 
+func (m *mockDocContractRepo) CreateWithIdentityDocuments(context.Context, *models.Contract, []models.ContractIdentityDocument) error {
+	return nil
+}
+
 func (m *mockDocContractRepo) Update(context.Context, *models.Contract) error { return nil }
 
 func (m *mockDocContractRepo) UpdateCancellation(context.Context, *models.Contract) error {

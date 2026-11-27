@@ -11,6 +11,8 @@ func TestContractResponse_HoldExpiresAt(t *testing.T) {
 	setHoldHours(t, 48)
 
 	created := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	// The response exposes the stored wall clock plus the hold.
+	wantBase := time.Date(2026, 11, 9, 10, 0, 0, 0, time.Local)
 	contract := Contract{
 		ID:        1,
 		GUID:      "contract-guid",
@@ -22,7 +24,7 @@ func TestContractResponse_HoldExpiresAt(t *testing.T) {
 	if resp.HoldExpiresAt == nil {
 		t.Fatal("expected hold_expires_at for pending contract")
 	}
-	want := created.Add(48 * time.Hour)
+	want := wantBase.Add(48 * time.Hour)
 	if !resp.HoldExpiresAt.Equal(want) {
 		t.Fatalf("hold_expires_at = %v, want %v", resp.HoldExpiresAt, want)
 	}

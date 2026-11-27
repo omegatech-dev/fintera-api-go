@@ -454,6 +454,23 @@ func ReservationHoldDuration() time.Duration {
 }
 
 // HoldExpiresAt returns when a lot hold created at `created` expires.
+// HoldExpiresAt returns when a lot hold created at `created` expires.
+//
+// pgx decodes `timestamp without time zone` columns as UTC while GORM writes
+// time.Now() in time.Local, so a value read back is shifted by the local
+// offset. Reinterpreting it as wall-clock time in time.Local recovers the
+// instant it was written with; in a process that runs in UTC this is a no-op.
 func HoldExpiresAt(created time.Time) time.Time {
-	return created.Add(ReservationHoldDuration())
+	return holdExpiryIn(created, time.Local)
+}
+
+// holdExpiryIn is HoldExpiresAt with the write zone injected, so tests can pin
+// the process zone instead of depending on the machine running them.
+func holdExpiryIn(created time.Time, local *time.Location) time.Time {
+	if created.IsZero() {
+		return created
+	}
+	wallClock := time.Date(created.Year(), created.Month(), created.Day(),
+		created.Hour(), created.Minute(), created.Second(), created.Nanosecond(), local)
+	return wallClock.Add(ReservationHoldDuration())
 }

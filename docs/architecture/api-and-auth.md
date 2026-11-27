@@ -112,6 +112,9 @@ Claimed authorization errors return `403` with `No tienes acceso a esta sección
 | `PUT` | `/branding` |
 | `POST` | `/branding/logo` |
 | `DELETE` | `/branding/logo` |
+| `PATCH` | `/contracts/:guid/commission/pay` |
+| `GET` | `/contracts/:guid/commission/payout-preview` |
+| `POST` | `/commissions/credits/:id/apply` |
 
 ### Admin, seller, or owner (`RequireAdminSellerOrOwner`)
 
@@ -227,14 +230,60 @@ Response keys:
 
 | Key | Content |
 | --- | --- |
-| `commissions` | The requested page of commission rows, after `search` |
+| `commissions` | The requested page of commission rows, after `search`. Rows include `contract_status` (the source contract lifecycle status); cancelled contracts stay in the report so a commission that was already paid remains visible, and the export marks those rows as `contrato cancelado` |
 | `pagination` | `page`, `per_page`, `total`, `total_pages` for the searched commissions, plus `period_total`: the commissions of the period before applying `search` |
 | `totals` | `commission`, `amount`, `paid`, `pending`, `paid_count`, `average_rate` (`commission / amount * 100`, `0` when amount is 0), `net_pending` over the full filtered period, not the page and not affected by `search` |
 | `sellers` | `id` and `name` of every seller with commissions in the period, sorted by name, built before the `seller_id` and `search` filters |
 | `credits` | The requested page of seller commission credits |
 | `credits_pagination` | `page`, `per_page`, `total`, `total_pages` for the credits |
 | `pending_credits` | Pending total over all credits (not only the page); not affected by `search` |
-| `net_pending` | Same value as `totals.net_pending`, kept for compatibility; not affected by `search` |
+| `seller_balance` | Global remaining seller credit (`amount - applied_amount`) for the selected seller, or all sellers when no seller is selected |
+| `net_pending` | Same value as `totals.net_pending`, kept for compatibility and deprecated; not affected by `search` |
+
+Each credit includes `applied_amount`, `remaining_amount`, `source`,
+`applications_total`, and up to 20 active `applications`. Application
+destinations use `applied_contract_id` and `applied_contract_guid`; the credit's
+own `contract_id` / `contract_guid` continue to identify its origin contract.
+The JSON report and CSV/PDF exports both count pending credits by their
+remaining amount.
+
+Commission rows expose `credit_applied`: the amount of that commission that was
+settled with the seller's credits (cash paid = `commission - credit_applied`).
+The export marks those rows as "Reajuste por crédito: L X (efectivo L Y)"; rows
+without credit applications render exactly as before.
+
+#### Seller commission payout
+
+`PATCH /contracts/:guid/commission/pay` is admin-only. The API always consumes
+the assigned seller's pending credits FIFO in the payout transaction and
+responds with:
+
+```json
+{
+  "payout": {
+    "commission": 8000,
+    "applied_total": 6000,
+    "net_cash": 2000,
+    "remaining_credit": 4000,
+    "applications": [
+      {
+        "id": 41,
+        "credit_id": 12,
+        "applied_contract_id": 88,
+        "applied_contract_guid": "contract-guid",
+        "amount": 6000,
+        "created_at": "..."
+      }
+    ]
+  }
+}
+```
+
+`GET /contracts/:guid/commission/payout-preview` is also admin-only and
+read-only. It returns `commission`, `available_credit`, `applicable`,
+`net_cash`, and `remaining_credit`. Duplicate payouts return `422`, and the
+legacy manual apply endpoint returns `422` for a credit with a remaining
+balance.
 
 The totals are computed in Go after the full set is built, so the request still
 loads every contract in the period; only the response size shrinks. `search`

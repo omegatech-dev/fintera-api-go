@@ -85,6 +85,39 @@ The current historical-client alias is still available:
 make backfill-historical-clients
 ```
 
+## Schema verification and partial cancellations
+
+The API verifies its required tables and key money columns at startup
+(`database.VerifySchema`) and exits with a clear message when the deployment
+skipped its migrations. If you ever see
+`relation "credit_applications" does not exist` or a startup failure listing
+missing tables/columns, run:
+
+```bash
+make migrate-up   # with this environment's DATABASE_URL
+```
+
+Docker deployments apply migrations on every container start, so restarting the
+container also fixes it.
+
+Note that `ContractService.Cancel` is not atomic (documented follow-up): it
+cancels the contract, cancels payments, writes the ledger and releases the lot
+before creating the commission credit. If the credit creation fails mid-way,
+the contract stays cancelled without its recoverable credit. After migrating,
+repair it by inserting the missing credit:
+
+```sql
+INSERT INTO seller_commission_credits (seller_id, contract_id, amount, applied_amount, status, source)
+SELECT seller_id, id, commission_amount, 0, 'pending', 'cancellation'
+FROM contracts
+WHERE id = <contract id>
+  AND commission_paid_at IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM seller_commission_credits c
+    WHERE c.contract_id = contracts.id AND c.source = 'cancellation'
+  );
+```
+
 ## Storage
 
 Files are written under `STORAGE_PATH`:

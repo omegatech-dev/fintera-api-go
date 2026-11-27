@@ -631,7 +631,7 @@ func NewReportHandler(reportService *services.ReportService) *ReportHandler {
 // @Param per_page query int false "Commissions per page (max 20)" default(20)
 // @Param credits_page query int false "Credits page (1-based)" default(1)
 // @Param credits_per_page query int false "Credits per page (max 20)" default(20)
-// @Success 200 {object} map[string]interface{} "commissions, pagination (with period_total), totals, sellers, credits, credits_pagination, pending_credits, net_pending"
+// @Success 200 {object} map[string]interface{} "commissions, pagination (with period_total), totals, sellers, credits, credits_pagination, pending_credits, seller_balance, net_pending"
 // @Failure 400 {object} map[string]string
 // @Security BearerAuth
 // @Router /reports/commissions [get]
@@ -689,6 +689,7 @@ func (h *ReportHandler) Commissions(c *gin.Context) {
 		"credits":            pageCredits,
 		"credits_pagination": creditsPagination,
 		"pending_credits":    pendingCredits,
+		"seller_balance":     pendingCredits,
 		"net_pending":        totals.NetPending,
 	})
 }

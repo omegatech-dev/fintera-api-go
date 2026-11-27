@@ -175,9 +175,21 @@ not.
 
 ### `seller_commission_credits`
 
-Recoverable commission credit created when a contract whose commission was
-already paid is cancelled. Key columns: `seller_id`, `contract_id`, `amount`,
+Recoverable commission credit created when a paid commission is cancelled or
+reassigned. Key columns: `seller_id`, `contract_id` (origin contract), `amount`,
+`applied_amount`, `source` (`cancellation`, `reassignment`, `legacy`),
 `status` (`pending`/`settled`), `created_at`, `settled_at`, `settled_by`.
+Remaining balance is `amount - applied_amount`; a settled credit must be fully
+applied. Existing credits are backfilled as `legacy`; previously settled rows
+are marked fully applied.
+
+### `credit_applications`
+
+Auditable applications of a seller credit to a contract commission. Key
+columns: `credit_id`, `contract_id` (the applied-to contract), `amount`,
+`actor_id`, `created_at`, `reversed_at`, `reversed_by`. Active applications are
+unique per credit and contract; reversals are soft and retain history.
+Applications do not affect `contract_ledger_entries` or the customer's balance.
 
 ### `notifications`
 

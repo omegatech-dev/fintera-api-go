@@ -16,6 +16,18 @@ func NewNotificationService(repo repository.NotificationRepository, userRepo rep
 	return &NotificationService{repo: repo, userRepo: userRepo}
 }
 
+// WithRepositories returns a notification service backed by the given
+// transaction-scoped repositories.
+func (s *NotificationService) WithRepositories(repos *repository.Repositories) *NotificationService {
+	if s == nil || repos == nil {
+		return nil
+	}
+	clone := *s
+	clone.repo = repos.Notification
+	clone.userRepo = repos.User
+	return &clone
+}
+
 func (s *NotificationService) FindByID(ctx context.Context, id uint) (*models.Notification, error) {
 	return s.repo.FindByID(ctx, id)
 }
@@ -105,6 +117,31 @@ func (s *NotificationService) NotifyAdmins(ctx context.Context, title, message, 
 			NotificationType: &notifType,
 		}
 		logIgnoredError("create admin notification", s.repo.Create(ctx, notification))
+	}
+	return nil
+}
+
+// NotifyAdminsStrict persists one notification per admin and returns the first
+// write error. Transactional assignment flows use this method so a failed
+// notification insert rolls back the associated state changes.
+func (s *NotificationService) NotifyAdminsStrict(ctx context.Context, title, message, notifType string) error {
+	if s == nil {
+		return nil
+	}
+	admins, err := s.userRepo.FindAdmins(ctx)
+	if err != nil {
+		return err
+	}
+	for _, admin := range admins {
+		notification := &models.Notification{
+			UserID:           admin.ID,
+			Title:            title,
+			Message:          message,
+			NotificationType: &notifType,
+		}
+		if err := s.repo.Create(ctx, notification); err != nil {
+			return err
+		}
 	}
 	return nil
 }

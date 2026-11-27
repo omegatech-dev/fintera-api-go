@@ -49,7 +49,15 @@ func (m *mockDocContractRepo) FindByIDWithDetails(context.Context, uint) (*model
 	return m.contract, m.err
 }
 
+func (m *mockDocContractRepo) FindByIDWithDetailsForUpdate(context.Context, uint) (*models.Contract, error) {
+	return m.contract, m.err
+}
+
 func (m *mockDocContractRepo) FindByGUIDWithDetails(context.Context, string) (*models.Contract, error) {
+	return nil, nil
+}
+
+func (m *mockDocContractRepo) FindByGUIDWithDetailsForUpdate(context.Context, string) (*models.Contract, error) {
 	return nil, nil
 }
 
@@ -68,6 +76,10 @@ func (m *mockDocContractRepo) CreateWithIdentityDocuments(context.Context, *mode
 }
 
 func (m *mockDocContractRepo) Update(context.Context, *models.Contract) error { return nil }
+
+func (m *mockDocContractRepo) UpdateCancellation(context.Context, *models.Contract) error {
+	return nil
+}
 
 func (m *mockDocContractRepo) Delete(context.Context, uint) error { return nil }
 
@@ -93,8 +105,8 @@ func (m *mockDocContractRepo) FindReservationsAwaitingVoucher(context.Context, i
 
 func (m *mockDocContractRepo) MarkReservationReminderSent(context.Context, uint) error { return nil }
 
-func (m *mockDocContractRepo) MarkCommissionPaid(context.Context, uint, uint, float64) error {
-	return nil
+func (m *mockDocContractRepo) MarkCommissionPaid(context.Context, uint, uint, float64) (float64, *uint, error) {
+	return 0, nil, nil
 }
 
 func (m *mockDocContractRepo) GetStats(context.Context) (*repository.ContractStats, error) {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/sjperalta/fintera-api/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ContractRepository defines the interface for contract data access
@@ -15,6 +16,8 @@ type ContractRepository interface {
 	FindByID(ctx context.Context, id uint) (*models.Contract, error)
 	FindByIDWithDetails(ctx context.Context, id uint) (*models.Contract, error)
 	FindByGUIDWithDetails(ctx context.Context, guid string) (*models.Contract, error)
+	FindByIDWithDetailsForUpdate(ctx context.Context, id uint) (*models.Contract, error)
+	FindByGUIDWithDetailsForUpdate(ctx context.Context, guid string) (*models.Contract, error)
 	FindByLot(ctx context.Context, lotID uint) ([]models.Contract, error)
 	FindByUser(ctx context.Context, userID uint) ([]models.Contract, error)
 	Create(ctx context.Context, contract *models.Contract) error
@@ -23,6 +26,9 @@ type ContractRepository interface {
 	// without the links of its applicant.
 	CreateWithIdentityDocuments(ctx context.Context, contract *models.Contract, links []models.ContractIdentityDocument) error
 	Update(ctx context.Context, contract *models.Contract) error
+	// UpdateCancellation locks the contract and writes only cancellation-owned
+	// fields, preserving a commission payout that may complete concurrently.
+	UpdateCancellation(ctx context.Context, contract *models.Contract) error
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, query *ContractQuery) ([]models.Contract, int64, error)
 	// StreamForCommissions reads contracts for the commissions report in
@@ -36,7 +42,7 @@ type ContractRepository interface {
 	FindPendingReservations(ctx context.Context, olderThan int) ([]models.Contract, error)
 	FindReservationsAwaitingVoucher(ctx context.Context, olderThanHours int) ([]models.Contract, error)
 	MarkReservationReminderSent(ctx context.Context, id uint) error
-	MarkCommissionPaid(ctx context.Context, id uint, paidBy uint, amount float64) error
+	MarkCommissionPaid(ctx context.Context, id uint, paidBy uint, amount float64) (float64, *uint, error)
 	GetStats(ctx context.Context) (*ContractStats, error)
 	HasActiveContracts(ctx context.Context, userID uint) (bool, error)
 }
@@ -118,6 +124,33 @@ func (r *contractRepository) FindByGUIDWithDetails(ctx context.Context, guid str
 	return &contract, nil
 }
 
+// FindByIDWithDetailsForUpdate locks the contract row before loading its
+// associated detail. The second read uses the same transaction-scoped handle.
+func (r *contractRepository) FindByIDWithDetailsForUpdate(ctx context.Context, id uint) (*models.Contract, error) {
+	var locked models.Contract
+	if err := r.db.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("id").
+		First(&locked, id).Error; err != nil {
+		return nil, err
+	}
+	return r.FindByIDWithDetails(ctx, locked.ID)
+}
+
+// FindByGUIDWithDetailsForUpdate locks the contract row before loading its
+// associated detail. The lock remains held until the caller's transaction ends.
+func (r *contractRepository) FindByGUIDWithDetailsForUpdate(ctx context.Context, guid string) (*models.Contract, error) {
+	var locked models.Contract
+	if err := r.db.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("id").
+		Where("guid = ?", guid).
+		First(&locked).Error; err != nil {
+		return nil, err
+	}
+	return r.FindByIDWithDetails(ctx, locked.ID)
+}
+
 func (r *contractRepository) FindByLot(ctx context.Context, lotID uint) ([]models.Contract, error) {
 	var contracts []models.Contract
 	err := r.db.WithContext(ctx).
@@ -163,6 +196,38 @@ func (r *contractRepository) CreateWithIdentityDocuments(ctx context.Context, co
 
 func (r *contractRepository) Update(ctx context.Context, contract *models.Contract) error {
 	return r.db.WithContext(ctx).Save(contract).Error
+}
+
+// UpdateCancellation serializes cancellation against commission payout and
+// preserves the latest commission fields on the row. Without the row lock a
+// stale cancellation snapshot could overwrite a payout committed concurrently.
+func (r *contractRepository) UpdateCancellation(ctx context.Context, contract *models.Contract) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var current models.Contract
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Select("id", "commission_amount", "commission_paid_at", "commission_paid_by", "status").
+			First(&current, contract.ID).Error; err != nil {
+			return err
+		}
+		if !current.MayCancel() {
+			return fmt.Errorf("contract cannot be cancelled in current state: %s", current.Status)
+		}
+		if err := tx.Model(&models.Contract{}).
+			Where("id = ?", contract.ID).
+			Updates(map[string]interface{}{
+				"status":  contract.Status,
+				"active":  contract.Active,
+				"note":    contract.Note,
+				"balance": contract.Balance,
+			}).Error; err != nil {
+			return err
+		}
+
+		contract.CommissionAmount = current.CommissionAmount
+		contract.CommissionPaidAt = current.CommissionPaidAt
+		contract.CommissionPaidBy = current.CommissionPaidBy
+		return nil
+	})
 }
 
 func (r *contractRepository) Delete(ctx context.Context, id uint) error {
@@ -613,16 +678,46 @@ func (r *contractRepository) MarkReservationReminderSent(ctx context.Context, id
 		Update("reservation_reminder_sent_at", time.Now()).Error
 }
 
-func (r *contractRepository) MarkCommissionPaid(ctx context.Context, id uint, paidBy uint, amount float64) error {
+func (r *contractRepository) MarkCommissionPaid(ctx context.Context, id uint, paidBy uint, amount float64) (float64, *uint, error) {
 	now := time.Now()
-	return r.db.WithContext(ctx).
-		Model(&models.Contract{}).
-		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"commission_paid_at": now,
-			"commission_paid_by": paidBy,
-			"commission_amount":  amount,
-		}).Error
+	var paidAmount float64
+	var sellerID *uint
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var contract models.Contract
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Select("id", "seller_id", "status", "commission_amount", "commission_paid_at").
+			First(&contract, id).Error; err != nil {
+			return err
+		}
+		if contract.CommissionPaidAt != nil {
+			return ErrCommissionAlreadyPaid
+		}
+		if contract.Status != models.ContractStatusApproved && contract.Status != models.ContractStatusClosed {
+			return ErrCommissionNotPayable
+		}
+		paidAmount = models.RoundMoney(amount)
+		if contract.CommissionAmount > models.MoneyEpsilon {
+			paidAmount = models.RoundMoney(contract.CommissionAmount)
+		}
+		if paidAmount <= models.MoneyEpsilon {
+			return ErrCommissionNotPayable
+		}
+		if contract.SellerID != nil {
+			value := *contract.SellerID
+			sellerID = &value
+		}
+		return tx.Model(&models.Contract{}).
+			Where("id = ? AND commission_paid_at IS NULL", id).
+			Updates(map[string]interface{}{
+				"commission_paid_at": now,
+				"commission_paid_by": paidBy,
+				"commission_amount":  paidAmount,
+			}).Error
+	})
+	if err != nil {
+		return 0, nil, err
+	}
+	return paidAmount, sellerID, nil
 }
 
 func (r *contractRepository) HasActiveContracts(ctx context.Context, userID uint) (bool, error) {

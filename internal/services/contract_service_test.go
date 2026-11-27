@@ -42,12 +42,20 @@ func (m *mockContractRepo) FindByIDWithDetails(ctx context.Context, id uint) (*m
 	return args.Get(0).(*models.Contract), args.Error(1)
 }
 
+func (m *mockContractRepo) FindByIDWithDetailsForUpdate(ctx context.Context, id uint) (*models.Contract, error) {
+	return m.FindByIDWithDetails(ctx, id)
+}
+
 func (m *mockContractRepo) FindByGUIDWithDetails(ctx context.Context, guid string) (*models.Contract, error) {
 	args := m.Called(ctx, guid)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*models.Contract), args.Error(1)
+}
+
+func (m *mockContractRepo) FindByGUIDWithDetailsForUpdate(ctx context.Context, guid string) (*models.Contract, error) {
+	return m.FindByGUIDWithDetails(ctx, guid)
 }
 
 func (m *mockContractRepo) FindByLot(ctx context.Context, lotID uint) ([]models.Contract, error) {
@@ -87,6 +95,10 @@ func (m *mockContractRepo) CreateWithIdentityDocuments(ctx context.Context, cont
 func (m *mockContractRepo) Update(ctx context.Context, contract *models.Contract) error {
 	args := m.Called(ctx, contract)
 	return args.Error(0)
+}
+
+func (m *mockContractRepo) UpdateCancellation(ctx context.Context, contract *models.Contract) error {
+	return m.Update(ctx, contract)
 }
 
 func (m *mockContractRepo) Delete(ctx context.Context, id uint) error {
@@ -129,9 +141,13 @@ func (m *mockContractRepo) MarkReservationReminderSent(ctx context.Context, id u
 	return args.Error(0)
 }
 
-func (m *mockContractRepo) MarkCommissionPaid(ctx context.Context, id uint, paidBy uint, amount float64) error {
+func (m *mockContractRepo) MarkCommissionPaid(ctx context.Context, id uint, paidBy uint, amount float64) (float64, *uint, error) {
 	args := m.Called(ctx, id, paidBy, amount)
-	return args.Error(0)
+	if args.Get(1) == nil {
+		return args.Get(0).(float64), nil, args.Error(2)
+	}
+	sellerID := args.Get(1).(*uint)
+	return args.Get(0).(float64), sellerID, args.Error(2)
 }
 
 func (m *mockContractRepo) GetStats(ctx context.Context) (*repository.ContractStats, error) {
@@ -1442,11 +1458,14 @@ func TestContractService_MarkCommissionPaid(t *testing.T) {
 	service := NewContractService(contractRepo, lotRepo, userRepo, paymentRepo, ledgerRepo, nil, emailSvc, auditSvc, worker)
 
 	amount := 400000.0
+	paidSellerID := uint(7)
 	contract := &models.Contract{
 		ID:               7,
 		Status:           models.ContractStatusApproved,
 		CommissionAmount: 0,
 		Amount:           &amount,
+		SellerID:         &paidSellerID,
+		Seller:           &models.User{ID: paidSellerID, FullName: "Seller"},
 		FinancingType:    models.FinancingTypeDirect,
 		Lot: models.Lot{
 			Project: models.Project{ID: 3, CommissionRateDirect: 4},
@@ -1454,11 +1473,12 @@ func TestContractService_MarkCommissionPaid(t *testing.T) {
 	}
 
 	contractRepo.On("FindByIDWithDetails", ctx, uint(7)).Return(contract, nil)
-	contractRepo.On("MarkCommissionPaid", ctx, uint(7), uint(9), 16000.0).Return(nil)
+	contractRepo.On("MarkCommissionPaid", ctx, uint(7), uint(9), 16000.0).Return(16000.0, &paidSellerID, nil)
 
-	updated, err := service.MarkCommissionPaid(ctx, 7, 9)
+	updated, payout, err := service.MarkCommissionPaid(ctx, 7, 9)
 
 	assert.NoError(t, err)
+	assert.Nil(t, payout)
 	assert.Equal(t, 16000.0, updated.CommissionAmount)
 	assert.NotNil(t, updated.CommissionPaidAt)
 	assert.Equal(t, uint(9), *updated.CommissionPaidBy)
@@ -1481,7 +1501,7 @@ func TestContractService_MarkCommissionPaid_RejectsAlreadyPaid(t *testing.T) {
 	}
 	contractRepo.On("FindByIDWithDetails", ctx, uint(8)).Return(contract, nil)
 
-	_, err := service.MarkCommissionPaid(ctx, 8, 9)
+	_, _, err := service.MarkCommissionPaid(ctx, 8, 9)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "ya fue marcada")

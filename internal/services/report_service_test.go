@@ -275,6 +275,84 @@ func TestGenerateCommissions(t *testing.T) {
 	assert.InDelta(t, 500.0, items[3].Commission, 0.01)
 }
 
+func TestGenerateCommissionsReportsCreditAdjustment(t *testing.T) {
+	mockRepo := &mockContractRepository{}
+	commissionRepo := newFakeCommissionRepository()
+	service := NewReportService(nil, mockRepo, nil, nil)
+	service.SetCommissionRepository(commissionRepo)
+
+	amount := 100000.0
+	paidAt := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
+	approved := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	sellerID := uint(7)
+	mockRepo.mockList = func(ctx context.Context, query *repository.ContractQuery) ([]models.Contract, int64, error) {
+		contracts := []models.Contract{
+			{ID: 1, GUID: "netted", Status: models.ContractStatusApproved,
+				Amount: &amount, CommissionAmount: 16800, CommissionPaidAt: &paidAt,
+				CommissionAccrualDate: &approved, SellerID: &sellerID},
+			{ID: 2, GUID: "cash", Status: models.ContractStatusApproved,
+				Amount: &amount, CommissionAmount: 3000, CommissionPaidAt: &paidAt,
+				CommissionAccrualDate: &approved, SellerID: &sellerID},
+		}
+		return contracts, int64(len(contracts)), nil
+	}
+
+	// Contract 1 was settled with 13,800 of seller credit; contract 2 in cash.
+	commissionRepo.applications[5] = []models.CreditApplication{{
+		ID: 5, CreditID: 5, ContractID: 1, Amount: 13800, CreatedAt: time.Now(),
+	}}
+
+	items, err := service.GenerateCommissions(context.Background(), "", "", 0, false)
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	assert.InDelta(t, 13800.0, items[0].CreditApplied, 0.01)
+	assert.InDelta(t, 0.0, items[1].CreditApplied, 0.01)
+}
+
+func TestGenerateCommissionsIncludesCancelledContracts(t *testing.T) {
+	mockRepo := &mockContractRepository{}
+	service := NewReportService(nil, mockRepo, nil, nil)
+
+	amount := 100000.0
+	paidAt := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
+	approved := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	sellerID := uint(7)
+	mockRepo.mockList = func(ctx context.Context, query *repository.ContractQuery) ([]models.Contract, int64, error) {
+		contracts := []models.Contract{
+			{
+				ID: 1, GUID: "approved-1", Status: models.ContractStatusApproved,
+				Amount: &amount, CommissionAmount: 3000, CommissionPaidAt: &paidAt,
+				CommissionAccrualDate: &approved, SellerID: &sellerID,
+			},
+			{
+				ID: 2, GUID: "cancelled-paid", Status: models.ContractStatusCancelled,
+				Amount: &amount, CommissionAmount: 3000, CommissionPaidAt: &paidAt,
+				CommissionAccrualDate: &approved, SellerID: &sellerID,
+			},
+			{
+				ID: 3, GUID: "cancelled-unpaid", Status: models.ContractStatusCancelled,
+				Amount: &amount, CommissionAmount: 3000,
+				CommissionAccrualDate: &approved, SellerID: &sellerID,
+			},
+		}
+		return contracts, int64(len(contracts)), nil
+	}
+
+	items, err := service.GenerateCommissions(context.Background(), "", "", 0, false)
+	require.NoError(t, err)
+	require.Len(t, items, 3)
+
+	assert.Equal(t, models.ContractStatusApproved, items[0].ContractStatus)
+	assert.Equal(t, models.ContractStatusCancelled, items[1].ContractStatus)
+	assert.Equal(t, models.ContractStatusCancelled, items[2].ContractStatus)
+	assert.Equal(t, "paid", items[1].CommissionStatus)
+	assert.Equal(t, "pending", items[2].CommissionStatus)
+
+	totals := CommissionTotalsFor(items, 0)
+	assert.InDelta(t, 6000.0, totals.Paid, 0.01)
+	assert.InDelta(t, 3000.0, totals.Pending, 0.01)
+}
+
 type mockBalanceUserRepository struct {
 	repository.UserRepository
 	user *models.User

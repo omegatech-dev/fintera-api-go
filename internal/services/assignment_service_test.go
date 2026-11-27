@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sjperalta/fintera-api/internal/models"
+	"github.com/sjperalta/fintera-api/internal/repository"
 )
 
 var assignmentTestNow = time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)
@@ -16,15 +17,31 @@ func newTestAssignmentService(repo *fakeAssignmentRepo, sellers ...*models.User)
 	for _, seller := range sellers {
 		users[seller.ID] = seller
 	}
+	contractRepo := &fakeContractRepoForAssignment{contracts: map[uint]*models.Contract{}}
+	userRepo := &fakeUserRepoForAssignment{users: users}
 	service := NewAssignmentService(
 		repo,
-		&fakeContractRepoForAssignment{contracts: map[uint]*models.Contract{}},
-		&fakeUserRepoForAssignment{users: users},
+		contractRepo,
+		userRepo,
 		nil,
 		nil,
 	)
 	service.now = func() time.Time { return assignmentTestNow }
 	service.randIntn = func(int) int { return 0 }
+	service.SetTransactionRunner(func(ctx context.Context, fn func(*repository.Repositories) error) error {
+		for _, assignment := range repo.assignments {
+			if _, ok := contractRepo.contracts[assignment.ContractID]; !ok {
+				contract := assignment.Contract
+				contract.ID = assignment.ContractID
+				contractRepo.contracts[assignment.ContractID] = &contract
+			}
+		}
+		return fn(&repository.Repositories{
+			Assignment: repo,
+			Contract:   contractRepo,
+			User:       userRepo,
+		})
+	})
 	return service
 }
 

@@ -194,6 +194,10 @@ func (r *fakeContractRepoForAssignment) FindByIDWithDetails(_ context.Context, i
 	return contract, nil
 }
 
+func (r *fakeContractRepoForAssignment) FindByIDWithDetailsForUpdate(ctx context.Context, id uint) (*models.Contract, error) {
+	return r.FindByIDWithDetails(ctx, id)
+}
+
 type contractAssignmentUpdateRecord struct {
 	ContractID uint
 	Update     repository.ContractAssignmentUpdate
@@ -210,6 +214,8 @@ type fakeAssignmentRepo struct {
 	last            map[uint]*time.Time
 	contractUpdates []contractAssignmentUpdateRecord
 	statusUpdates   int
+	createErr       error
+	pendingErr      error
 	outcomes        []models.ScoreOutcome
 	sales           map[uint]int64
 }
@@ -225,6 +231,9 @@ func newFakeAssignmentRepo() *fakeAssignmentRepo {
 }
 
 func (r *fakeAssignmentRepo) Create(_ context.Context, assignment *models.Assignment) error {
+	if r.createErr != nil {
+		return r.createErr
+	}
 	if assignment.ID == 0 {
 		for {
 			if _, exists := r.assignments[r.nextID]; !exists {
@@ -254,6 +263,10 @@ func (r *fakeAssignmentRepo) FindByIDWithDetails(ctx context.Context, id uint) (
 	return r.FindByID(ctx, id)
 }
 
+func (r *fakeAssignmentRepo) FindByIDWithDetailsForUpdate(ctx context.Context, id uint) (*models.Assignment, error) {
+	return r.FindByIDWithDetails(ctx, id)
+}
+
 func (r *fakeAssignmentRepo) FindPendingBySeller(_ context.Context, sellerID uint) ([]models.Assignment, error) {
 	result := make([]models.Assignment, 0)
 	for _, assignment := range r.assignments {
@@ -265,6 +278,9 @@ func (r *fakeAssignmentRepo) FindPendingBySeller(_ context.Context, sellerID uin
 }
 
 func (r *fakeAssignmentRepo) FindPendingByContract(_ context.Context, contractID uint) ([]models.Assignment, error) {
+	if r.pendingErr != nil {
+		return nil, r.pendingErr
+	}
 	result := make([]models.Assignment, 0)
 	for _, assignment := range r.assignments {
 		if assignment.Status == models.AssignmentStatusPending && assignment.ContractID == contractID {

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
@@ -15,22 +16,28 @@ import (
 
 type fakeCommissionRepository struct {
 	repository.CommissionRepository
-	settings     models.CommissionSettings
-	exceptions   map[uint]*models.SellerCommissionRate
-	credits      map[uint]*models.SellerCommissionCredit
-	nextID       uint
-	nextCreditID uint
-	deleted      []uint
+	settings          models.CommissionSettings
+	exceptions        map[uint]*models.SellerCommissionRate
+	credits           map[uint]*models.SellerCommissionCredit
+	applications      map[uint][]models.CreditApplication
+	contractSellers   map[uint]uint
+	nextID            uint
+	nextCreditID      uint
+	nextApplicationID uint
+	deleted           []uint
 }
 
 func newFakeCommissionRepository() *fakeCommissionRepository {
 	settings := models.DefaultCommissionSettings()
 	return &fakeCommissionRepository{
-		settings:     settings,
-		exceptions:   make(map[uint]*models.SellerCommissionRate),
-		credits:      make(map[uint]*models.SellerCommissionCredit),
-		nextID:       1,
-		nextCreditID: 1,
+		settings:          settings,
+		exceptions:        make(map[uint]*models.SellerCommissionRate),
+		credits:           make(map[uint]*models.SellerCommissionCredit),
+		applications:      make(map[uint][]models.CreditApplication),
+		contractSellers:   make(map[uint]uint),
+		nextID:            1,
+		nextCreditID:      1,
+		nextApplicationID: 1,
 	}
 }
 
@@ -133,9 +140,168 @@ func (r *fakeCommissionRepository) SettleCredit(_ context.Context, id, actorID u
 		return false, nil
 	}
 	credit.Status = models.CommissionCreditStatusSettled
+	credit.AppliedAmount = credit.Amount
 	credit.SettledAt = &settledAt
 	credit.SettledBy = &actorID
 	return true, nil
+}
+
+func (r *fakeCommissionRepository) ListApplicationsByCredits(_ context.Context, creditIDs []uint) (map[uint][]models.CreditApplication, error) {
+	result := make(map[uint][]models.CreditApplication, len(creditIDs))
+	for _, creditID := range creditIDs {
+		var active []models.CreditApplication
+		for _, application := range r.applications[creditID] {
+			if application.ReversedAt != nil {
+				continue
+			}
+			active = append(active, application)
+		}
+		sort.Slice(active, func(i, j int) bool {
+			if active[i].CreatedAt.Equal(active[j].CreatedAt) {
+				return active[i].ID > active[j].ID
+			}
+			return active[i].CreatedAt.After(active[j].CreatedAt)
+		})
+		result[creditID] = active
+	}
+	return result, nil
+}
+
+func (r *fakeCommissionRepository) ListAppliedTotalByContractIDs(_ context.Context, contractIDs []uint) (map[uint]float64, error) {
+	result := make(map[uint]float64, len(contractIDs))
+	for _, contractID := range contractIDs {
+		for _, applications := range r.applications {
+			for _, application := range applications {
+				if application.ContractID == contractID && application.ReversedAt == nil {
+					result[contractID] += application.Amount
+				}
+			}
+		}
+	}
+	return result, nil
+}
+
+func (r *fakeCommissionRepository) PayCommissionWithCredits(_ context.Context, contractID, actorID uint, commission float64) (*models.CommissionPayout, error) {
+	payout := &models.CommissionPayout{
+		Commission:   models.RoundMoney(commission),
+		Applications: []models.CreditApplicationResponse{},
+	}
+	sellerID := r.contractSellers[contractID]
+	var credits []models.SellerCommissionCredit
+	for _, credit := range r.credits {
+		if credit.SellerID != sellerID {
+			continue
+		}
+		if credit.Status != models.CommissionCreditStatusPending || credit.RemainingAmount() <= models.MoneyEpsilon {
+			continue
+		}
+		credits = append(credits, *credit)
+	}
+	sort.Slice(credits, func(i, j int) bool {
+		if credits[i].CreatedAt.Equal(credits[j].CreatedAt) {
+			return credits[i].ID < credits[j].ID
+		}
+		return credits[i].CreatedAt.Before(credits[j].CreatedAt)
+	})
+	available := 0.0
+	for i := range credits {
+		available += credits[i].RemainingAmount()
+	}
+
+	now := time.Now()
+	for _, allocation := range models.PlanCreditAllocations(commission, credits) {
+		credit := r.credits[allocation.CreditID]
+		if credit == nil {
+			continue
+		}
+		credit.AppliedAmount = models.RoundMoney(credit.AppliedAmount + allocation.Amount)
+		if credit.AppliedAmount >= credit.Amount-models.MoneyEpsilon {
+			credit.Status = models.CommissionCreditStatusSettled
+			credit.SettledAt = &now
+			credit.SettledBy = &actorID
+		}
+		application := models.CreditApplication{
+			ID:         r.nextApplicationID,
+			CreditID:   credit.ID,
+			ContractID: contractID,
+			Amount:     allocation.Amount,
+			ActorID:    &actorID,
+			CreatedAt:  now,
+		}
+		r.nextApplicationID++
+		r.applications[credit.ID] = append(r.applications[credit.ID], application)
+		payout.Applications = append(payout.Applications, application.ToResponse())
+		payout.AppliedTotal = models.RoundMoney(payout.AppliedTotal + allocation.Amount)
+	}
+	payout.NetCash = models.RoundMoney(payout.Commission - payout.AppliedTotal)
+	if payout.NetCash < 0 {
+		payout.NetCash = 0
+	}
+	payout.RemainingCredit = models.RoundMoney(models.RoundMoney(available) - payout.AppliedTotal)
+	if payout.RemainingCredit < 0 {
+		payout.RemainingCredit = 0
+	}
+	return payout, nil
+}
+
+func (r *fakeCommissionRepository) PreviewCommissionPayout(_ context.Context, sellerID *uint, commission float64) (*models.CommissionPayoutPreview, error) {
+	preview := &models.CommissionPayoutPreview{Commission: models.RoundMoney(commission)}
+	if sellerID != nil {
+		for _, credit := range r.credits {
+			if credit.SellerID != *sellerID || credit.Status != models.CommissionCreditStatusPending {
+				continue
+			}
+			preview.AvailableCredit += credit.RemainingAmount()
+		}
+	}
+	preview.AvailableCredit = models.RoundMoney(preview.AvailableCredit)
+	preview.Applicable = models.RoundMoney(min(preview.AvailableCredit, preview.Commission))
+	preview.NetCash = models.RoundMoney(preview.Commission - preview.Applicable)
+	preview.RemainingCredit = models.RoundMoney(preview.AvailableCredit - preview.Applicable)
+	return preview, nil
+}
+
+func (r *fakeCommissionRepository) RestoreAndCreateCredit(_ context.Context, input repository.CommissionCompensationInput) (*models.CommissionCompensation, error) {
+	result := &models.CommissionCompensation{}
+	now := time.Now()
+	for creditID, applications := range r.applications {
+		for i := range applications {
+			application := &applications[i]
+			if application.ContractID != input.ContractID || application.ReversedAt != nil {
+				continue
+			}
+			if credit := r.credits[creditID]; credit != nil {
+				credit.AppliedAmount = models.RoundMoney(credit.AppliedAmount - application.Amount)
+				if credit.AppliedAmount < 0 {
+					credit.AppliedAmount = 0
+				}
+				credit.Status = models.CommissionCreditStatusPending
+				credit.SettledAt = nil
+				credit.SettledBy = nil
+			}
+			application.ReversedAt = &now
+			result.Restored = models.RoundMoney(result.Restored + application.Amount)
+		}
+		r.applications[creditID] = applications
+	}
+	result.NetCash = models.RoundMoney(input.Gross - result.Restored)
+	if result.NetCash < 0 {
+		result.NetCash = 0
+	}
+	if result.NetCash > models.MoneyEpsilon && input.SellerID > 0 {
+		credit := &models.SellerCommissionCredit{
+			SellerID:   input.SellerID,
+			ContractID: input.ContractID,
+			Amount:     result.NetCash,
+			Status:     models.CommissionCreditStatusPending,
+			Source:     input.Source,
+		}
+		if err := r.CreateCredit(context.Background(), credit); err != nil {
+			return nil, err
+		}
+		result.Credit = credit
+	}
+	return result, nil
 }
 
 type fakeCommissionUserRepository struct {
@@ -343,6 +509,112 @@ func TestCommissionService_CreateCommissionCreditForPreviousSeller(t *testing.T)
 	require.Len(t, repo.credits, 1)
 }
 
+func TestCommissionService_PayCommissionConsumesCreditsFIFO(t *testing.T) {
+	repo := newFakeCommissionRepository()
+	repo.contractSellers[88] = 7
+	first := &models.SellerCommissionCredit{
+		SellerID: 7, ContractID: 1, Amount: 3000,
+		Status:    models.CommissionCreditStatusPending,
+		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	second := &models.SellerCommissionCredit{
+		SellerID: 7, ContractID: 2, Amount: 10000,
+		Status:    models.CommissionCreditStatusPending,
+		CreatedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+	}
+	require.NoError(t, repo.CreateCredit(context.Background(), first))
+	require.NoError(t, repo.CreateCredit(context.Background(), second))
+
+	service := NewCommissionService(repo, nil, nil)
+	payout, err := service.PayCommission(context.Background(), &models.Contract{ID: 88}, 9, 8000)
+	require.NoError(t, err)
+	require.NotNil(t, payout)
+	assert.Equal(t, 8000.0, payout.Commission)
+	assert.Equal(t, 8000.0, payout.AppliedTotal)
+	assert.Equal(t, 0.0, payout.NetCash)
+	assert.Equal(t, 5000.0, payout.RemainingCredit)
+	require.Len(t, payout.Applications, 2)
+	assert.Equal(t, uint(1), payout.Applications[0].CreditID)
+	assert.Equal(t, 3000.0, payout.Applications[0].Amount)
+	assert.Equal(t, uint(2), payout.Applications[1].CreditID)
+	assert.Equal(t, 5000.0, payout.Applications[1].Amount)
+	assert.Equal(t, 3000.0, repo.credits[1].AppliedAmount)
+	assert.Equal(t, models.CommissionCreditStatusSettled, repo.credits[1].Status)
+	assert.Equal(t, 5000.0, repo.credits[2].AppliedAmount)
+	assert.Equal(t, models.CommissionCreditStatusPending, repo.credits[2].Status)
+}
+
+func TestCommissionService_PayCommissionNeverUsesAnotherSellersCredit(t *testing.T) {
+	repo := newFakeCommissionRepository()
+	repo.contractSellers[88] = 7
+	otherSellerCredit := &models.SellerCommissionCredit{
+		SellerID: 8, ContractID: 1, Amount: 10000,
+		Status: models.CommissionCreditStatusPending,
+	}
+	require.NoError(t, repo.CreateCredit(context.Background(), otherSellerCredit))
+
+	service := NewCommissionService(repo, nil, nil)
+	payout, err := service.PayCommission(context.Background(), &models.Contract{ID: 88}, 9, 8000)
+	require.NoError(t, err)
+	require.NotNil(t, payout)
+	assert.Equal(t, 0.0, payout.AppliedTotal)
+	assert.Equal(t, 8000.0, payout.NetCash)
+	assert.Empty(t, payout.Applications)
+	assert.Equal(t, 0.0, repo.credits[otherSellerCredit.ID].AppliedAmount)
+}
+
+func TestCommissionService_RestoreAndCreateCreditUsesCashOnly(t *testing.T) {
+	repo := newFakeCommissionRepository()
+	repo.contractSellers[88] = 7
+	credit := &models.SellerCommissionCredit{
+		SellerID: 7, ContractID: 1, Amount: 3000,
+		Status: models.CommissionCreditStatusSettled, AppliedAmount: 3000,
+	}
+	require.NoError(t, repo.CreateCredit(context.Background(), credit))
+	repo.applications[credit.ID] = []models.CreditApplication{{
+		ID: 1, CreditID: credit.ID, ContractID: 88, Amount: 3000,
+		CreatedAt: time.Now(),
+	}}
+
+	service := NewCommissionService(repo, nil, nil)
+	compensation, err := service.RestoreAndCreateCredit(context.Background(),
+		&models.Contract{ID: 88}, 7, 8000, models.CommissionCreditSourceCancellation, 9, false)
+	require.NoError(t, err)
+	require.NotNil(t, compensation)
+	assert.Equal(t, 3000.0, compensation.Restored)
+	assert.Equal(t, 5000.0, compensation.NetCash)
+	require.NotNil(t, compensation.Credit)
+	assert.Equal(t, 5000.0, compensation.Credit.Amount)
+	assert.Equal(t, models.CommissionCreditStatusPending, repo.credits[credit.ID].Status)
+	assert.Equal(t, 0.0, repo.credits[credit.ID].AppliedAmount)
+	assert.NotNil(t, repo.applications[credit.ID][0].ReversedAt)
+}
+
+func TestCommissionService_ManualApplyRejectedWhenCreditHasBalance(t *testing.T) {
+	repo := newFakeCommissionRepository()
+	credit := &models.SellerCommissionCredit{
+		SellerID: 7, ContractID: 1, Amount: 3000,
+		Status: models.CommissionCreditStatusPending,
+	}
+	require.NoError(t, repo.CreateCredit(context.Background(), credit))
+	service := NewCommissionService(repo, nil, nil)
+
+	_, err := service.ApplyCredit(context.Background(), 9, credit.ID)
+	assert.ErrorIs(t, err, ErrCommissionCreditHasBalance)
+	assert.Equal(t, models.CommissionCreditStatusPending, repo.credits[credit.ID].Status)
+	assert.Equal(t, 0.0, repo.credits[credit.ID].AppliedAmount)
+}
+
+func TestCommissionService_PreviewWithoutSellerReturnsGross(t *testing.T) {
+	service := NewCommissionService(newFakeCommissionRepository(), nil, nil)
+	preview, err := service.PreviewCommissionPayout(context.Background(),
+		&models.Contract{SellerID: nil}, 8000)
+	require.NoError(t, err)
+	assert.Equal(t, 8000.0, preview.Commission)
+	assert.Equal(t, 8000.0, preview.NetCash)
+	assert.Equal(t, 0.0, preview.AvailableCredit)
+}
+
 func TestCommissionService_ApplyCredit(t *testing.T) {
 	repo := newFakeCommissionRepository()
 	gdb, mockSQL := setupMockDB(t)
@@ -351,10 +623,11 @@ func TestCommissionService_ApplyCredit(t *testing.T) {
 
 	seller := &models.User{ID: 7, FullName: "Ana Vendedora", Role: models.RoleSeller}
 	require.NoError(t, repo.CreateCredit(context.Background(), &models.SellerCommissionCredit{
-		SellerID:   seller.ID,
-		ContractID: 11,
-		Amount:     1500,
-		Status:     models.CommissionCreditStatusPending,
+		SellerID:      seller.ID,
+		ContractID:    11,
+		Amount:        1500,
+		AppliedAmount: 1500,
+		Status:        models.CommissionCreditStatusPending,
 	}))
 	// FindCreditByID preloads the seller in production; mirror it in the fake.
 	repo.credits[1].Seller = seller
@@ -374,10 +647,11 @@ func TestCommissionService_ApplyCredit_IsIdempotent(t *testing.T) {
 	repo := newFakeCommissionRepository()
 	service := NewCommissionService(repo, nil, nil)
 	require.NoError(t, repo.CreateCredit(context.Background(), &models.SellerCommissionCredit{
-		SellerID:   7,
-		ContractID: 11,
-		Amount:     1500,
-		Status:     models.CommissionCreditStatusPending,
+		SellerID:      7,
+		ContractID:    11,
+		Amount:        1500,
+		AppliedAmount: 1500,
+		Status:        models.CommissionCreditStatusPending,
 	}))
 
 	_, err := service.ApplyCredit(context.Background(), 3, 1)

@@ -75,10 +75,18 @@ func (r *commissionsCreditRepo) ListPendingCreditsBySeller(context.Context) (map
 	pending := map[uint]float64{}
 	for _, credit := range r.credits {
 		if credit.Status != models.CommissionCreditStatusSettled {
-			pending[credit.SellerID] += credit.Amount
+			pending[credit.SellerID] += credit.RemainingAmount()
 		}
 	}
 	return pending, nil
+}
+
+func (r *commissionsCreditRepo) ListAppliedTotalByContractIDs(_ context.Context, creditIDs []uint) (map[uint]float64, error) {
+	return map[uint]float64{}, nil
+}
+
+func (r *commissionsCreditRepo) ListApplicationsByCredits(_ context.Context, creditIDs []uint) (map[uint][]models.CreditApplication, error) {
+	return map[uint][]models.CreditApplication{}, nil
 }
 
 // commissionsFixtureCredits returns the seller commission credits paired with

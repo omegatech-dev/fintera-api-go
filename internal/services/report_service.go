@@ -22,6 +22,7 @@ type CommissionReportItem struct {
 	IsHistorical     bool                 `json:"is_historical,omitempty"`
 	CommissionPaidAt *time.Time           `json:"commission_paid_at"`
 	CommissionStatus string               `json:"commission_status,omitempty"`
+	ContractStatus   string               `json:"contract_status,omitempty"`
 	Origin           string               `json:"origin"`
 	ClientName       string               `json:"client_name"`
 	Project          string               `json:"project"`
@@ -32,6 +33,7 @@ type CommissionReportItem struct {
 	Seller           string               `json:"seller"`
 	SellerID         *uint                `json:"seller_id,omitempty"`
 	Commission       float64              `json:"commission"`
+	CreditApplied    float64              `json:"credit_applied"`
 	Score            *int                 `json:"score"`
 	ScoreLevel       *string              `json:"score_level"`
 	ScoreMetrics     *models.ScoreMetrics `json:"score_metrics,omitempty"`
@@ -95,8 +97,11 @@ func (s *ReportService) GenerateCommissions(ctx context.Context, startDate, endD
 		listQuery.Filters["commission_to"] = endDate
 	}
 
-	// Include both Approved and Closed contracts
-	listQuery.Filters["status_in"] = fmt.Sprintf("%s,%s", models.ContractStatusApproved, models.ContractStatusClosed)
+	// Include approved, closed and cancelled contracts. Cancelling a contract
+	// must not hide a commission that was already paid; every row exposes the
+	// contract status so the UI can tell them apart.
+	listQuery.Filters["status_in"] = fmt.Sprintf("%s,%s,%s",
+		models.ContractStatusApproved, models.ContractStatusClosed, models.ContractStatusCancelled)
 
 	query := &repository.ContractQuery{
 		ListQuery:      listQuery,
@@ -186,6 +191,7 @@ func (s *ReportService) GenerateCommissions(ctx context.Context, startDate, endD
 				ContractGUID:     c.GUID,
 				CommissionPaidAt: c.CommissionPaidAt,
 				CommissionStatus: commissionStatusForContract(c),
+				ContractStatus:   c.Status,
 				Origin:           origin,
 				ClientName:       clientName,
 				Project:          projectName,
@@ -202,6 +208,26 @@ func (s *ReportService) GenerateCommissions(ctx context.Context, startDate, endD
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Netted commissions report how much of the payout was settled with the
+	// seller's credits. One grouped query for the whole report.
+	if s.commissionRepo != nil {
+		ids := make([]uint, 0, len(items))
+		for i := range items {
+			if items[i].CommissionPaidAt != nil && items[i].ContractID > 0 {
+				ids = append(ids, items[i].ContractID)
+			}
+		}
+		applied, appliedErr := s.commissionRepo.ListAppliedTotalByContractIDs(ctx, ids)
+		if appliedErr != nil {
+			return nil, appliedErr
+		}
+		for i := range items {
+			if applied := applied[items[i].ContractID]; applied > 0 {
+				items[i].CreditApplied = models.RoundMoney(applied)
+			}
+		}
 	}
 
 	if s.historicalRepo != nil {
@@ -256,7 +282,7 @@ func (s *ReportService) GenerateCommissions(ctx context.Context, startDate, endD
 
 // CommissionCredits returns the seller commission credits created by cancelled
 // contracts. sellerID > 0 limits the list to one seller. The second return
-// value is the still-pending total so the report can expose the net payable.
+// value is the still-pending remaining balance so the report can expose it.
 func (s *ReportService) CommissionCredits(ctx context.Context, sellerID uint) ([]models.SellerCommissionCreditResponse, float64, error) {
 	if s.commissionRepo == nil {
 		return []models.SellerCommissionCreditResponse{}, 0, nil
@@ -265,16 +291,17 @@ func (s *ReportService) CommissionCredits(ctx context.Context, sellerID uint) ([
 	if err != nil {
 		return nil, 0, err
 	}
-	responses := make([]models.SellerCommissionCreditResponse, 0, len(credits))
+	responses, err := creditResponses(ctx, s.commissionRepo, credits)
+	if err != nil {
+		return nil, 0, err
+	}
 	pending := 0.0
-	for i := range credits {
-		response := credits[i].ToResponse()
-		responses = append(responses, response)
-		if response.Status != models.CommissionCreditStatusSettled {
-			pending += response.Amount
+	for i := range responses {
+		if responses[i].Status != models.CommissionCreditStatusSettled {
+			pending += responses[i].RemainingAmount
 		}
 	}
-	return responses, pending, nil
+	return responses, models.RoundMoney(pending), nil
 }
 
 // PendingCommissionTotal sums the commission rows that have not been paid out.

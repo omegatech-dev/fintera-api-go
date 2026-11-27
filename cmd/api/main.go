@@ -97,6 +97,16 @@ func main() {
 	}
 	logger.Info("Connected to database")
 
+	// Fail fast when the deployment skipped its migrations. The API queries
+	// money tables (commission credits, applications) whose absence would
+	// otherwise surface as a SQL error mid-cancellation.
+	if err := database.VerifySchema(db); err != nil {
+		logger.Error("Database schema verification failed", "error", err)
+		flushRollbar()
+		os.Exit(1)
+	}
+	logger.Info("Database schema verified")
+
 	// Initialize storage
 	store, err := storage.NewLocalStorage(cfg.StoragePath)
 	if err != nil {
@@ -348,6 +358,7 @@ func setupRouter(h *handlers.Handlers, cfg *config.Config) *gin.Engine {
 				admin.POST("/projects/:project_id/lots/:lot_id/contracts/:contract_id/reject", h.Contract.Reject)
 				admin.POST("/projects/:project_id/lots/:lot_id/contracts/:contract_id/cancel", h.Contract.Cancel)
 				admin.PATCH("/contracts/:guid/commission/pay", h.Contract.PayCommission)
+				admin.GET("/contracts/:guid/commission/payout-preview", h.Contract.PreviewCommissionPayout)
 				admin.GET("/contracts/:guid/assignments", h.Contract.Assignments)
 				admin.POST("/contracts/:guid/assignments", h.Contract.Reassign)
 				admin.POST("/contracts/:guid/reminder", h.Contract.SendReminder)

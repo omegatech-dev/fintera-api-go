@@ -93,11 +93,25 @@ endpoint, never as a side effect of creating a contract.
 - `POST /contracts/{guid}/assignments` (admin) reassigns in any contract status.
   Pending offers are marked `superseded`; contracts outside `pending` /
   `submitted` are assigned directly so their commission is stable.
-- If the commission was already paid to a different seller, reassignment creates
-  a pending `seller_commission_credits` row for the previous seller, clears the
-  paid markers and recalculates the commission for the new seller.
+- If the commission was already paid to a different seller, reassignment
+  reverses any active `credit_applications`, restores their amounts to the
+  original credits, creates a pending `seller_commission_credits` row for the
+  previous seller only for cash actually paid, clears the paid markers even
+  when cash paid was zero, and recalculates the commission for the new seller.
+  Legacy paid commissions without applications continue to create a credit for
+  the gross commission.
+- Reassignment locks and re-reads the contract, then atomically writes credit
+  compensation, superseded offers, the new offer/accepted assignment, and the
+  contract mirror. Assignment acceptance uses the same contract-first lock
+  order, then locks/re-reads the assignment before changing either row.
+- Assignment audit and notification rows created inside either transaction
+  share its database transaction; a failed state change leaves none of those
+  rows behind.
 - `GET /contracts/{guid}/assignments` returns the full offer history.
 
+The transaction/lock protocol currently covers reassignment and acceptance.
+Cancellation (including ledger writes), rejection, expiration, and automated
+assignment backfill remain follow-up work and do not claim the same atomicity.
 
 ### Close (`ContractService.Close`)
 
@@ -109,6 +123,21 @@ endpoint, never as a side effect of creating a contract.
 
 Contracts are also auto-closed by `PaymentService.updateContractBalance` when
 the balance reaches `>= 0` and status is `approved`.
+
+### Seller commission credit netting
+
+- An admin payout locks the contract and the seller's pending credits in FIFO
+  order, then applies credits and marks the commission paid in one transaction.
+- Credits are never shared across sellers. The gross commission remains the
+  commission amount; `net_cash` is the amount paid in cash after credit
+  applications.
+- `GET /contracts/{guid}/commission/payout-preview` returns the prospective
+  breakdown and does not mutate credits. Without a seller it returns the gross
+  amount as `net_cash`.
+- Cancelling a netted commission reverses applications and restores the source
+  credits. A new credit is created only for the cash paid.
+- This seller/company settlement does not modify the contract ledger or the
+  customer's balance.
 
 ### Capital repayment (`ContractService.CapitalRepayment`)
 

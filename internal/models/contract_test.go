@@ -6,11 +6,13 @@ import (
 )
 
 func TestContractResponse_HoldExpiresAt(t *testing.T) {
-	previous := ReservationHoldHours()
-	t.Cleanup(func() { SetReservationHoldHours(previous) })
-	SetReservationHoldHours(48)
+	previous := SettingsPolicySnapshot()
+	t.Cleanup(func() { restorePolicy(t, previous.HoldHours) })
+	setHoldHours(t, 48)
 
 	created := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	// The response exposes the stored wall clock plus the hold.
+	wantBase := time.Date(2026, 11, 9, 10, 0, 0, 0, time.Local)
 	contract := Contract{
 		ID:        1,
 		GUID:      "contract-guid",
@@ -22,7 +24,7 @@ func TestContractResponse_HoldExpiresAt(t *testing.T) {
 	if resp.HoldExpiresAt == nil {
 		t.Fatal("expected hold_expires_at for pending contract")
 	}
-	want := created.Add(48 * time.Hour)
+	want := wantBase.Add(48 * time.Hour)
 	if !resp.HoldExpiresAt.Equal(want) {
 		t.Fatalf("hold_expires_at = %v, want %v", resp.HoldExpiresAt, want)
 	}
@@ -155,8 +157,8 @@ func TestContractResponse_NextPayment(t *testing.T) {
 	if resp.NextPaymentAmount == nil || *resp.NextPaymentAmount != 900 {
 		t.Fatalf("next_payment_amount = %v, want 900", resp.NextPaymentAmount)
 	}
-	if resp.NextPaymentDate == nil || !resp.NextPaymentDate.Equal(earlier) {
-		t.Fatalf("next_payment_date = %v, want %v", resp.NextPaymentDate, earlier)
+	if resp.NextPaymentDate == nil || *resp.NextPaymentDate != earlier.Format(DateOnlyLayout) {
+		t.Fatalf("next_payment_date = %v, want %v", resp.NextPaymentDate, earlier.Format(DateOnlyLayout))
 	}
 	if resp.NextPaymentLabel != "Cuota 1" || resp.NextPaymentType != PaymentTypeInstallment {
 		t.Fatalf("flat next payment fields = %q/%q", resp.NextPaymentType, resp.NextPaymentLabel)
@@ -220,8 +222,8 @@ func TestContractResponse_ReservationPayment(t *testing.T) {
 	if resp.ReservationPayment.PaymentType != PaymentTypeReservation {
 		t.Fatalf("payment_type = %q, want reservation", resp.ReservationPayment.PaymentType)
 	}
-	if resp.ReservationPayment.PaidAt == nil || !resp.ReservationPayment.PaidAt.Equal(paidAt) {
-		t.Fatalf("paid_at = %v, want %v", resp.ReservationPayment.PaidAt, paidAt)
+	if resp.ReservationPayment.PaidAt == nil || *resp.ReservationPayment.PaidAt != paidAt.Format(DateOnlyLayout) {
+		t.Fatalf("paid_at = %v, want %v", resp.ReservationPayment.PaidAt, paidAt.Format(DateOnlyLayout))
 	}
 	if resp.ReservationPayment.ReceiptURL == nil || *resp.ReservationPayment.ReceiptURL != "/receipts/2026/11/voucher.pdf" {
 		t.Fatalf("receipt_url = %v", resp.ReservationPayment.ReceiptURL)
@@ -240,7 +242,7 @@ func TestContractResponseRedactForCustomer(t *testing.T) {
 		CommissionOrigin:      CommissionOriginDirect,
 		CommissionPaidAt:      &now,
 		CommissionPaidBy:      &sellerID,
-		CommissionAccrualDate: &now,
+		CommissionAccrualDate: DateOnlyPtr(&now),
 		Seller:                "Cristofer",
 		SellerID:              &sellerID,
 		AssignmentOrigin:      AssignmentOriginManual,

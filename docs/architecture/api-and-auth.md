@@ -44,8 +44,34 @@ context.
 | `POST` | `/api/v1/users/verify_recovery_code` |
 | `POST` | `/api/v1/users/update_password_with_code` |
 | `GET` | `/api/v1/branding` |
+| `GET` | `/api/v1/settings` |
 
 `GET /swagger/*any`, `/`, `/uploads/*`, and `/receipts/*` are also public.
+
+### General settings payload
+
+`GET /api/v1/settings` returns the support contact, the reservation and
+notification policy, the regional defaults, the legal data and the terms
+content, plus `supports_partial_updates: true`.
+
+`PUT /api/v1/settings` (admin) **merges** the provided fields: a field that is
+not sent keeps its stored value, and an explicit empty string or `null` clears
+it. Clients that rely on the replace behaviour of older releases must send
+every field.
+
+### Minimum reservation amount
+
+Reservation creation rejects an amount below the configured
+`reservation_min_amount` with `400`:
+
+```json
+{"error": "el monto mínimo de reserva es HNL 5000.00",
+ "code": "RESERVE_AMOUNT_BELOW_MINIMUM",
+ "min_amount": 5000}
+```
+
+`code` is the contract; clients localise the message from `code` and
+`min_amount` instead of parsing `error`.
 
 ## RBAC
 
@@ -372,6 +398,17 @@ promoted to a person-level document.
   `page`, `per_page`, `total`, `total_pages`; some lists only return `total`.
 - `sort` format is `field-direction`, e.g. `created_at-desc`.
 - Date filters use `YYYY-MM-DD` unless the handler documents otherwise.
+- Calendar-date columns (`payments.due_date`, `payments.payment_date`,
+  `contracts.max_payment_date`, `next_payment_date`,
+  `commission_accrual_date`) are exposed as `YYYY-MM-DD` strings, never as
+  midnight instants. A browser in any time zone renders the stored calendar
+  date instead of shifting it to the previous day.
+- "Overdue" is a calendar comparison in the deployment time zone
+  (`general_settings.timezone`): a payment due today is not overdue today.
+- Payment windows (`reservation_due_days`, `down_payment_due_days`,
+  `down_payment_due_days_with_reservation`) and report periods are counted in
+  the deployment time zone, so an evening reservation stays on the same
+  business day even when the server process runs in UTC.
 - JSON request bodies are capped globally at `MAX_JSON_BODY_BYTES` (default
   2 MiB). Endpoints that read the body directly answer `413` with a Spanish
   error; endpoints using Gin binding surface the cap as a `400` binding error.

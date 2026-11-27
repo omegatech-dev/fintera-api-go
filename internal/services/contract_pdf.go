@@ -7,7 +7,6 @@ import (
 	"math"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/jung-kurt/gofpdf"
 	"github.com/sjperalta/fintera-api/internal/models"
@@ -508,8 +507,7 @@ func (s *ReportService) prepareContractPDFData(ctx context.Context, contract *mo
 		paymentTerm = fmt.Sprintf("%d meses", contract.PaymentTerm)
 	}
 
-	now := time.Now()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	now := models.BusinessNow()
 
 	payments := make([]models.Payment, len(contract.Payments))
 	copy(payments, contract.Payments)
@@ -528,7 +526,7 @@ func (s *ReportService) prepareContractPDFData(ctx context.Context, contract *mo
 			installmentCount++
 		}
 		statusLabel, statusKey := translatePaymentStatus(payment.Status)
-		if statusKey == "pending" && payment.DueDate.Before(today) {
+		if statusKey == "pending" && models.IsBeforeBusinessDay(payment.DueDate, now) {
 			statusLabel = "Vencida"
 			statusKey = "overdue"
 		}
@@ -573,7 +571,7 @@ func (s *ReportService) prepareContractPDFData(ctx context.Context, contract *mo
 	if nextPayment != nil {
 		nextPaymentAmount = s.formatMoneyCurrency(currency, nextPayment.Amount)
 		nextPaymentDate = s.formatDateShort(nextPayment.DueDate)
-		if nextPayment.DueDate.Before(today) {
+		if models.IsBeforeBusinessDay(nextPayment.DueDate, now) {
 			nextPaymentDate += " · vencida"
 		}
 	}

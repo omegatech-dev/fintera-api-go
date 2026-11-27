@@ -141,12 +141,12 @@ func TestGeneralSettingsUpdatePersistsLegalFields(t *testing.T) {
 func TestGeneralSettingsUpdateClearsOptionalFields(t *testing.T) {
 	address := "Tegucigalpa"
 	terms := "Contenido"
-	repo := &stubGeneralSettingsRepo{row: &models.GeneralSettings{
-		ID:                   1,
-		LegalAddress:         &address,
-		TermsContentES:       &terms,
-		ReservationHoldHours: 48,
-	}}
+	repo := &stubGeneralSettingsRepo{row: func() *models.GeneralSettings {
+		row := models.DefaultGeneralSettings()
+		row.LegalAddress = &address
+		row.TermsContentES = &terms
+		return row
+	}()}
 	r := generalSettingsTestRouter(services.NewGeneralSettingsService(repo, nil))
 
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
@@ -165,6 +165,98 @@ func TestGeneralSettingsUpdateClearsOptionalFields(t *testing.T) {
 	}
 	if repo.row.LegalAddress != nil || repo.row.TermsContentES != nil {
 		t.Errorf("expected NULL persisted values, got %+v", repo.row)
+	}
+}
+
+func TestGeneralSettingsPartialUpdatePreservesUnsentFields(t *testing.T) {
+	repo := &stubGeneralSettingsRepo{row: func() *models.GeneralSettings {
+		row := models.DefaultGeneralSettings()
+		row.SupportEmail = "soporte@fintera.test"
+		row.LegalName = "Empresa S.A."
+		row.ReservationMinAmount = 25000
+		row.ReservationHoldHours = 72
+		return row
+	}()}
+	r := generalSettingsTestRouter(services.NewGeneralSettingsService(repo, nil))
+
+	// Only the hold is sent: the other fields keep their stored value.
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
+		"settings": {"reservation_hold_hours": 48}
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	settings := decodeSettingsResponse(t, rec)
+	if settings.ReservationHoldHours != 48 {
+		t.Errorf("hold = %d, want 48", settings.ReservationHoldHours)
+	}
+	if settings.SupportEmail != "soporte@fintera.test" {
+		t.Errorf("support email was erased: %q", settings.SupportEmail)
+	}
+	if settings.LegalName != "Empresa S.A." {
+		t.Errorf("legal name was erased: %q", settings.LegalName)
+	}
+	if settings.ReservationMinAmount != 25000 {
+		t.Errorf("minimum was erased: %v", settings.ReservationMinAmount)
+	}
+	if repo.row.ReservationMinAmount != 25000 {
+		t.Errorf("persisted minimum = %v, want 25000", repo.row.ReservationMinAmount)
+	}
+}
+
+func TestGeneralSettingsUpdateRejectsOutOfOrderWindows(t *testing.T) {
+	repo := &stubGeneralSettingsRepo{row: models.DefaultGeneralSettings()}
+	r := generalSettingsTestRouter(services.NewGeneralSettingsService(repo, nil))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
+		"settings": {
+			"reservation_due_days": 5,
+			"down_payment_due_days": 3,
+			"down_payment_due_days_with_reservation": 7
+		}
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGeneralSettingsResponseExposesPolicyAndCapabilityFlag(t *testing.T) {
+	repo := &stubGeneralSettingsRepo{row: models.DefaultGeneralSettings()}
+	r := generalSettingsTestRouter(services.NewGeneralSettingsService(repo, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	settings := decodeSettingsResponse(t, rec)
+	if !settings.SupportsPartialUpdates {
+		t.Error("expected supports_partial_updates to be true")
+	}
+	if settings.ReservationMinAmount != 5000 {
+		t.Errorf("minimum = %v, want 5000", settings.ReservationMinAmount)
+	}
+	if settings.ReservationDueDays != 7 || settings.DownPaymentDueDays != 14 || settings.DownPaymentDueDaysWithReservation != 21 {
+		t.Errorf("windows = %d/%d/%d, want 7/14/21", settings.ReservationDueDays, settings.DownPaymentDueDays, settings.DownPaymentDueDaysWithReservation)
+	}
+	if !settings.EmailNotificationsEnabled || !settings.OverdueRemindersEnabled {
+		t.Error("expected the notification switches to default to enabled")
+	}
+	if settings.UpcomingReminderDays != 1 {
+		t.Errorf("upcoming reminder days = %d, want 1", settings.UpcomingReminderDays)
+	}
+	if settings.DefaultCurrency != "HNL" || settings.DefaultLocale != "es" || settings.Timezone != "America/Tegucigalpa" {
+		t.Errorf("regional defaults = %s/%s/%s", settings.DefaultCurrency, settings.DefaultLocale, settings.Timezone)
 	}
 }
 

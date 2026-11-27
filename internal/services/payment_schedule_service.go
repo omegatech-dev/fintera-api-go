@@ -31,7 +31,11 @@ func (s *PaymentScheduleService) GenerateSchedule(ctx context.Context, contract 
 	}
 
 	var payments []models.Payment
-	now := time.Now()
+	// The schedule is expressed in the deployment's business calendar, not in
+	// the process zone: a reservation made at 8 p.m. Honduras time must fall
+	// on the same business day even when the server already runs in UTC.
+	now := models.BusinessNow()
+	policy := models.SettingsPolicySnapshot()
 	ft := strings.ToLower(strings.TrimSpace(contract.FinancingType))
 
 	// Bank/Cash: schedule = 1) reservation, 2) rest of amount due by max_payment_date
@@ -45,7 +49,7 @@ func (s *PaymentScheduleService) GenerateSchedule(ctx context.Context, contract 
 			reservationPayment := models.Payment{
 				ContractID:  contract.ID,
 				Amount:      *contract.ReserveAmount,
-				DueDate:     now.AddDate(0, 0, 7),
+				DueDate:     now.AddDate(0, 0, policy.ReservationDueDays),
 				Status:      models.PaymentStatusPending,
 				PaymentType: models.PaymentTypeReservation,
 				Description: stringPtr("Pago de Reserva"),
@@ -73,7 +77,7 @@ func (s *PaymentScheduleService) GenerateSchedule(ctx context.Context, contract 
 		reservationPayment := models.Payment{
 			ContractID:  contract.ID,
 			Amount:      *contract.ReserveAmount,
-			DueDate:     now.AddDate(0, 0, 7), // Due in 7 days
+			DueDate:     now.AddDate(0, 0, policy.ReservationDueDays),
 			Status:      models.PaymentStatusPending,
 			PaymentType: models.PaymentTypeReservation,
 			Description: stringPtr("Pago de Reserva"),
@@ -83,15 +87,16 @@ func (s *PaymentScheduleService) GenerateSchedule(ctx context.Context, contract 
 
 	// 2. Down payment (if down payment > 0)
 	if *contract.DownPayment > 0 {
-		downPaymentDue := now.AddDate(0, 0, 14) // Due in 14 days
+		// A reservation usually means the customer already paid part of the
+		// down payment, so the remaining balance gets a wider window.
+		downPaymentDays := policy.DownPaymentDueDays
 		if *contract.ReserveAmount > 0 {
-			downPaymentDue = now.AddDate(0, 0, 21) // Due in 21 days if there's a reservation
+			downPaymentDays = policy.DownPaymentDueDaysWithReservation
 		}
-
 		downPayment := models.Payment{
 			ContractID:  contract.ID,
 			Amount:      *contract.DownPayment,
-			DueDate:     downPaymentDue,
+			DueDate:     now.AddDate(0, 0, downPaymentDays),
 			Status:      models.PaymentStatusPending,
 			PaymentType: models.PaymentTypeDownPayment,
 			Description: stringPtr("Pago Inicial"),

@@ -108,12 +108,17 @@ func (s *EmailService) checkEmailPreconditions(user *models.User, operation stri
 	return true, nil
 }
 
-// checkNotificationPreconditions applies the user's email_notifications
-// preference on top of the global email checks. It is meant for notification
-// emails (contract/payment reminders and updates): when the user opted out the
-// email is skipped without an error. Security and account emails must keep
-// using checkEmailPreconditions so they can never be silenced.
+// checkNotificationPreconditions applies the deployment-wide policy switch and
+// the user's email_notifications preference on top of the global email checks.
+// It is meant for notification emails (contract/payment reminders and updates):
+// the email is skipped without an error when either silences it. Security and
+// account emails must keep using checkEmailPreconditions so they can never be
+// silenced.
 func (s *EmailService) checkNotificationPreconditions(user *models.User, operation string) (bool, error) {
+	if !models.SettingsPolicySnapshot().EmailNotificationsEnabled {
+		logger.Info(fmt.Sprintf("🔕 [Notifications Disabled] Skipping %s to %s (disabled by the deployment policy)", operation, logger.MaskEmail(user.Email)))
+		return false, nil
+	}
 	if !user.EmailNotifications {
 		logger.Info(fmt.Sprintf("🔕 [Notifications Disabled] Skipping %s to %s (user %d opted out)", operation, logger.MaskEmail(user.Email), user.ID))
 		return false, nil

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/microcosm-cc/bluemonday"
@@ -23,6 +24,12 @@ var (
 	ErrInvalidSupportWhatsApp = errors.New("el WhatsApp debe tener entre 8 y 20 dígitos, con código de país")
 	ErrInvalidSupportEmail    = errors.New("el correo de soporte no es válido")
 	ErrInvalidHoldHours       = errors.New("el bloqueo de reserva debe estar entre 1 y 720 horas")
+	ErrInvalidMinAmount       = errors.New("el monto mínimo de reserva no puede ser negativo")
+	ErrInvalidPaymentWindow   = errors.New("las ventanas de vencimiento deben estar entre 1 y 365 días y en orden creciente")
+	ErrInvalidReminderDays    = errors.New("la anticipación del recordatorio debe estar entre 0 y 30 días")
+	ErrInvalidDefaultCurrency = errors.New("la moneda debe ser un código de tres letras")
+	ErrInvalidDefaultLocale   = errors.New("el idioma debe ser es o en")
+	ErrInvalidTimezone        = errors.New("la zona horaria no es válida")
 	ErrInvalidWebsite         = errors.New("el sitio web debe ser una URL http(s) válida")
 	ErrInvalidTermsDate       = errors.New("la fecha de vigencia debe tener formato AAAA-MM-DD")
 	ErrLegalNameTooLong       = errors.New("la razón social no puede superar 160 caracteres")
@@ -42,6 +49,16 @@ const (
 )
 
 var whatsappPattern = regexp.MustCompile(`^\+?[0-9]{8,20}$`)
+
+// FormatPolicyAmount renders a policy amount with the deployment currency, so
+// the messages that quote a configured minimum match what the admin configured.
+func FormatPolicyAmount(amount float64) string {
+	currency := models.SettingsPolicySnapshot().DefaultCurrency
+	if currency == "" {
+		currency = models.DefaultCurrency
+	}
+	return fmt.Sprintf("%s %.2f", currency, amount)
+}
 
 // termsHTMLPolicy is the allow-list used for the admin-authored terms. It
 // mirrors the editor toolbar: paragraphs, emphasis, headings, lists, links and
@@ -101,7 +118,7 @@ func NewGeneralSettingsService(repo repository.GeneralSettingsRepository, audit 
 }
 
 // Get returns the settings, applying defaults when the row is missing, and
-// keeps the process-wide hold duration in sync.
+// keeps the process-wide policy snapshot in sync.
 func (s *GeneralSettingsService) Get(ctx context.Context) (*models.GeneralSettings, error) {
 	settings, err := s.repo.Get(ctx)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -110,13 +127,22 @@ func (s *GeneralSettingsService) Get(ctx context.Context) (*models.GeneralSettin
 		return nil, err
 	}
 	applySettingsDefaults(settings)
-	models.SetReservationHoldHours(settings.ReservationHoldHours)
+	models.SetSettingsPolicy(settings.ToPolicy())
 	return settings, nil
 }
 
-// Update validates and persists the settings.
-func (s *GeneralSettingsService) Update(ctx context.Context, actorID uint, payload models.GeneralSettings) (*models.GeneralSettings, error) {
-	settings := &payload
+// Update merges the provided fields into the stored row. A field the caller did
+// not send keeps its stored value, so a section-level save cannot erase the
+// other sections. The merged result is validated as a whole before it is
+// persisted.
+func (s *GeneralSettingsService) Update(ctx context.Context, actorID uint, patch *models.GeneralSettingsPatch) (*models.GeneralSettings, error) {
+	settings, err := s.repo.Get(ctx)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		settings = models.DefaultGeneralSettings()
+	} else if err != nil {
+		return nil, err
+	}
+	patch.Apply(settings)
 	applySettingsDefaults(settings)
 	settings.TermsContentES = sanitizeTermsContent(settings.TermsContentES)
 	settings.TermsContentEN = sanitizeTermsContent(settings.TermsContentEN)
@@ -132,10 +158,13 @@ func (s *GeneralSettingsService) Update(ctx context.Context, actorID uint, paylo
 	if err := s.repo.Upsert(ctx, settings); err != nil {
 		return nil, err
 	}
-	models.SetReservationHoldHours(settings.ReservationHoldHours)
+	models.SetSettingsPolicy(settings.ToPolicy())
 	if s.audit != nil {
 		logIgnoredError("audit settings update", s.audit.Log(ctx, actorID, "UPDATE", "GeneralSettings", settings.ID,
-			fmt.Sprintf("Configuración general actualizada (bloqueo %d h)", settings.ReservationHoldHours), "", ""))
+			fmt.Sprintf("Configuración general actualizada (bloqueo %d h, mínimo %.0f, ventanas %d/%d/%d d)",
+				settings.ReservationHoldHours, settings.ReservationMinAmount,
+				settings.ReservationDueDays, settings.DownPaymentDueDays,
+				settings.DownPaymentDueDaysWithReservation), "", ""))
 	}
 	return settings, nil
 }
@@ -167,6 +196,9 @@ func applySettingsDefaults(settings *models.GeneralSettings) {
 	}
 	settings.SupportWhatsApp = strings.TrimSpace(settings.SupportWhatsApp)
 	settings.SupportEmail = strings.TrimSpace(settings.SupportEmail)
+	settings.DefaultCurrency = strings.ToUpper(strings.TrimSpace(settings.DefaultCurrency))
+	settings.DefaultLocale = strings.ToLower(strings.TrimSpace(settings.DefaultLocale))
+	settings.Timezone = strings.TrimSpace(settings.Timezone)
 	settings.LegalName = strings.TrimSpace(settings.LegalName)
 	settings.LegalTaxID = strings.TrimSpace(settings.LegalTaxID)
 	settings.LegalAddress = trimOptionalString(settings.LegalAddress)
@@ -175,6 +207,21 @@ func applySettingsDefaults(settings *models.GeneralSettings) {
 	settings.TermsContentEN = trimOptionalString(settings.TermsContentEN)
 	if settings.ReservationHoldHours <= 0 {
 		settings.ReservationHoldHours = models.DefaultReservationHoldHours
+	}
+	if settings.ReservationMinAmount < 0 {
+		settings.ReservationMinAmount = models.DefaultReservationMinAmount
+	}
+	if settings.ReservationDueDays <= 0 {
+		settings.ReservationDueDays = models.DefaultReservationDueDays
+	}
+	if settings.DownPaymentDueDays <= 0 {
+		settings.DownPaymentDueDays = models.DefaultDownPaymentDueDays
+	}
+	if settings.DownPaymentDueDaysWithReservation <= 0 {
+		settings.DownPaymentDueDaysWithReservation = models.DefaultDownPaymentDueDaysWithReservation
+	}
+	if settings.UpcomingReminderDays < 0 {
+		settings.UpcomingReminderDays = models.DefaultUpcomingReminderDays
 	}
 }
 
@@ -189,6 +236,43 @@ func validateGeneralSettings(settings *models.GeneralSettings) error {
 	}
 	if settings.ReservationHoldHours < 1 || settings.ReservationHoldHours > 720 {
 		return ErrInvalidHoldHours
+	}
+	if settings.ReservationMinAmount < 0 {
+		return ErrInvalidMinAmount
+	}
+	if settings.ReservationDueDays < 1 || settings.ReservationDueDays > 365 {
+		return ErrInvalidPaymentWindow
+	}
+	if settings.DownPaymentDueDays < 1 || settings.DownPaymentDueDays > 365 {
+		return ErrInvalidPaymentWindow
+	}
+	if settings.DownPaymentDueDaysWithReservation < 1 || settings.DownPaymentDueDaysWithReservation > 365 {
+		return ErrInvalidPaymentWindow
+	}
+	// A customer pays the reservation first, then the down payment: the windows
+	// must never put the down payment before the reservation.
+	if settings.ReservationDueDays > settings.DownPaymentDueDays ||
+		settings.DownPaymentDueDays > settings.DownPaymentDueDaysWithReservation {
+		return ErrInvalidPaymentWindow
+	}
+	if settings.UpcomingReminderDays < 0 || settings.UpcomingReminderDays > 30 {
+		return ErrInvalidReminderDays
+	}
+	if len(settings.DefaultCurrency) != 3 {
+		return ErrInvalidDefaultCurrency
+	}
+	for _, r := range settings.DefaultCurrency {
+		if !unicode.IsUpper(r) {
+			return ErrInvalidDefaultCurrency
+		}
+	}
+	if settings.DefaultLocale != models.LocaleES && settings.DefaultLocale != models.LocaleEN {
+		return ErrInvalidDefaultLocale
+	}
+	if settings.Timezone != "" {
+		if _, err := time.LoadLocation(settings.Timezone); err != nil {
+			return ErrInvalidTimezone
+		}
 	}
 	if utf8.RuneCountInString(settings.LegalName) > maxLegalNameLength {
 		return ErrLegalNameTooLong

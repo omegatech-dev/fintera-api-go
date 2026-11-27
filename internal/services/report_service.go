@@ -666,7 +666,7 @@ func (s *ReportService) prepareBalancePDFData(
 			if isPaidPaymentStatus(payment.Status) {
 				totalPaid += paidAmountOf(payment)
 			}
-			if payment.Status == models.PaymentStatusPending && payment.DueDate.Before(today) {
+			if payment.Status == models.PaymentStatusPending && models.IsBeforeBusinessDay(payment.DueDate, now) {
 				totalOverdue += payment.Amount
 			}
 		}
@@ -715,7 +715,7 @@ func (s *ReportService) buildBalanceContractData(
 
 	for index, payment := range contract.Payments {
 		statusLabel, statusKey := translatePaymentStatus(payment.Status)
-		if statusKey == "pending" && payment.DueDate.Before(today) {
+		if statusKey == "pending" && models.IsBeforeBusinessDay(payment.DueDate, today) {
 			statusKey = "overdue"
 			overdue += payment.Amount
 		}

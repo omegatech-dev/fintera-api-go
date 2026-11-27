@@ -409,6 +409,10 @@ func (s *PaymentService) CheckOverduePayments(ctx context.Context) error {
 // SendDailyPaymentReminderEmails sends overdue payment reminder emails to active users with active contracts.
 // Intended to run once per day. Groups overdue payments by applicant user and sends one email per user.
 func (s *PaymentService) SendDailyPaymentReminderEmails(ctx context.Context) error {
+	if !models.SettingsPolicySnapshot().OverdueRemindersEnabled {
+		logger.Info("[Daily reminder] Overdue reminders are disabled by the deployment policy, skipping")
+		return nil
+	}
 	payments, err := s.repo.FindOverdueReminders(ctx)
 	if err != nil {
 		return fmt.Errorf("find overdue for active contracts: %w", err)
@@ -456,7 +460,7 @@ func (s *PaymentService) SendDailyPaymentReminderEmails(ctx context.Context) err
 // SendDailyUpcomingPaymentReminderEmails sends "payment due tomorrow" reminders to active users with active contracts.
 // Runs once per day. Only includes payments that have not yet had an upcoming reminder sent.
 func (s *PaymentService) SendDailyUpcomingPaymentReminderEmails(ctx context.Context) error {
-	payments, err := s.repo.FindUpcomingReminders(ctx)
+	payments, err := s.repo.FindUpcomingReminders(ctx, models.SettingsPolicySnapshot().UpcomingReminderDays)
 	if err != nil {
 		return fmt.Errorf("find payments due tomorrow: %w", err)
 	}
@@ -550,11 +554,11 @@ func (s *PaymentService) CalculateOverdueInterest(ctx context.Context) error {
 				continue
 			}
 
-			// Calculate days overdue
-			if time.Now().Before(payment.DueDate) {
+			// Calculate days overdue, counted in business calendar days
+			if !models.IsBeforeBusinessDay(payment.DueDate, time.Now()) {
 				continue
 			}
-			daysOverdue := int(time.Since(payment.DueDate).Hours() / 24)
+			daysOverdue := models.BusinessDayDiff(payment.DueDate, time.Now())
 			if daysOverdue <= 0 {
 				continue
 			}
@@ -699,7 +703,7 @@ func (s *PaymentService) GetUserFinancingSummary(ctx context.Context, userID uin
 
 		// Calculate overdue totals
 		// Logic from original: if pending and before now (overdue or due today)
-		if p.Status == models.PaymentStatusPending && p.DueDate.Before(now) {
+		if p.Status == models.PaymentStatusPending && models.IsBeforeBusinessDay(p.DueDate, now) {
 			summary.TotalDue += p.Amount
 			if p.InterestAmount != nil {
 				summary.TotalDue += *p.InterestAmount

@@ -29,16 +29,16 @@ func (r *stubGeneralSettingsRepository) Upsert(ctx context.Context, settings *mo
 }
 
 func TestValidateGeneralSettings(t *testing.T) {
-	valid := models.GeneralSettings{
+	valid := withPolicyDefaults(models.GeneralSettings{
 		SupportWhatsApp:      "+50499998888",
 		SupportEmail:         "soporte@fintera.test",
 		ReservationHoldHours: 48,
-	}
-	if err := validateGeneralSettings(&valid); err != nil {
+	})
+	if err := validateGeneralSettings(valid); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if err := validateGeneralSettings(&models.GeneralSettings{ReservationHoldHours: 48}); err != nil {
+	if err := validateGeneralSettings(withPolicyDefaults(models.GeneralSettings{ReservationHoldHours: 48})); err != nil {
 		t.Fatalf("empty contact should be valid: %v", err)
 	}
 
@@ -130,7 +130,7 @@ func TestValidateGeneralSettingsLegalFields(t *testing.T) {
 		TermsContentEN:       &content,
 		ReservationHoldHours: 48,
 	}
-	if err := validateGeneralSettings(&valid); err != nil {
+	if err := validateGeneralSettings(withPolicyDefaults(valid)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -150,7 +150,7 @@ func TestValidateGeneralSettingsLegalFields(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateGeneralSettings(&tc.settings)
+			err := validateGeneralSettings(withPolicyDefaults(tc.settings))
 			if !errors.Is(err, tc.want) {
 				t.Errorf("error = %v, want %v", err, tc.want)
 			}
@@ -258,12 +258,12 @@ func TestValidateGeneralSettingsCountsVisibleTermsText(t *testing.T) {
 	if len(withMarkup) <= 20000 {
 		t.Fatal("expected markup to exceed the raw HTML limit")
 	}
-	if err := validateGeneralSettings(&models.GeneralSettings{TermsContentES: &withMarkup, ReservationHoldHours: 48}); err != nil {
+	if err := validateGeneralSettings(withPolicyDefaults(models.GeneralSettings{TermsContentES: &withMarkup, ReservationHoldHours: 48})); err != nil {
 		t.Fatalf("visible text at limit should be valid: %v", err)
 	}
 
 	tooLong := "<p>" + strings.Repeat("a", 20001) + "</p>"
-	if err := validateGeneralSettings(&models.GeneralSettings{TermsContentES: &tooLong, ReservationHoldHours: 48}); !errors.Is(err, ErrTermsContentTooLong) {
+	if err := validateGeneralSettings(withPolicyDefaults(models.GeneralSettings{TermsContentES: &tooLong, ReservationHoldHours: 48})); !errors.Is(err, ErrTermsContentTooLong) {
 		t.Errorf("error = %v, want %v", err, ErrTermsContentTooLong)
 	}
 }
@@ -272,9 +272,8 @@ func TestUpdateSanitizesTermsBeforePersisting(t *testing.T) {
 	repo := &stubGeneralSettingsRepository{}
 	service := NewGeneralSettingsService(repo, nil)
 	unsafe := `<h2>Términos</h2><script>alert(1)</script><p onclick="x()"><strong>Seguro</strong></p>`
-	settings, err := service.Update(context.Background(), 1, models.GeneralSettings{
-		ReservationHoldHours: 48,
-		TermsContentES:       &unsafe,
+	settings, err := service.Update(context.Background(), 1, &models.GeneralSettingsPatch{
+		TermsContentES: &unsafe,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -284,6 +283,155 @@ func TestUpdateSanitizesTermsBeforePersisting(t *testing.T) {
 	}
 	if repo.row == nil || repo.row.TermsContentES == nil || !strings.Contains(*repo.row.TermsContentES, "<strong>Seguro</strong>") {
 		t.Errorf("unexpected persisted row: %+v", repo.row)
+	}
+}
+
+func TestValidatePolicyFields(t *testing.T) {
+	cases := []struct {
+		name string
+		seed func(*models.GeneralSettings)
+		want error
+	}{
+		{"negative minimum", func(s *models.GeneralSettings) { s.ReservationMinAmount = -1 }, ErrInvalidMinAmount},
+		{"zero minimum is allowed", func(s *models.GeneralSettings) { s.ReservationMinAmount = 0 }, nil},
+		{"reservation window too short", func(s *models.GeneralSettings) { s.ReservationDueDays = 0 }, ErrInvalidPaymentWindow},
+		{"down payment window too long", func(s *models.GeneralSettings) { s.DownPaymentDueDays = 366 }, ErrInvalidPaymentWindow},
+		{"reminder lead time too high", func(s *models.GeneralSettings) { s.UpcomingReminderDays = 31 }, ErrInvalidReminderDays},
+		{"reminder lead time zero is allowed", func(s *models.GeneralSettings) { s.UpcomingReminderDays = 0 }, nil},
+		{"currency with two letters", func(s *models.GeneralSettings) { s.DefaultCurrency = "HN" }, ErrInvalidDefaultCurrency},
+		{"lowercase currency", func(s *models.GeneralSettings) { s.DefaultCurrency = "hnl" }, ErrInvalidDefaultCurrency},
+		{"unsupported locale", func(s *models.GeneralSettings) { s.DefaultLocale = "fr" }, ErrInvalidDefaultLocale},
+		{"invalid timezone", func(s *models.GeneralSettings) { s.Timezone = "Not/AZone" }, ErrInvalidTimezone},
+		{"down payment before reservation", func(s *models.GeneralSettings) {
+			s.ReservationDueDays = 5
+			s.DownPaymentDueDays = 3
+		}, ErrInvalidPaymentWindow},
+		{"with-reservation before down payment", func(s *models.GeneralSettings) {
+			s.DownPaymentDueDays = 10
+			s.DownPaymentDueDaysWithReservation = 7
+		}, ErrInvalidPaymentWindow},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := models.DefaultGeneralSettings()
+			tc.seed(settings)
+			if err := validateGeneralSettings(settings); !errors.Is(err, tc.want) {
+				t.Errorf("error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+
+	// A valid policy passes and the defaults satisfy the ordering.
+	if err := validateGeneralSettings(withPolicyDefaults(models.GeneralSettings{ReservationHoldHours: 48})); err != nil {
+		t.Errorf("default policy rejected: %v", err)
+	}
+	valid := models.DefaultGeneralSettings()
+	valid.ReservationDueDays = 3
+	valid.DownPaymentDueDays = 3
+	valid.DownPaymentDueDaysWithReservation = 3
+	if err := validateGeneralSettings(valid); err != nil {
+		t.Errorf("equal windows rejected: %v", err)
+	}
+}
+
+func TestSettingsMergeKeepsUnsentFields(t *testing.T) {
+	repo := &stubGeneralSettingsRepository{
+		row: func() *models.GeneralSettings {
+			row := models.DefaultGeneralSettings()
+			row.SupportEmail = "soporte@fintera.test"
+			row.LegalName = "Empresa S.A."
+			row.TermsContentES = termsPointer("<p>Términos</p>")
+			row.ReservationHoldHours = 72
+			row.ReservationMinAmount = 25000
+			row.ReservationDueDays = 3
+			row.DownPaymentDueDays = 3
+			row.DownPaymentDueDaysWithReservation = 3
+			return row
+		}(),
+	}
+	service := NewGeneralSettingsService(repo, nil)
+
+	// Only the reservation hold is sent: every other field survives.
+	hold := 48
+	settings, err := service.Update(context.Background(), 1, &models.GeneralSettingsPatch{
+		ReservationHoldHours: &hold,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if settings.ReservationHoldHours != 48 {
+		t.Errorf("hold = %d, want 48", settings.ReservationHoldHours)
+	}
+	if settings.SupportEmail != "soporte@fintera.test" {
+		t.Errorf("support email was erased: %q", settings.SupportEmail)
+	}
+	if settings.LegalName != "Empresa S.A." {
+		t.Errorf("legal name was erased: %q", settings.LegalName)
+	}
+	if settings.ReservationMinAmount != 25000 {
+		t.Errorf("minimum was erased: %v", settings.ReservationMinAmount)
+	}
+	if settings.ReservationDueDays != 3 || settings.DownPaymentDueDays != 3 || settings.DownPaymentDueDaysWithReservation != 3 {
+		t.Errorf("payment windows were erased: %d/%d/%d", settings.ReservationDueDays, settings.DownPaymentDueDays, settings.DownPaymentDueDaysWithReservation)
+	}
+	if settings.TermsContentES == nil || strings.Contains(*settings.TermsContentES, "Términos") == false {
+		t.Errorf("terms content was erased: %v", settings.TermsContentES)
+	}
+}
+
+func TestSettingsMergeClearsAFieldExplicitly(t *testing.T) {
+	repo := &stubGeneralSettingsRepository{
+		row: func() *models.GeneralSettings {
+			row := models.DefaultGeneralSettings()
+			row.LegalName = "Empresa S.A."
+			row.TermsContentES = termsPointer("<p>Términos</p>")
+			return row
+		}(),
+	}
+	service := NewGeneralSettingsService(repo, nil)
+
+	empty := ""
+	settings, err := service.Update(context.Background(), 1, &models.GeneralSettingsPatch{
+		LegalName:      &empty,
+		TermsContentES: &empty,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if settings.LegalName != "" {
+		t.Errorf("legal name = %q, want empty", settings.LegalName)
+	}
+	if settings.TermsContentES != nil {
+		t.Errorf("terms content = %v, want nil", settings.TermsContentES)
+	}
+}
+
+func TestUpdateRefreshesThePolicySnapshot(t *testing.T) {
+	previous := models.SettingsPolicySnapshot()
+	t.Cleanup(func() { models.SetSettingsPolicy(previous) })
+
+	repo := &stubGeneralSettingsRepository{
+		row: func() *models.GeneralSettings {
+			row := models.DefaultGeneralSettings()
+			row.ReservationHoldHours = 72
+			row.ReservationMinAmount = 25000
+			row.ReservationDueDays = 3
+			row.DownPaymentDueDays = 3
+			row.DownPaymentDueDaysWithReservation = 3
+			return row
+		}(),
+	}
+	service := NewGeneralSettingsService(repo, nil)
+
+	if _, err := service.Get(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	policy := models.SettingsPolicySnapshot()
+	if policy.HoldHours != 72 || policy.MinAmount != 25000 {
+		t.Errorf("policy = %+v, want hold 72 and minimum 25000", policy)
+	}
+	if policy.ReservationDueDays != 3 || policy.DownPaymentDueDays != 3 || policy.DownPaymentDueDaysWithReservation != 3 {
+		t.Errorf("policy windows = %d/%d/%d, want 3/3/3", policy.ReservationDueDays, policy.DownPaymentDueDays, policy.DownPaymentDueDaysWithReservation)
 	}
 }
 
@@ -299,4 +447,22 @@ func TestSanitizeTermsContentPreservesLegacyPlainText(t *testing.T) {
 	if !strings.Contains(*clean, "\n\n") {
 		t.Errorf("paragraph breaks lost: %q", *clean)
 	}
+}
+
+// termsPointer returns a pointer to the given string, for test fixtures.
+func termsPointer(value string) *string { return &value }
+
+// withPolicyDefaults fills the policy fields a fixture leaves at zero, so the
+// validation rules that require a configured policy pass.
+func withPolicyDefaults(s models.GeneralSettings) *models.GeneralSettings {
+	def := models.DefaultGeneralSettings()
+	s.ReservationMinAmount = def.ReservationMinAmount
+	s.ReservationDueDays = def.ReservationDueDays
+	s.DownPaymentDueDays = def.DownPaymentDueDays
+	s.DownPaymentDueDaysWithReservation = def.DownPaymentDueDaysWithReservation
+	s.UpcomingReminderDays = def.UpcomingReminderDays
+	s.DefaultCurrency = def.DefaultCurrency
+	s.DefaultLocale = def.DefaultLocale
+	s.Timezone = def.Timezone
+	return &s
 }

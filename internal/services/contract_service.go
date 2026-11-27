@@ -535,12 +535,18 @@ func (s *ContractService) Create(ctx context.Context, contract *models.Contract,
 	}
 
 	// Create the reservation payment immediately so the portal can upload the
-	// voucher while the contract is pending. It is due at the 48h hold expiry.
+	// voucher while the contract is pending. Its due date follows the
+	// configured reservation payment window; the hold expiry is tracked
+	// separately by ContractResponse.
 	if contract.ReserveAmount != nil && *contract.ReserveAmount > 0 {
-		due := models.HoldExpiresAt(contract.CreatedAt)
-		if contract.CreatedAt.IsZero() {
-			due = models.HoldExpiresAt(time.Now())
+		created := contract.CreatedAt
+		if created.IsZero() {
+			created = time.Now()
 		}
+		// Due dates are business calendar dates: converting to the deployment
+		// zone keeps an evening reservation on the same business day whether
+		// the process runs in UTC or in the deployment's own zone.
+		due := created.In(models.DeploymentLocation()).AddDate(0, 0, models.SettingsPolicySnapshot().ReservationDueDays)
 		description := "Pago de Reserva"
 		reservation := &models.Payment{
 			ContractID:  contract.ID,
@@ -1453,10 +1459,18 @@ func (s *ContractService) SendReminder(ctx context.Context, guid string, actorID
 	return nil
 }
 
+// voucherReminderLeadHours is how long before the hold expires the customer is
+// asked for the voucher, so a reminder is still actionable.
+const voucherReminderLeadHours = 8
+
 // SendReservationVoucherReminders emails customers whose reservation is about
 // to expire without an uploaded voucher. It only contacts each reservation once.
 func (s *ContractService) SendReservationVoucherReminders(ctx context.Context) error {
-	contracts, err := s.repo.FindReservationsAwaitingVoucher(ctx, 40)
+	lead := models.SettingsPolicySnapshot().HoldHours - voucherReminderLeadHours
+	if lead < 1 {
+		lead = 1
+	}
+	contracts, err := s.repo.FindReservationsAwaitingVoucher(ctx, lead)
 	if err != nil {
 		return err
 	}
@@ -1476,8 +1490,8 @@ func (s *ContractService) SendReservationVoucherReminders(ctx context.Context) e
 }
 
 func (s *ContractService) ReleaseUnpaidReservations(ctx context.Context) error {
-	// Find reservations older than 48 hours without payment
-	contracts, err := s.repo.FindPendingReservations(ctx, 48)
+	// Find reservations older than the configured hold without payment
+	contracts, err := s.repo.FindPendingReservations(ctx, models.ReservationHoldHours())
 	if err != nil {
 		return err
 	}

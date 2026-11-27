@@ -6258,7 +6258,7 @@ const docTemplate = `{
         },
         "/settings": {
             "get": {
-                "description": "Public customer settings: support contact, reservation hold, legal data and terms content.",
+                "description": "Public customer settings: support contact, reservation and notification policy, regional defaults, legal data and terms content. Includes ` + "`" + `supports_partial_updates` + "`" + ` so clients can detect the merge behaviour.",
                 "produces": [
                     "application/json"
                 ],
@@ -6282,7 +6282,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update support contact, reservation hold, legal data and terms content (Admin).",
+                "description": "Update support contact, reservation, notification and regional policy, legal data and terms content (Admin). Sent fields are merged; omitted fields keep their stored value.",
                 "consumes": [
                     "application/json"
                 ],
@@ -7873,6 +7873,21 @@ const docTemplate = `{
         "handlers.generalSettingsUpdateRequest": {
             "type": "object",
             "properties": {
+                "default_currency": {
+                    "type": "string"
+                },
+                "default_locale": {
+                    "type": "string"
+                },
+                "down_payment_due_days": {
+                    "type": "integer"
+                },
+                "down_payment_due_days_with_reservation": {
+                    "type": "integer"
+                },
+                "email_notifications_enabled": {
+                    "type": "boolean"
+                },
                 "legal_address": {
                     "type": "string"
                 },
@@ -7882,8 +7897,17 @@ const docTemplate = `{
                 "legal_tax_id": {
                     "type": "string"
                 },
+                "overdue_reminders_enabled": {
+                    "type": "boolean"
+                },
+                "reservation_due_days": {
+                    "type": "integer"
+                },
                 "reservation_hold_hours": {
                     "type": "integer"
+                },
+                "reservation_min_amount": {
+                    "type": "number"
                 },
                 "support_email": {
                     "type": "string"
@@ -7899,6 +7923,12 @@ const docTemplate = `{
                 },
                 "terms_effective_date": {
                     "type": "string"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "upcoming_reminder_days": {
+                    "type": "integer"
                 },
                 "website": {
                     "type": "string"

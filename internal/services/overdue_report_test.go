@@ -114,15 +114,19 @@ func overdueTestContract(id uint, status, currency string, balance *float64) mod
 	}
 }
 
-// overdueTestPayment builds a pending payment that is days days past due.
+// overdueTestPayment builds a pending payment that is days business-calendar
+// days past due. The due date is a `date` column, so the fixture stores the
+// calendar date the same way the API does: business creation date plus days.
 func overdueTestPayment(id uint, contract models.Contract, days int, amount, interest float64) models.Payment {
 	value := interest
+	business := time.Now().In(models.DeploymentLocation()).AddDate(0, 0, -days)
+	due := time.Date(business.Year(), business.Month(), business.Day(), 0, 0, 0, 0, time.UTC)
 	return models.Payment{
 		ID:             id,
 		ContractID:     contract.ID,
 		Amount:         amount,
 		InterestAmount: &value,
-		DueDate:        time.Now().Add(-time.Duration(days) * 24 * time.Hour),
+		DueDate:        due,
 		Status:         models.PaymentStatusPending,
 		PaymentType:    models.PaymentTypeInstallment,
 		Contract:       contract,

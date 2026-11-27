@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -290,6 +291,16 @@ func (h *ContractHandler) create(c *gin.Context, lotID uint, guest bool) {
 	financingType := strings.TrimSpace(strings.ToLower(c.Request.FormValue("contract[financing_type]")))
 	reserveAmount, _ := strconv.ParseFloat(c.Request.FormValue("contract[reserve_amount]"), 64)
 	downPayment, _ := strconv.ParseFloat(c.Request.FormValue("contract[down_payment]"), 64)
+	// The minimum is enforced on the server: a hand-built request cannot reserve
+	// a lot for less than the configured minimum.
+	if minAmount := models.SettingsPolicySnapshot().MinAmount; reserveAmount < minAmount {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":      fmt.Sprintf("el monto mínimo de reserva es %s", services.FormatPolicyAmount(minAmount)),
+			"code":       "RESERVE_AMOUNT_BELOW_MINIMUM",
+			"min_amount": minAmount,
+		})
+		return
+	}
 	maxPaymentDateStr := strings.TrimSpace(c.Request.FormValue("contract[max_payment_date]"))
 	bankName := strings.TrimSpace(c.Request.FormValue("contract[bank_name]"))
 	bankCreditStatusStr := strings.TrimSpace(c.Request.FormValue("contract[bank_credit_status]"))

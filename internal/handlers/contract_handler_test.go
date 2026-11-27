@@ -192,7 +192,7 @@ func (s *paymentRepoStub) FindOverdueReminders(context.Context) ([]models.Paymen
 	return nil, s.err
 }
 
-func (s *paymentRepoStub) FindUpcomingReminders(context.Context) ([]models.Payment, error) {
+func (s *paymentRepoStub) FindUpcomingReminders(context.Context, int) ([]models.Payment, error) {
 	return nil, s.err
 }
 

@@ -218,10 +218,33 @@ Singleton row (`id = 1`) with the deployment-wide customer settings:
 - `support_whatsapp` — E.164-ish number (`+504...`) shown in the customer portal.
 - `support_email` — optional support email.
 - `reservation_hold_hours` — lot-hold duration, default `48` (1–720). Drives
-  `hold_expires_at` on pending reservations and the reservation payment due date.
+  `hold_expires_at` on pending reservations, the release of unpaid reservations
+  and the voucher reminder.
+- `reservation_min_amount` — lowest amount a customer may reserve a lot for,
+  default `5000`. Enforced on reservation creation.
+- `reservation_due_days` — reservation payment due window, default `7` (1–365).
+- `down_payment_due_days` — down-payment due window without a reservation,
+  default `14` (1–365).
+- `down_payment_due_days_with_reservation` — down-payment due window when the
+  contract carries a reservation amount, default `21` (1–365).
+- `email_notifications_enabled` — deployment-wide switch for customer
+  notification emails, default `true`. Applied on top of the per-user
+  `users.email_notifications` opt-out and the `ENABLE_EMAIL_NOTIFICATIONS`
+  environment kill switch.
+- `overdue_reminders_enabled` — switch for the daily overdue reminder job,
+  default `true`.
+- `upcoming_reminder_days` — lead time of the upcoming-payment reminder,
+  default `1` (0–30).
+- `default_currency` — deployment currency, default `HNL`.
+- `default_locale` — deployment locale, default `es` (`es` or `en`).
+- `timezone` — IANA zone, default `America/Tegucigalpa`.
 
 Read publicly via `GET /api/v1/settings`; updated only by admins via
-`PUT /api/v1/settings`.
+`PUT /api/v1/settings`. The update merges the provided fields: a field that is
+not sent keeps its stored value, and an explicit empty string or `null` clears
+it. The response carries `supports_partial_updates: true` so a client can
+detect the merge instead of probing the endpoint with a partial write.
+`supports_partial_updates` is a flag, not a persisted column.
 
 ## Enumerations
 
@@ -273,6 +296,7 @@ with golang-migrate:
 | 000041 | Analytics indexes and cache uniqueness |
 | 000042 | `payments(contract_id, due_date)` index |
 | 000047 | `identity_documents` and `contract_identity_documents` |
+| 000049 | `general_settings` reservation, notification and regional policy columns |
 
 Applied migrations are immutable. Add a new numbered pair instead of editing
 history.

@@ -673,9 +673,10 @@ type PaymentRepository interface {
 	// FindOverdueReminders returns overdue payments with their contract,
 	// applicant user, lot, and project in a single joined query.
 	FindOverdueReminders(ctx context.Context) ([]models.Payment, error)
-	// FindUpcomingReminders returns payments due tomorrow with their contract,
-	// applicant user, lot, and project in a single joined query.
-	FindUpcomingReminders(ctx context.Context) ([]models.Payment, error)
+	// FindUpcomingReminders returns payments due within the configured reminder
+	// lead time with their contract, applicant user, lot, and project in a
+	// single joined query.
+	FindUpcomingReminders(ctx context.Context, leadDays int) ([]models.Payment, error)
 	MarkOverdueReminderSent(ctx context.Context, paymentIDs []uint) error
 	MarkUpcomingReminderSent(ctx context.Context, paymentIDs []uint) error
 	FindPendingByUser(ctx context.Context, userID uint) ([]models.Payment, error)
@@ -1170,12 +1171,16 @@ func (r *paymentRepository) StreamOverdueForActiveContractsDetailed(ctx context.
 	}
 }
 
-// FindUpcomingReminders returns pending payments due tomorrow for active
-// contracts and users that have not received an upcoming reminder yet.
-func (r *paymentRepository) FindUpcomingReminders(ctx context.Context) ([]models.Payment, error) {
+// FindUpcomingReminders returns pending payments due within the given lead time
+// for active contracts and users that have not received an upcoming reminder
+// yet. A lead time of one day keeps the previous "due tomorrow" behaviour.
+func (r *paymentRepository) FindUpcomingReminders(ctx context.Context, leadDays int) ([]models.Payment, error) {
+	if leadDays < 1 {
+		leadDays = 1
+	}
 	var rows []reminderRow
 	err := r.reminderQuery(ctx).
-		Where("payments.status = ? AND payments.due_date = CURRENT_DATE + INTERVAL '1 day'", models.PaymentStatusPending).
+		Where(fmt.Sprintf("payments.status = ? AND payments.due_date <= CURRENT_DATE + INTERVAL '%d days'", leadDays), models.PaymentStatusPending).
 		Where("payments.upcoming_reminder_sent_at IS NULL").
 		Order("payments.due_date ASC").
 		Scan(&rows).Error

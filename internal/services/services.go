@@ -77,7 +77,9 @@ func NewServices(repos *repository.Repositories, worker *jobs.Worker, storage *s
 	reportSvc.SetScoreService(scoreSvc)
 
 	settingsSvc := NewGeneralSettingsService(repos.Settings, auditSvc)
-	// Load the configured hold duration into the process-wide default.
+	// Load the configured policy into the process-wide default. Every policy
+	// consumer (schedule generator, reminder jobs, email service, release job)
+	// reads the snapshot, so it must be populated before the first request.
 	_, _ = settingsSvc.Get(context.Background())
 
 	// Identity documents: the DNI and the RTN of a person. The requirement is

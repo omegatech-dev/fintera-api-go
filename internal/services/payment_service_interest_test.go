@@ -150,7 +150,7 @@ func (m *mockPaymentRepositoryWithOverdue) List(ctx context.Context, query *repo
 func (m *mockPaymentRepositoryWithOverdue) FindOverdueReminders(ctx context.Context) ([]models.Payment, error) {
 	return nil, nil
 }
-func (m *mockPaymentRepositoryWithOverdue) FindUpcomingReminders(ctx context.Context) ([]models.Payment, error) {
+func (m *mockPaymentRepositoryWithOverdue) FindUpcomingReminders(ctx context.Context, leadDays int) ([]models.Payment, error) {
 	return nil, nil
 }
 func (m *mockPaymentRepositoryWithOverdue) MarkOverdueReminderSent(ctx context.Context, paymentIDs []uint) error {

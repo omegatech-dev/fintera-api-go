@@ -364,7 +364,7 @@ func TestPaymentRepository_FindUpcomingRemindersUsesSingleJoinedQuery(t *testing
 	repo := NewPaymentRepository(db)
 
 	due := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`SELECT payments\.id AS payment_id.*JOIN lots ON lots\.id = contracts\.lot_id JOIN projects ON projects\.id = lots\.project_id WHERE \(payments\.status = \$4 AND payments\.due_date = CURRENT_DATE \+ INTERVAL '1 day'\)`).
+	mock.ExpectQuery(`SELECT payments\.id AS payment_id.*JOIN lots ON lots\.id = contracts\.lot_id JOIN projects ON projects\.id = lots\.project_id WHERE \(payments\.status = \$4 AND payments\.due_date <= CURRENT_DATE \+ INTERVAL '3 days'\)`).
 		WithArgs(models.ContractStatusApproved, true, models.StatusActive, models.PaymentStatusPending).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"payment_id", "contract_id", "amount", "due_date", "payment_status",
@@ -374,7 +374,9 @@ func TestPaymentRepository_FindUpcomingRemindersUsesSingleJoinedQuery(t *testing
 		}).AddRow(502, 41, 800, due, models.PaymentStatusPending, nil, nil,
 			8, 13, 8, "Luis Paz", "luis@example.com", "Lote 13", 3, "Altos de la Sierra"))
 
-	payments, err := repo.FindUpcomingReminders(context.Background())
+	// A lead time of three days widens the window instead of pinning it to
+	// tomorrow.
+	payments, err := repo.FindUpcomingReminders(context.Background(), 3)
 
 	require.NoError(t, err)
 	require.Len(t, payments, 1)

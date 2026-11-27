@@ -332,7 +332,7 @@ func (m *mockPaymentRepo) FindOverdueReminders(ctx context.Context) ([]models.Pa
 	return args.Get(0).([]models.Payment), args.Error(1)
 }
 
-func (m *mockPaymentRepo) FindUpcomingReminders(ctx context.Context) ([]models.Payment, error) {
+func (m *mockPaymentRepo) FindUpcomingReminders(ctx context.Context, leadDays int) ([]models.Payment, error) {
 	args := m.Called(ctx)
 	return args.Get(0).([]models.Payment), args.Error(1)
 }
@@ -1401,7 +1401,16 @@ func TestContractService_ReleaseUnpaidReservations(t *testing.T) {
 	stale := []models.Contract{
 		{ID: 1, LotID: 1, Status: models.ContractStatusPending, ApplicantUserID: 2},
 	}
-	contractRepo.On("FindPendingReservations", ctx, 48).Return(stale, nil)
+	// The release window comes from the configured hold, not from a literal.
+	previous := models.SettingsPolicySnapshot()
+	t.Cleanup(func() { models.SetSettingsPolicy(previous) })
+	models.SetSettingsPolicy(func() models.SettingsPolicy {
+		policy := models.SettingsPolicySnapshot()
+		policy.HoldHours = 72
+		return policy
+	}())
+
+	contractRepo.On("FindPendingReservations", ctx, 72).Return(stale, nil)
 	contractRepo.On("FindByIDWithDetails", ctx, uint(1)).Return(&stale[0], nil)
 	contractRepo.On("Update", ctx, mock.MatchedBy(func(c *models.Contract) bool {
 		return c.Status == models.ContractStatusCancelled

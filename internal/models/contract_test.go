@@ -6,9 +6,9 @@ import (
 )
 
 func TestContractResponse_HoldExpiresAt(t *testing.T) {
-	previous := ReservationHoldHours()
-	t.Cleanup(func() { SetReservationHoldHours(previous) })
-	SetReservationHoldHours(48)
+	previous := SettingsPolicySnapshot()
+	t.Cleanup(func() { restorePolicy(t, previous.HoldHours) })
+	setHoldHours(t, 48)
 
 	created := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
 	contract := Contract{

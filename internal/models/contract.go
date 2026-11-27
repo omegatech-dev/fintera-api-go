@@ -230,7 +230,7 @@ type ContractResponse struct {
 	FinancingType          string                        `json:"financing_type"`
 	ReserveAmount          *float64                      `json:"reserve_amount"`
 	DownPayment            *float64                      `json:"down_payment"`
-	MaxPaymentDate         *time.Time                    `json:"max_payment_date"`
+	MaxPaymentDate         *string                       `json:"max_payment_date"`
 	BankName               *string                       `json:"bank_name"`
 	BankCreditStatus       *string                       `json:"bank_credit_status"`
 	Status                 string                        `json:"status"`
@@ -243,7 +243,7 @@ type ContractResponse struct {
 	CommissionPaidAt       *time.Time                    `json:"commission_paid_at"`
 	CommissionPaidBy       *uint                         `json:"commission_paid_by"`
 	CommissionOrigin       string                        `json:"commission_origin"`
-	CommissionAccrualDate  *time.Time                    `json:"commission_accrual_date"`
+	CommissionAccrualDate  *string                       `json:"commission_accrual_date"`
 	Seller                 string                        `json:"seller"`
 	SellerID               *uint                         `json:"seller_id"`
 	SellerContact          *SellerContactResponse        `json:"seller_contact,omitempty"`
@@ -263,7 +263,7 @@ type ContractResponse struct {
 	PaymentSchedule        []PaymentResponse             `json:"payment_schedule"`
 	NextPayment            *NextPaymentResponse          `json:"next_payment,omitempty"`
 	NextPaymentID          *uint                         `json:"next_payment_id,omitempty"`
-	NextPaymentDate        *time.Time                    `json:"next_payment_date,omitempty"`
+	NextPaymentDate        *string                       `json:"next_payment_date,omitempty"`
 	NextPaymentAmount      *float64                      `json:"next_payment_amount,omitempty"`
 	NextPaymentType        string                        `json:"next_payment_type,omitempty"`
 	NextPaymentLabel       string                        `json:"next_payment_label,omitempty"`
@@ -305,7 +305,7 @@ func (c *Contract) ToResponse() ContractResponse {
 		TotalAmount:       c.Amount,
 		ReserveAmount:     c.ReserveAmount,
 		DownPayment:       c.DownPayment,
-		MaxPaymentDate:    c.MaxPaymentDate,
+		MaxPaymentDate:    DateOnlyPtr(c.MaxPaymentDate),
 		BankName:          c.BankName,
 		BankCreditStatus:  c.BankCreditStatus,
 		Status:            c.Status,
@@ -380,7 +380,7 @@ func (c *Contract) ToResponse() ContractResponse {
 	if resp.CommissionOrigin == "" {
 		resp.CommissionOrigin = "direct"
 	}
-	resp.CommissionAccrualDate = c.CommissionAccrualDate
+	resp.CommissionAccrualDate = DateOnlyPtr(c.CommissionAccrualDate)
 	resp.SellerID = c.SellerID
 	resp.AssignmentOrigin = c.AssignmentOrigin
 	if resp.AssignmentOrigin == "" {
@@ -424,9 +424,8 @@ func (c *Contract) ToResponse() ContractResponse {
 		resp.NextPayment = &nextPaymentResp
 		id := nextPayment.ID
 		amount := nextPayment.Amount
-		dueDate := nextPayment.DueDate
 		resp.NextPaymentID = &id
-		resp.NextPaymentDate = &dueDate
+		resp.NextPaymentDate = DateOnlyPtr(&nextPayment.DueDate)
 		resp.NextPaymentAmount = &amount
 		resp.NextPaymentType = nextPayment.PaymentType
 		resp.NextPaymentLabel = nextPaymentResp.Label

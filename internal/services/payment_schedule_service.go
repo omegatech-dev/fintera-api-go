@@ -31,7 +31,10 @@ func (s *PaymentScheduleService) GenerateSchedule(ctx context.Context, contract 
 	}
 
 	var payments []models.Payment
-	now := time.Now()
+	// The schedule is expressed in the deployment's business calendar, not in
+	// the process zone: a reservation made at 8 p.m. Honduras time must fall
+	// on the same business day even when the server already runs in UTC.
+	now := models.BusinessNow()
 	policy := models.SettingsPolicySnapshot()
 	ft := strings.ToLower(strings.TrimSpace(contract.FinancingType))
 

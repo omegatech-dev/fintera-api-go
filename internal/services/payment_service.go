@@ -554,11 +554,11 @@ func (s *PaymentService) CalculateOverdueInterest(ctx context.Context) error {
 				continue
 			}
 
-			// Calculate days overdue
-			if time.Now().Before(payment.DueDate) {
+			// Calculate days overdue, counted in business calendar days
+			if !models.IsBeforeBusinessDay(payment.DueDate, time.Now()) {
 				continue
 			}
-			daysOverdue := int(time.Since(payment.DueDate).Hours() / 24)
+			daysOverdue := models.BusinessDayDiff(payment.DueDate, time.Now())
 			if daysOverdue <= 0 {
 				continue
 			}
@@ -703,7 +703,7 @@ func (s *PaymentService) GetUserFinancingSummary(ctx context.Context, userID uin
 
 		// Calculate overdue totals
 		// Logic from original: if pending and before now (overdue or due today)
-		if p.Status == models.PaymentStatusPending && p.DueDate.Before(now) {
+		if p.Status == models.PaymentStatusPending && models.IsBeforeBusinessDay(p.DueDate, now) {
 			summary.TotalDue += p.Amount
 			if p.InterestAmount != nil {
 				summary.TotalDue += *p.InterestAmount

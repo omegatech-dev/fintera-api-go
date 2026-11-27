@@ -86,17 +86,20 @@ func (p *Payment) IsCancelled() bool {
 	return p.Status == PaymentStatusCancelled
 }
 
-// IsOverdue returns true if payment is past due date
+// IsOverdue returns true if the payment's calendar due date has passed, in the
+// deployment's business calendar. A payment due today is not overdue today,
+// even when the process runs in a zone where that day already started.
 func (p *Payment) IsOverdue() bool {
-	return p.Status == PaymentStatusPending && time.Now().After(p.DueDate)
+	return p.Status == PaymentStatusPending && IsBeforeBusinessDay(p.DueDate, time.Now())
 }
 
-// OverdueDays returns the number of days overdue
+// OverdueDays returns the number of calendar days between the due date and
+// today, in the deployment's business calendar.
 func (p *Payment) OverdueDays() int {
 	if !p.IsOverdue() {
 		return 0
 	}
-	return int(time.Since(p.DueDate).Hours() / 24)
+	return BusinessDayDiff(p.DueDate, time.Now())
 }
 
 // CollectionLabel returns the short, human label used when the payment is the
@@ -136,7 +139,7 @@ func (p *Payment) CollectionLabel() string {
 type PaymentResponse struct {
 	ID              uint       `json:"id"`
 	ContractID      uint       `json:"contract_id"`
-	DueDate         time.Time  `json:"due_date"`
+	DueDate         string     `json:"due_date"`
 	Amount          float64    `json:"amount"`
 	Status          string     `json:"status"`
 	PaymentType     string     `json:"payment_type"`
@@ -144,8 +147,8 @@ type PaymentResponse struct {
 	InterestAmount  float64    `json:"interest_amount"`
 	OverdueDays     int        `json:"overdue_days"`
 	Description     *string    `json:"description"`
-	PaymentDate     *time.Time `json:"payment_date"`
-	PaidAt          *time.Time `json:"paid_at"`
+	PaymentDate     *string    `json:"payment_date"`
+	PaidAt          *string    `json:"paid_at"`
 	ApprovedAt      *time.Time `json:"approved_at"`
 	Approver        string     `json:"approver,omitempty"`
 	HasReceipt      bool       `json:"has_receipt"`
@@ -190,14 +193,14 @@ func (p *Payment) ToResponse() PaymentResponse {
 	resp := PaymentResponse{
 		ID:                  p.ID,
 		ContractID:          p.ContractID,
-		DueDate:             p.DueDate,
+		DueDate:             p.DueDate.Format(DateOnlyLayout),
 		Amount:              p.Amount,
 		Status:              p.Status,
 		PaymentType:         p.PaymentType,
 		OverdueDays:         p.OverdueDays(),
 		Description:         p.Description,
-		PaymentDate:         p.PaymentDate,
-		PaidAt:              p.PaymentDate,
+		PaymentDate:         DateOnlyPtr(p.PaymentDate),
+		PaidAt:              DateOnlyPtr(p.PaymentDate),
 		ApprovedAt:          p.ApprovedAt,
 		HasReceipt:          p.DocumentPath != nil && *p.DocumentPath != "",
 		IsPDF:               p.DocumentPath != nil && strings.HasSuffix(strings.ToLower(*p.DocumentPath), ".pdf"),

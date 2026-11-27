@@ -324,6 +324,90 @@ var settingsPolicy atomic.Value // stores SettingsPolicy
 
 func init() {
 	settingsPolicy.Store(defaultSettingsPolicy())
+	deploymentLocation.Store(time.UTC)
+	refreshDeploymentLocation(defaultSettingsPolicy().Timezone)
+}
+
+// deploymentLocation caches the time zone the deployment runs its business
+// calendar in. `SetSettingsPolicy` refreshes it, so a settings change takes
+// effect without a restart.
+var deploymentLocation atomic.Value // *time.Location
+
+func refreshDeploymentLocation(name string) {
+	loc := time.UTC
+	if name != "" {
+		if parsed, err := time.LoadLocation(name); err == nil {
+			loc = parsed
+		}
+	}
+	deploymentLocation.Store(loc)
+}
+
+// DeploymentLocation returns the time zone the deployment runs its business
+// calendar in. Calendar dates the API stores and exposes (due dates, payment
+// dates, report ranges) belong to this zone, not to the process zone: the
+// process may run in UTC while the business runs in Honduras.
+func DeploymentLocation() *time.Location {
+	if loc, ok := deploymentLocation.Load().(*time.Location); ok && loc != nil {
+		return loc
+	}
+	return time.UTC
+}
+
+// BusinessNow returns "now" expressed in the deployment's business calendar.
+func BusinessNow() time.Time {
+	return time.Now().In(DeploymentLocation())
+}
+
+// DateOnlyLayout is the ISO date the API exposes for calendar-date columns.
+const DateOnlyLayout = "2006-01-02"
+
+// DateOnlyPtr renders an optional stored calendar date as an ISO date string.
+// A `date` column carries no time of day, so the stored calendar date is
+// exposed verbatim instead of as a midnight instant a browser would shift to
+// the previous day.
+func DateOnlyPtr(value *time.Time) *string {
+	if value == nil {
+		return nil
+	}
+	formatted := value.Format(DateOnlyLayout)
+	return &formatted
+}
+
+// StartOfBusinessDay returns midnight of the business-calendar date of a true
+// instant (e.g. time.Now() or BusinessNow()).
+func StartOfBusinessDay(t time.Time) time.Time {
+	loc := DeploymentLocation()
+	localized := t.In(loc)
+	return time.Date(localized.Year(), localized.Month(), localized.Day(),
+		0, 0, 0, 0, loc)
+}
+
+// StartOfStoredBusinessDay returns midnight of the calendar date a `date`
+// column stores. pgx labels those values as UTC midnight, so the stored
+// calendar date lives in the UTC fields and must not be re-expressed in the
+// process zone.
+func StartOfStoredBusinessDay(t time.Time) time.Time {
+	loc := DeploymentLocation()
+	stored := t.UTC()
+	return time.Date(stored.Year(), stored.Month(), stored.Day(), 0, 0, 0, 0, loc)
+}
+
+// IsBeforeBusinessDay reports whether the calendar date stored in `due` is
+// strictly before the business-calendar date of `now`. A payment due today is
+// not overdue today, no matter which zone the process runs in.
+func IsBeforeBusinessDay(due, now time.Time) bool {
+	return StartOfStoredBusinessDay(due).Before(StartOfBusinessDay(now))
+}
+
+// BusinessDayDiff returns the whole business-calendar days between the stored
+// calendar date `due` and the instant `now`.
+func BusinessDayDiff(due, now time.Time) int {
+	hours := StartOfBusinessDay(now).Sub(StartOfStoredBusinessDay(due)).Hours()
+	if hours < 0 {
+		return 0
+	}
+	return int(hours / 24)
 }
 
 func defaultSettingsPolicy() SettingsPolicy {
@@ -353,6 +437,7 @@ func SettingsPolicySnapshot() SettingsPolicy {
 // SetSettingsPolicy replaces the process-wide policy snapshot.
 func SetSettingsPolicy(policy SettingsPolicy) {
 	settingsPolicy.Store(policy)
+	refreshDeploymentLocation(policy.Timezone)
 }
 
 // ReservationHoldHours returns the configured hold duration in hours.

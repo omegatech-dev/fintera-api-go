@@ -158,3 +158,43 @@ func TestScheduleBankUsesConfiguredReservationWindow(t *testing.T) {
 		t.Errorf("reservation due in %d days, want 3", days)
 	}
 }
+
+// withPolicyZone pins the deployment time zone for a test and restores it.
+func withPolicyZone(t *testing.T, name string) {
+	t.Helper()
+	previous := models.SettingsPolicySnapshot()
+	t.Cleanup(func() { models.SetSettingsPolicy(previous) })
+	policy := previous
+	policy.Timezone = name
+	models.SetSettingsPolicy(policy)
+}
+
+// TestScheduleDueDatesFollowTheBusinessCalendar guards the business calendar:
+// the windows the admin configures are counted in Honduras days, not in the
+// days the server's process zone happens to be on. The before/after window
+// tolerates the rare case of the test running across business midnight.
+func TestScheduleDueDatesFollowTheBusinessCalendar(t *testing.T) {
+	withPolicyZone(t, "America/Tegucigalpa")
+
+	window := models.SettingsPolicySnapshot().ReservationDueDays
+	before := models.BusinessNow().AddDate(0, 0, window).Format(models.DateOnlyLayout)
+	payments, err := NewPaymentScheduleService().GenerateSchedule(context.Background(), scheduleTestContract(models.FinancingTypeDirect))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	after := models.BusinessNow().AddDate(0, 0, window).Format(models.DateOnlyLayout)
+
+	var reservation *models.Payment
+	for i := range payments {
+		if payments[i].PaymentType == models.PaymentTypeReservation {
+			reservation = &payments[i]
+		}
+	}
+	if reservation == nil {
+		t.Fatal("expected a reservation payment")
+	}
+	got := reservation.DueDate.Format(models.DateOnlyLayout)
+	if got != before && got != after {
+		t.Errorf("reservation due %s, want business day +%d (%s..%s)", got, window, before, after)
+	}
+}

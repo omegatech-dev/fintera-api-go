@@ -187,9 +187,8 @@ func TestCalculateOverdueInterest_Logic(t *testing.T) {
 	service := NewPaymentService(mockPaymentRepo, nil, nil, mockLedgerRepo, nil, notifService, nil, nil, nil, worker)
 
 	// Test Data
-	now := time.Now()
 	daysOverdue := 10
-	dueDate := now.AddDate(0, 0, -daysOverdue)
+	dueDate := storedOverdueDate(daysOverdue)
 	amount := 5000.00
 	interestRate := 10.0 // 10%
 
@@ -294,7 +293,7 @@ func TestCalculateOverdueInterest_FlushesEachBatch(t *testing.T) {
 			Project:   models.Project{ID: 1, InterestRate: 10},
 		},
 	}
-	dueDate := time.Now().AddDate(0, 0, -10)
+	dueDate := storedOverdueDate(10)
 
 	const total = repository.PaymentScanBatchSize + 100
 	payments := make([]models.Payment, total)
@@ -342,4 +341,12 @@ func TestCalculateOverdueInterest_FlushesEachBatch(t *testing.T) {
 
 	assert.Equal(t, []int{repository.PaymentScanBatchSize, 100}, ledgerFlushSizes)
 	assert.Equal(t, []int{repository.PaymentScanBatchSize, 100}, paymentFlushSizes)
+}
+
+// storedOverdueDate builds a due date exactly days business-calendar days in
+// the past, stored the way a `date` column round-trips it: the calendar date
+// labelled as UTC midnight.
+func storedOverdueDate(days int) time.Time {
+	business := time.Now().In(models.DeploymentLocation()).AddDate(0, 0, -days)
+	return time.Date(business.Year(), business.Month(), business.Day(), 0, 0, 0, 0, time.UTC)
 }

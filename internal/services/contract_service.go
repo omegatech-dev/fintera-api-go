@@ -501,7 +501,10 @@ func (s *ContractService) Create(ctx context.Context, contract *models.Contract,
 		if created.IsZero() {
 			created = time.Now()
 		}
-		due := created.AddDate(0, 0, models.SettingsPolicySnapshot().ReservationDueDays)
+		// Due dates are business calendar dates: converting to the deployment
+		// zone keeps an evening reservation on the same business day whether
+		// the process runs in UTC or in the deployment's own zone.
+		due := created.In(models.DeploymentLocation()).AddDate(0, 0, models.SettingsPolicySnapshot().ReservationDueDays)
 		description := "Pago de Reserva"
 		reservation := &models.Payment{
 			ContractID:  contract.ID,

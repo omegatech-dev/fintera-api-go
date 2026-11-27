@@ -223,8 +223,10 @@ Singleton row (`id = 1`) with the deployment-wide customer settings:
 - `reservation_min_amount` — lowest amount a customer may reserve a lot for,
   default `5000`. Enforced on reservation creation.
 - `reservation_due_days` — reservation payment due window, default `7` (1–365).
+  Counted in the deployment time zone (`timezone`), not in the server
+  process zone.
 - `down_payment_due_days` — down-payment due window without a reservation,
-  default `14` (1–365).
+  default `14` (1–365). Same business-calendar rule.
 - `down_payment_due_days_with_reservation` — down-payment due window when the
   contract carries a reservation amount, default `21` (1–365).
 - `email_notifications_enabled` — deployment-wide switch for customer

@@ -13,6 +13,7 @@ if the consuming contract is later cancelled the credit cannot be restored.
   `credit_applications` table that records which credit paid which contract.
 - Net pending seller credits automatically when an admin marks a commission as
   paid: FIFO, same seller only, inside one transaction with a contract row lock.
+  Netting is unconditional; there is no feature flag.
 - Return the payout breakdown (`commission`, `applied_total`, `net_cash`,
   `remaining_credit`, `applications`) from the existing pay endpoint.
 - Add an admin payout-preview endpoint so the admin can confirm gross, applied
@@ -25,12 +26,9 @@ if the consuming contract is later cancelled the credit cannot be restored.
   applied_amount`) in both the JSON report and the CSV/PDF export.
 - Add `seller_balance` (global remaining seller credit) to the commissions
   report without changing the existing `net_pending` semantics.
-- Gate the automatic netting behind `COMMISSION_CREDIT_NETTING_ENABLED`
-  (default `false`) so the migration and query changes can be deployed first.
-  Reversals are data-driven and work regardless of the flag value.
-- **BREAKING** for admins: with the flag on, `POST
-  /commissions/credits/:id/apply` returns `422` while the credit still has a
-  remaining balance, because netting happens at payout time.
+- **BREAKING** for admins: `POST /commissions/credits/:id/apply` returns `422`
+  while the credit still has a remaining balance, because netting happens at
+  payout time. Only zero-balance pending credits can be settled manually.
 - Explicit no-goals: the contract ledger, the commission rate/amount
   calculation, the accrual date, and the customer balance are untouched.
 
@@ -57,6 +55,5 @@ if the consuming contract is later cancelled the credit cannot be restored.
 - Handlers/routes: `PATCH /contracts/:guid/commission/pay`, new
   `GET /contracts/:guid/commission/payout-preview`,
   `GET /reports/commissions`, `POST /commissions/credits/:id/apply`.
-- Config: `COMMISSION_CREDIT_NETTING_ENABLED`.
 - Docs: `docs/architecture/data-model.md`, `domain-flows.md`,
   `api-and-auth.md`, and regenerated Swagger.

@@ -109,6 +109,8 @@ func pendingCommissionCredit() *models.SellerCommissionCredit {
 
 func TestCommissionHandler_ApplyCredit(t *testing.T) {
 	repo := &commissionRepoStub{credit: pendingCommissionCredit()}
+	// A credit with no remaining balance can still be marked settled manually.
+	repo.credit.AppliedAmount = repo.credit.Amount
 	handler := NewCommissionHandler(services.NewCommissionService(repo, nil, nil))
 	router := newCommissionTestRouter(handler, "admin", 3)
 
@@ -130,10 +132,9 @@ func TestCommissionHandler_ApplyCredit(t *testing.T) {
 	assert.NotEmpty(t, body.Message)
 }
 
-func TestCommissionHandler_ApplyCreditWithNettingEnabledReturns422(t *testing.T) {
+func TestCommissionHandler_ApplyCreditWithBalanceReturns422(t *testing.T) {
 	repo := &commissionRepoStub{credit: pendingCommissionCredit()}
 	service := services.NewCommissionService(repo, nil, nil)
-	service.SetCreditNettingEnabled(true)
 	handler := NewCommissionHandler(service)
 	router := newCommissionTestRouter(handler, "admin", 3)
 

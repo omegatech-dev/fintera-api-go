@@ -1203,7 +1203,7 @@ func (s *ContractService) MarkCommissionPaid(ctx context.Context, id uint, actor
 
 	var payout *models.CommissionPayout
 	var paidSellerID *uint
-	if s.commissionSvc != nil && s.commissionSvc.CreditNettingEnabled() {
+	if s.commissionSvc != nil {
 		payout, err = s.commissionSvc.PayCommission(ctx, contract, actorID, commission)
 		if payout != nil {
 			paidSellerID = payout.SellerID
@@ -1273,7 +1273,6 @@ func (s *ContractService) PreviewCommissionPayout(ctx context.Context, contract 
 	}
 	if s.commissionSvc == nil {
 		return &models.CommissionPayoutPreview{
-			Enabled:    false,
 			Commission: models.RoundMoney(commission),
 			NetCash:    models.RoundMoney(commission),
 		}, nil

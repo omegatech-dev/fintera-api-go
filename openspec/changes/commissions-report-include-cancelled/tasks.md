@@ -15,7 +15,6 @@
 ## 4. Docs and config
 
 - [x] 4.1 Document cancelled-row behavior in `docs/architecture/api-and-auth.md`
-- [x] 4.2 Note the staging rollout of `COMMISSION_CREDIT_NETTING_ENABLED` in `.env.example`
 
 ## 5. Verification
 

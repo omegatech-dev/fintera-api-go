@@ -1,6 +1,6 @@
 ## Context
 
-With credit netting enabled, a payout can settle a commission partly (or fully)
+With credit netting, a payout can settle a commission partly (or fully)
 with the seller's credits. `credit_applications` records exactly which credits
 were consumed per contract, but the commissions report shows only the gross
 commission and its paid/pending state, so a netted row reads like a fresh full

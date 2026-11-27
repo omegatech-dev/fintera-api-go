@@ -73,7 +73,6 @@ type CommissionPayout struct {
 // CommissionPayoutPreview explains what would happen if the commission were
 // paid right now. It never mutates credits.
 type CommissionPayoutPreview struct {
-	Enabled         bool    `json:"enabled"`
 	Commission      float64 `json:"commission"`
 	AvailableCredit float64 `json:"available_credit"`
 	Applicable      float64 `json:"applicable"`
@@ -82,7 +81,8 @@ type CommissionPayoutPreview struct {
 }
 
 // ContractCommissionPaidResponse is the body returned when an admin marks a
-// contract commission paid. Payout is omitted when netting is disabled.
+// contract commission paid. Payout carries the credit applications that were
+// consumed, if any.
 type ContractCommissionPaidResponse struct {
 	Contract ContractResponse  `json:"contract"`
 	Message  string            `json:"message"`

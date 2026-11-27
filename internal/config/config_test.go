@@ -18,7 +18,7 @@ func TestLoad(t *testing.T) {
 	// List of environment variables used by the config package
 	envVars := []string{
 		"PORT", "ENVIRONMENT", "DATABASE_URL", "JWT_SECRET", "JWT_EXPIRATION_HOURS",
-		"STORAGE_PATH", "COMMISSION_CREDIT_NETTING_ENABLED", "WORKER_COUNT", "ALLOWED_ORIGINS", "APP_URL",
+		"STORAGE_PATH", "WORKER_COUNT", "ALLOWED_ORIGINS", "APP_URL",
 		"RESEND_API_KEY", "FROM_EMAIL", "ENABLE_EMAIL_NOTIFICATIONS",
 		"ROLLBAR_TOKEN", "ROLLBAR_ENVIRONMENT", "ROLLBAR_CODE_VERSION", "ROLLBAR_SERVER_ROOT",
 		"DEFAULT_EMAIL", "DEFAULT_PASSWORD",
@@ -43,7 +43,6 @@ func TestLoad(t *testing.T) {
 		t.Setenv("JWT_SECRET", "super-secret")
 		t.Setenv("JWT_EXPIRATION_HOURS", "48")
 		t.Setenv("STORAGE_PATH", "/tmp/storage")
-		t.Setenv("COMMISSION_CREDIT_NETTING_ENABLED", "true")
 		t.Setenv("MAX_JSON_BODY_BYTES", "5242880")
 		t.Setenv("WORKER_COUNT", "10")
 		t.Setenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:4000")
@@ -83,9 +82,6 @@ func TestLoad(t *testing.T) {
 		}
 		if cfg.StoragePath != "/tmp/storage" {
 			t.Errorf("expected StoragePath /tmp/storage, got %s", cfg.StoragePath)
-		}
-		if !cfg.CommissionCreditNettingEnabled {
-			t.Error("expected commission credit netting to be enabled")
 		}
 		if cfg.MaxJSONBodyBytes != 5242880 {
 			t.Errorf("expected MaxJSONBodyBytes 5242880, got %d", cfg.MaxJSONBodyBytes)

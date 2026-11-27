@@ -14,29 +14,15 @@ import (
 // CommissionService resolves commission rates, freezes them on contracts and
 // manages the global rules, per-seller exceptions and recoverable credits.
 type CommissionService struct {
-	repo           repository.CommissionRepository
-	userRepo       repository.UserRepository
-	auditSvc       *AuditService
-	nettingEnabled bool
-	strictWrites   bool
+	repo         repository.CommissionRepository
+	userRepo     repository.UserRepository
+	auditSvc     *AuditService
+	strictWrites bool
 }
 
 // NewCommissionService creates the commission service.
 func NewCommissionService(repo repository.CommissionRepository, userRepo repository.UserRepository, auditSvc *AuditService) *CommissionService {
 	return &CommissionService{repo: repo, userRepo: userRepo, auditSvc: auditSvc}
-}
-
-// SetCreditNettingEnabled toggles automatic credit consumption at payout time.
-// It is a setter so focused tests can keep the existing constructor.
-func (s *CommissionService) SetCreditNettingEnabled(enabled bool) {
-	if s != nil {
-		s.nettingEnabled = enabled
-	}
-}
-
-// CreditNettingEnabled reports whether payouts consume pending credits.
-func (s *CommissionService) CreditNettingEnabled() bool {
-	return s != nil && s.nettingEnabled
 }
 
 // WithRepository returns a clone bound to a transaction-scoped repository.
@@ -313,8 +299,8 @@ func (s *CommissionService) ListCredits(ctx context.Context, sellerID uint) ([]m
 }
 
 // ApplyCredit settles a pending credit and records the admin who applied it.
-// With automatic netting enabled a credit with a balance must be consumed by a
-// commission payout instead, so the manual path is rejected.
+// A credit with a balance must be consumed by a commission payout instead, so
+// the manual path is rejected for it.
 func (s *CommissionService) ApplyCredit(ctx context.Context, actorID, id uint) (*models.SellerCommissionCreditResponse, error) {
 	if s == nil || s.repo == nil {
 		return nil, ErrCommissionCreditMissing
@@ -329,7 +315,7 @@ func (s *CommissionService) ApplyCredit(ctx context.Context, actorID, id uint) (
 	if credit.Status == models.CommissionCreditStatusSettled {
 		return nil, ErrCommissionCreditSettled
 	}
-	if s.nettingEnabled && credit.RemainingAmount() > models.MoneyEpsilon {
+	if credit.RemainingAmount() > models.MoneyEpsilon {
 		return nil, ErrCommissionCreditHasBalance
 	}
 
@@ -505,16 +491,12 @@ func (s *CommissionService) PayCommission(ctx context.Context, contract *models.
 }
 
 // PreviewCommissionPayout explains the allocation without writing anything.
-// With netting disabled it still returns the gross commission so clients can
-// render a gross-only confirmation.
 func (s *CommissionService) PreviewCommissionPayout(ctx context.Context, contract *models.Contract, commission float64) (*models.CommissionPayoutPreview, error) {
-	preview := &models.CommissionPayoutPreview{
-		Enabled:    s.CreditNettingEnabled(),
-		Commission: models.RoundMoney(commission),
-	}
-	if !preview.Enabled || s == nil || s.repo == nil || contract == nil {
-		preview.NetCash = preview.Commission
-		return preview, nil
+	if s == nil || s.repo == nil || contract == nil {
+		return &models.CommissionPayoutPreview{
+			Commission: models.RoundMoney(commission),
+			NetCash:    models.RoundMoney(commission),
+		}, nil
 	}
 	return s.repo.PreviewCommissionPayout(ctx, contract.SellerID, commission)
 }

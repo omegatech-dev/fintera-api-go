@@ -245,7 +245,7 @@ func (r *fakeCommissionRepository) PayCommissionWithCredits(_ context.Context, c
 }
 
 func (r *fakeCommissionRepository) PreviewCommissionPayout(_ context.Context, sellerID *uint, commission float64) (*models.CommissionPayoutPreview, error) {
-	preview := &models.CommissionPayoutPreview{Enabled: true, Commission: models.RoundMoney(commission)}
+	preview := &models.CommissionPayoutPreview{Commission: models.RoundMoney(commission)}
 	if sellerID != nil {
 		for _, credit := range r.credits {
 			if credit.SellerID != *sellerID || credit.Status != models.CommissionCreditStatusPending {
@@ -590,7 +590,7 @@ func TestCommissionService_RestoreAndCreateCreditUsesCashOnly(t *testing.T) {
 	assert.NotNil(t, repo.applications[credit.ID][0].ReversedAt)
 }
 
-func TestCommissionService_ManualApplyRejectedWhenNettingEnabled(t *testing.T) {
+func TestCommissionService_ManualApplyRejectedWhenCreditHasBalance(t *testing.T) {
 	repo := newFakeCommissionRepository()
 	credit := &models.SellerCommissionCredit{
 		SellerID: 7, ContractID: 1, Amount: 3000,
@@ -598,7 +598,6 @@ func TestCommissionService_ManualApplyRejectedWhenNettingEnabled(t *testing.T) {
 	}
 	require.NoError(t, repo.CreateCredit(context.Background(), credit))
 	service := NewCommissionService(repo, nil, nil)
-	service.SetCreditNettingEnabled(true)
 
 	_, err := service.ApplyCredit(context.Background(), 9, credit.ID)
 	assert.ErrorIs(t, err, ErrCommissionCreditHasBalance)
@@ -606,14 +605,14 @@ func TestCommissionService_ManualApplyRejectedWhenNettingEnabled(t *testing.T) {
 	assert.Equal(t, 0.0, repo.credits[credit.ID].AppliedAmount)
 }
 
-func TestCommissionService_PreviewDisabledStillReturnsGross(t *testing.T) {
+func TestCommissionService_PreviewWithoutSellerReturnsGross(t *testing.T) {
 	service := NewCommissionService(newFakeCommissionRepository(), nil, nil)
 	preview, err := service.PreviewCommissionPayout(context.Background(),
 		&models.Contract{SellerID: nil}, 8000)
 	require.NoError(t, err)
-	assert.False(t, preview.Enabled)
 	assert.Equal(t, 8000.0, preview.Commission)
 	assert.Equal(t, 8000.0, preview.NetCash)
+	assert.Equal(t, 0.0, preview.AvailableCredit)
 }
 
 func TestCommissionService_ApplyCredit(t *testing.T) {
@@ -624,10 +623,11 @@ func TestCommissionService_ApplyCredit(t *testing.T) {
 
 	seller := &models.User{ID: 7, FullName: "Ana Vendedora", Role: models.RoleSeller}
 	require.NoError(t, repo.CreateCredit(context.Background(), &models.SellerCommissionCredit{
-		SellerID:   seller.ID,
-		ContractID: 11,
-		Amount:     1500,
-		Status:     models.CommissionCreditStatusPending,
+		SellerID:      seller.ID,
+		ContractID:    11,
+		Amount:        1500,
+		AppliedAmount: 1500,
+		Status:        models.CommissionCreditStatusPending,
 	}))
 	// FindCreditByID preloads the seller in production; mirror it in the fake.
 	repo.credits[1].Seller = seller
@@ -647,10 +647,11 @@ func TestCommissionService_ApplyCredit_IsIdempotent(t *testing.T) {
 	repo := newFakeCommissionRepository()
 	service := NewCommissionService(repo, nil, nil)
 	require.NoError(t, repo.CreateCredit(context.Background(), &models.SellerCommissionCredit{
-		SellerID:   7,
-		ContractID: 11,
-		Amount:     1500,
-		Status:     models.CommissionCreditStatusPending,
+		SellerID:      7,
+		ContractID:    11,
+		Amount:        1500,
+		AppliedAmount: 1500,
+		Status:        models.CommissionCreditStatusPending,
 	}))
 
 	_, err := service.ApplyCredit(context.Background(), 3, 1)

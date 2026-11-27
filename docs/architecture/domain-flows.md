@@ -126,18 +126,16 @@ the balance reaches `>= 0` and status is `approved`.
 
 ### Seller commission credit netting
 
-- `COMMISSION_CREDIT_NETTING_ENABLED` defaults to `false`. When enabled, an
-  admin payout locks the contract and the seller's pending credits in FIFO
+- An admin payout locks the contract and the seller's pending credits in FIFO
   order, then applies credits and marks the commission paid in one transaction.
 - Credits are never shared across sellers. The gross commission remains the
   commission amount; `net_cash` is the amount paid in cash after credit
   applications.
 - `GET /contracts/{guid}/commission/payout-preview` returns the prospective
-  breakdown and does not mutate credits. With netting disabled it still returns
-  the gross amount and `enabled: false`.
+  breakdown and does not mutate credits. Without a seller it returns the gross
+  amount as `net_cash`.
 - Cancelling a netted commission reverses applications and restores the source
-  credits. A new credit is created only for the cash paid. Reversal behavior is
-  data-driven, so it remains correct if the feature flag changes after payout.
+  credits. A new credit is created only for the cash paid.
 - This seller/company settlement does not modify the contract ledger or the
   customer's balance.
 

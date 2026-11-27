@@ -853,7 +853,7 @@ func (h *ContractHandler) Approve(c *gin.Context) {
 }
 
 // @Summary Pay Contract Commission
-// @Description Mark the seller commission of an approved/closed contract as paid (Admin). When credit netting is enabled, pending seller credits are consumed FIFO and the response includes the payout breakdown.
+// @Description Mark the seller commission of an approved/closed contract as paid (Admin). Pending seller credits are consumed FIFO and the response includes the payout breakdown.
 // @Tags Contracts
 // @Produce json
 // @Param guid path string true "Contract GUID"
@@ -881,7 +881,7 @@ func (h *ContractHandler) PayCommission(c *gin.Context) {
 }
 
 // @Summary Preview Contract Commission Payout
-// @Description Explain how a commission payout would be settled: gross commission, available credit, applied credit, net cash, and remaining credit. Returns enabled=false when automatic credit netting is disabled (Admin).
+// @Description Explain how a commission payout would be settled: gross commission, available credit, applied credit, net cash, and remaining credit (Admin).
 // @Tags Contracts
 // @Produce json
 // @Param guid path string true "Contract GUID"

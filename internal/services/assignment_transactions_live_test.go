@@ -114,7 +114,7 @@ func seedAssignmentTransactionFixture(t *testing.T, db *gorm.DB, status string, 
 	}
 }
 
-func newLiveAssignmentServices(db *gorm.DB, netting bool) (*ContractService, *AssignmentService, *repository.Repositories) {
+func newLiveAssignmentServices(db *gorm.DB) (*ContractService, *AssignmentService, *repository.Repositories) {
 	repos := repository.NewRepositories(db)
 	audit := NewAuditService(db)
 	notifications := NewNotificationService(repos.Notification, repos.User)
@@ -122,7 +122,6 @@ func newLiveAssignmentServices(db *gorm.DB, netting bool) (*ContractService, *As
 	assignments.SetCommissionRepo(repos.Commission)
 	assignments.SetTransactionRunner(repos.RunInTx)
 	commissions := NewCommissionService(repos.Commission, repos.User, audit)
-	commissions.SetCreditNettingEnabled(netting)
 	contracts := NewContractService(
 		repos.Contract, repos.Lot, repos.User, repos.Payment, repos.Ledger,
 		notifications, nil, audit, nil,
@@ -173,7 +172,7 @@ func TestContractService_ReassignRollsBackCreditAssignmentAndSideEffectsLive(t *
 		db.Exec(fmt.Sprintf("DROP FUNCTION IF EXISTS %s()", functionName))
 	})
 
-	contractService, _, _ := newLiveAssignmentServices(db, true)
+	contractService, _, _ := newLiveAssignmentServices(db)
 	_, _, err := contractService.Reassign(context.Background(), fixture.contract.GUID, ContractReassignInput{
 		Mode: ReassignModeSeller, SellerID: &fixture.next.ID, Accept: true, ActorID: fixture.admin.ID,
 	})
@@ -225,7 +224,7 @@ func TestContractService_PayCommissionSerializesWithReassignLive(t *testing.T) {
 		Status: models.CommissionCreditStatusPending, Source: models.CommissionCreditSourceCancellation,
 	}
 	require.NoError(t, db.Create(credit).Error)
-	contractService, _, _ := newLiveAssignmentServices(db, true)
+	contractService, _, _ := newLiveAssignmentServices(db)
 
 	start := make(chan struct{})
 	type payResult struct {
@@ -291,7 +290,7 @@ func TestContractService_PayCommissionSerializesWithReassignLive(t *testing.T) {
 func TestAssignmentService_AcceptSerializesWithReassignLive(t *testing.T) {
 	db := setupAssignmentTransactionLiveDB(t)
 	fixture := seedAssignmentTransactionFixture(t, db, models.ContractStatusPending, false)
-	_, assignmentService, _ := newLiveAssignmentServices(db, true)
+	_, assignmentService, _ := newLiveAssignmentServices(db)
 	deadline := time.Now().UTC().Add(time.Hour)
 	pending := &models.Assignment{
 		ContractID: fixture.contract.ID, SellerID: fixture.old.ID,
@@ -299,7 +298,7 @@ func TestAssignmentService_AcceptSerializesWithReassignLive(t *testing.T) {
 		AssignedAt: time.Now().UTC(), AcceptDeadlineAt: &deadline,
 	}
 	require.NoError(t, db.Create(pending).Error)
-	contractService, _, _ := newLiveAssignmentServices(db, true)
+	contractService, _, _ := newLiveAssignmentServices(db)
 
 	start := make(chan struct{})
 	acceptDone := make(chan error, 1)

@@ -12,11 +12,10 @@
 
 ## 3. Services and wiring
 
-- [x] 3.1 Add `COMMISSION_CREDIT_NETTING_ENABLED` to `internal/config/config.go` and inject it in `internal/services/services.go`
-- [x] 3.2 Implement `PayCommission`, `PreviewCommissionPayout`, and `RestoreAndCreateCredit` in `internal/services/commission_service.go`, including the manual-apply guard
-- [x] 3.3 Delegate `ContractService.MarkCommissionPaid` to the payout flow and return the payout breakdown
-- [x] 3.4 Update `ContractService.Cancel` to restore applications and create the credit only for cash paid
-- [x] 3.5 Update `ContractService.Reassign` to restore applications, create the cash credit, and always clear the paid flags when the seller changes
+- [x] 3.1 Implement `PayCommission`, `PreviewCommissionPayout`, and `RestoreAndCreateCredit` in `internal/services/commission_service.go`, including the manual-apply guard (netting is always on; no feature flag)
+- [x] 3.2 Delegate `ContractService.MarkCommissionPaid` to the payout flow and return the payout breakdown
+- [x] 3.3 Update `ContractService.Cancel` to restore applications and create the credit only for cash paid
+- [x] 3.4 Update `ContractService.Reassign` to restore applications, create the cash credit, and always clear the paid flags when the seller changes
 
 ## 4. API
 
@@ -29,7 +28,7 @@
 
 - [x] 5.1 Add allocation-planning unit tests (exact, partial, FIFO, rounding, other-seller exclusion)
 - [x] 5.2 Update service fakes/stubs for the new repository methods and add payout/reversal/apply-guard tests
-- [x] 5.3 Add handler tests for the payout response and preview (enabled/disabled)
+- [x] 5.3 Add handler tests for the payout response and the payout-preview breakdown
 - [x] 5.4 Add a `DATABASE_URL`-gated repository test for concurrency/idempotency and application reversal
 
 ## 6. Verification and docs

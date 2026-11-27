@@ -7,7 +7,7 @@ The commissions report filters contracts to `approved` and `closed`, so the mome
 - Include `cancelled` contracts in the commissions report (JSON and CSV/PDF export) so paid commissions stay visible.
 - Expose the contract status on every commission row (`contract_status`) and mark cancelled rows in the export's state column.
 - Keep the paid/pending totals semantics: commissions of cancelled contracts count as paid when their payout happened; the recoverable credit continues to surface separately in `pending_credits` and `seller_balance`.
-- Document the behavior and the staging rollout of `COMMISSION_CREDIT_NETTING_ENABLED` for automatic credit application.
+- Document the behavior of automatic credit application at payout time.
 
 ## Capabilities
 

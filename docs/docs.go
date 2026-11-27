@@ -1296,7 +1296,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Mark the seller commission of an approved/closed contract as paid (Admin). When credit netting is enabled, pending seller credits are consumed FIFO and the response includes the payout breakdown.",
+                "description": "Mark the seller commission of an approved/closed contract as paid (Admin). Pending seller credits are consumed FIFO and the response includes the payout breakdown.",
                 "produces": [
                     "application/json"
                 ],
@@ -1330,7 +1330,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Explain how a commission payout would be settled: gross commission, available credit, applied credit, net cash, and remaining credit. Returns enabled=false when automatic credit netting is disabled (Admin).",
+                "description": "Explain how a commission payout would be settled: gross commission, available credit, applied credit, net cash, and remaining credit (Admin).",
                 "produces": [
                     "application/json"
                 ],
@@ -7970,9 +7970,6 @@ const docTemplate = `{
                 },
                 "commission": {
                     "type": "number"
-                },
-                "enabled": {
-                    "type": "boolean"
                 },
                 "net_cash": {
                     "type": "number"

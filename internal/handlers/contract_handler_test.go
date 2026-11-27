@@ -41,11 +41,16 @@ type contractRepoStub struct {
 
 type commissionPayoutRepoStub struct {
 	repository.CommissionRepository
-	payout *models.CommissionPayout
+	payout  *models.CommissionPayout
+	preview *models.CommissionPayoutPreview
 }
 
 func (s *commissionPayoutRepoStub) PayCommissionWithCredits(context.Context, uint, uint, float64) (*models.CommissionPayout, error) {
 	return s.payout, nil
+}
+
+func (s *commissionPayoutRepoStub) PreviewCommissionPayout(context.Context, *uint, float64) (*models.CommissionPayoutPreview, error) {
+	return s.preview, nil
 }
 
 func (s *contractRepoStub) FindByID(context.Context, uint) (*models.Contract, error) {
@@ -461,19 +466,23 @@ func TestContractHandler_ShowByGUID(t *testing.T) {
 	}
 }
 
-func TestContractHandler_PreviewCommissionPayoutWithNettingDisabled(t *testing.T) {
+func TestContractHandler_PreviewCommissionPayoutIncludesCredits(t *testing.T) {
 	handler, contractRepo, _, _, _, _ := newContractHandlerForTest(t)
-	amount := 200000.0
 	contractRepo.byGUID = &models.Contract{
-		ID:            19,
-		GUID:          "commission-preview-guid",
-		Status:        models.ContractStatusApproved,
-		Amount:        &amount,
-		FinancingType: models.FinancingTypeDirect,
-		Lot: models.Lot{
-			Project: models.Project{ID: 1, CommissionRateDirect: 4},
-		},
+		ID:               19,
+		GUID:             "commission-preview-guid",
+		Status:           models.ContractStatusApproved,
+		CommissionAmount: 8000,
 	}
+	payoutRepo := &commissionPayoutRepoStub{preview: &models.CommissionPayoutPreview{
+		Commission:      8000,
+		AvailableCredit: 3000,
+		Applicable:      3000,
+		NetCash:         5000,
+		RemainingCredit: 0,
+	}}
+	commissionSvc := services.NewCommissionService(payoutRepo, nil, nil)
+	handler.contractService.SetCommissionService(commissionSvc)
 
 	router := gin.New()
 	router.GET("/contracts/:guid/commission/payout-preview", handler.PreviewCommissionPayout)
@@ -484,9 +493,10 @@ func TestContractHandler_PreviewCommissionPayoutWithNettingDisabled(t *testing.T
 	require.Equal(t, http.StatusOK, rec.Code)
 	var response models.CommissionPayoutPreview
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
-	assert.False(t, response.Enabled)
 	assert.Equal(t, 8000.0, response.Commission)
-	assert.Equal(t, 8000.0, response.NetCash)
+	assert.Equal(t, 3000.0, response.AvailableCredit)
+	assert.Equal(t, 3000.0, response.Applicable)
+	assert.Equal(t, 5000.0, response.NetCash)
 }
 
 func TestContractHandler_PayCommissionIncludesPayoutBreakdown(t *testing.T) {
@@ -509,7 +519,6 @@ func TestContractHandler_PayCommissionIncludesPayoutBreakdown(t *testing.T) {
 		}},
 	}}
 	commissionSvc := services.NewCommissionService(payoutRepo, nil, nil)
-	commissionSvc.SetCreditNettingEnabled(true)
 	handler.contractService.SetCommissionService(commissionSvc)
 
 	router := gin.New()

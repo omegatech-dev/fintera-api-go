@@ -63,7 +63,6 @@ func NewServices(repos *repository.Repositories, worker *jobs.Worker, storage *s
 	contractSvc.SetAssignmentServices(referralSvc, assignmentSvc)
 
 	commissionSvc := NewCommissionService(repos.Commission, repos.User, auditSvc)
-	commissionSvc.SetCreditNettingEnabled(cfg.CommissionCreditNettingEnabled)
 	referralSvc.SetCommissionService(commissionSvc)
 	contractSvc.SetCommissionService(commissionSvc)
 	contractSvc.SetTransactionRunner(repos.RunInTx)

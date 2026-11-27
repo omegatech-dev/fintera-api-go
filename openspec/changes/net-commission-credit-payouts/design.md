@@ -84,16 +84,15 @@ to avoid confusing origin with destination.
 Allocations are rounded to 2 decimals; the last allocation absorbs the residue
 (`gross - sum(previous)`), and comparisons use an epsilon of 0.005.
 
-**Flag.**
-`COMMISSION_CREDIT_NETTING_ENABLED` (default `false`) follows the existing
-`IDENTITY_DOCUMENTS_REQUIRED` pattern. It gates only automatic netting and the
-manual-apply guard. The preview always returns `200` with `enabled` so the UI
-can deploy first.
+**Netting is unconditional.**
+Payouts always consume the seller's pending credits. The preview always returns
+`200` with the full breakdown so the UI can confirm before paying.
 
-**Query changes are flag-independent.**
+**Backfill coherence.**
 After the migration, every pending credit has `applied_amount = 0`, so
 `SUM(amount - applied_amount) = SUM(amount)`. Changing
-`ListPendingCreditsBySeller` and the report loop is safe with the flag off.
+`ListPendingCreditsBySeller` and the report loop keeps historical report totals
+stable.
 
 **`source` backfill.**
 Existing rows get `source = 'legacy'` because the old code did not record
@@ -111,25 +110,23 @@ whether a credit came from cancellation or reassignment. Claiming
 - **Negative `net_pending` remains possible.** It mixes global credits with the
   selected period. It is kept for compatibility and marked deprecated; the UI
   moves to `seller_balance`.
-- **Manual apply with the flag off can still settle a credit by hand.** That is
-  the current behavior and preserves the legacy escape hatch. Once netting is
-  enabled the endpoint returns `422` for any credit with a balance.
+- **Manual apply is restricted.** `POST /commissions/credits/:id/apply`
+  returns `422` for any credit with a remaining balance; only zero-balance
+  pending credits can be settled manually. The legacy escape hatch of settling
+  a full credit by hand is gone, which is the intended breaking change.
 - **Legacy credits cannot be reversed.** They have no applications; the backfill
   marks them `settled` and they are excluded from netting.
-- **Rollback.** Turn the flag off: payouts return to gross behavior and the
-  manual apply path still works. The migration's `down` drops applications and
-  the new columns; reversed history is lost, which is acceptable only if no
-  netting happened in production.
+- **Rollback.** There is no runtime flag; rolling back means reverting the
+  deploy. Payout behavior is deterministic and every application is recorded
+  with its reversal path, so a revert does not corrupt state. The migration's
+  `down` drops applications and the new columns; reversed history is lost,
+  which is acceptable only if no netting happened in production.
 
 ## Migration Plan
 
-1. Deploy migration `000048` and the remaining-based queries with the flag off.
-2. Deploy the payout/preview endpoints and reversals (inactive while the flag is
-   off, except data-driven reversals for legacy contracts).
-3. Enable `COMMISSION_CREDIT_NETTING_ENABLED=true` in staging, run the
-   acceptance tests, then in production.
-4. The UI can ship before or after step 3 and falls back to gross rendering when
-   `payout` is absent.
+1. Deploy migration `000048` together with the API changes; netting is active
+   immediately, and legacy settled rows are excluded from it.
+2. The UI ships the payout breakdown and preview rendering with the backend.
 
 ## Open Questions
 

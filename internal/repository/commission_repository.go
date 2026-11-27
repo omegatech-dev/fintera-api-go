@@ -441,7 +441,6 @@ func (r *commissionRepository) PayCommissionWithCredits(ctx context.Context, con
 // would perform, without writing anything.
 func (r *commissionRepository) PreviewCommissionPayout(ctx context.Context, sellerID *uint, commission float64) (*models.CommissionPayoutPreview, error) {
 	preview := &models.CommissionPayoutPreview{
-		Enabled:    true,
 		Commission: models.RoundMoney(commission),
 	}
 	if sellerID == nil {

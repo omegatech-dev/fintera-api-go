@@ -260,8 +260,6 @@ definitions:
         type: number
       commission:
         type: number
-      enabled:
-        type: boolean
       net_cash:
         type: number
       remaining_credit:
@@ -2269,8 +2267,8 @@ paths:
   /contracts/{guid}/commission/pay:
     patch:
       description: Mark the seller commission of an approved/closed contract as paid
-        (Admin). When credit netting is enabled, pending seller credits are consumed
-        FIFO and the response includes the payout breakdown.
+        (Admin). Pending seller credits are consumed FIFO and the response includes
+        the payout breakdown.
       parameters:
       - description: Contract GUID
         in: path
@@ -2292,8 +2290,7 @@ paths:
   /contracts/{guid}/commission/payout-preview:
     get:
       description: 'Explain how a commission payout would be settled: gross commission,
-        available credit, applied credit, net cash, and remaining credit. Returns
-        enabled=false when automatic credit netting is disabled (Admin).'
+        available credit, applied credit, net cash, and remaining credit (Admin).'
       parameters:
       - description: Contract GUID
         in: path

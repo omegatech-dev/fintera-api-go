@@ -31,8 +31,8 @@ and a creation timestamp.
 ### Requirement: Commission payout applies pending credits automatically
 
 The system SHALL consume a seller's pending credit balance before paying cash
-when netting is enabled and an admin marks the commission of an approved or
-closed contract as paid. Credits SHALL be consumed in
+when an admin marks the commission of an approved or closed contract as paid.
+Credits SHALL be consumed in
 ascending creation order (FIFO), only from the contract's current seller, and
 never across different sellers. The payout SHALL be atomic with the
 `commission_paid_at` update and SHALL report the gross commission, the total
@@ -70,12 +70,6 @@ applied, the cash paid, and the seller's remaining credit.
 - **THEN** `net_cash` equals the gross commission and the response lists no
   applications
 
-#### Scenario: Netting flag disabled
-
-- **WHEN** the netting flag is disabled and an admin pays a commission
-- **THEN** the gross amount is paid, no credit is consumed, and the response
-  contains no payout breakdown
-
 ### Requirement: Commission payout is idempotent and concurrency-safe
 
 The system SHALL reject a second payout request for the same contract with
@@ -104,22 +98,22 @@ contract SHALL result in exactly one payout.
 
 The system SHALL expose an admin-only payout preview for a contract with the
 gross commission, the seller's available credit, the applicable amount, the net
-cash, and the remaining credit. The preview SHALL never mutate credits. When the
-netting flag is disabled it SHALL still return `200` with `enabled = false` and
-the gross commission, so clients can fall back to gross-only rendering.
+cash, and the remaining credit. The preview SHALL never mutate credits. For a
+contract without a seller it SHALL return the gross commission as `net_cash`
+with zeroed credit figures.
 
 #### Scenario: Preview with available credit
 
 - **WHEN** an admin requests the preview for an unpaid contract whose seller has
   10,000 in pending credits and the commission is 8,000
-- **THEN** the response has `enabled = true`, `available_credit = 10,000`,
-  `applicable = 8,000`, `net_cash = 0`, and `remaining_credit = 2,000`
+- **THEN** the response has `available_credit = 10,000`, `applicable = 8,000`,
+  `net_cash = 0`, and `remaining_credit = 2,000`
 
-#### Scenario: Preview with netting disabled
+#### Scenario: Preview without a seller
 
-- **WHEN** the netting flag is disabled and an admin requests the preview
-- **THEN** the response is `200` with `enabled = false`, the gross commission,
-  and zeroed credit figures
+- **WHEN** the contract has no assigned seller and an admin requests the preview
+- **THEN** the response is `200` with the gross commission as `net_cash` and
+  zeroed credit figures
 
 #### Scenario: Preview of an already paid contract
 
@@ -133,8 +127,7 @@ active applications, restore the applied amount to the original credits, return
 them to `pending` and clear their settlement metadata
 while they still have a balance, and create a new recoverable credit only for
 the cash actually paid. The restored amount plus the new credit SHALL equal the
-gross commission of the cancelled contract. Reversal SHALL be idempotent and
-SHALL work regardless of the netting flag value at cancellation time.
+gross commission of the cancelled contract. Reversal SHALL be idempotent.
 
 #### Scenario: Fully netted commission is cancelled
 
@@ -185,21 +178,21 @@ amount is zero, so the new seller's commission is not inherited as paid.
 
 ### Requirement: Manual credit application cannot bypass netting
 
-When the netting flag is enabled, the manual apply endpoint SHALL reject a
-credit that still has a remaining balance with `422`, because credits are
-consumed by the payout flow. When the flag is disabled, the endpoint SHALL keep
-settling the full credit and SHALL record `applied_amount` equal to the amount.
+The manual apply endpoint SHALL reject a credit that still has a remaining
+balance with `422`, because credits are consumed by the payout flow. A pending
+credit with no remaining balance (for example, a legacy row that was already
+consumed) SHALL still be settled manually, recording `applied_amount` equal to
+the amount.
 
-#### Scenario: Apply with remaining balance and netting on
+#### Scenario: Apply a credit with remaining balance
 
-- **WHEN** an admin applies a credit with a remaining balance while netting is
-  enabled
+- **WHEN** an admin applies a credit with a remaining balance
 - **THEN** the request returns `422`, the credit stays unchanged, and no
   application is recorded
 
-#### Scenario: Apply with netting off
+#### Scenario: Apply a zero-balance pending credit
 
-- **WHEN** an admin applies a pending credit while netting is disabled
+- **WHEN** an admin applies a pending credit whose remaining balance is zero
 - **THEN** the credit becomes `settled` with `applied_amount = amount`
 
 #### Scenario: Apply an already settled credit

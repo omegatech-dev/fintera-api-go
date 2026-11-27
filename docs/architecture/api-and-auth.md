@@ -254,11 +254,9 @@ without credit applications render exactly as before.
 
 #### Seller commission payout
 
-`PATCH /contracts/:guid/commission/pay` is admin-only. With
-`COMMISSION_CREDIT_NETTING_ENABLED=false` (the default), the commission is
-marked paid for its gross amount and the response retains `{contract, message}`.
-With the flag enabled, the API consumes the assigned seller's pending credits
-FIFO in the payout transaction and adds:
+`PATCH /contracts/:guid/commission/pay` is admin-only. The API always consumes
+the assigned seller's pending credits FIFO in the payout transaction and
+responds with:
 
 ```json
 {
@@ -282,11 +280,10 @@ FIFO in the payout transaction and adds:
 ```
 
 `GET /contracts/:guid/commission/payout-preview` is also admin-only and
-read-only. It returns `enabled`, `commission`, `available_credit`, `applicable`,
-`net_cash`, and `remaining_credit`. When netting is disabled it still returns
-`200` with `enabled: false` and the gross commission. Duplicate payouts return
-`422`. When netting is enabled, the legacy manual apply endpoint returns `422`
-for a credit with a remaining balance.
+read-only. It returns `commission`, `available_credit`, `applicable`,
+`net_cash`, and `remaining_credit`. Duplicate payouts return `422`, and the
+legacy manual apply endpoint returns `422` for a credit with a remaining
+balance.
 
 The totals are computed in Go after the full set is built, so the request still
 loads every contract in the period; only the response size shrinks. `search`
